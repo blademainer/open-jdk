@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,8 +26,10 @@
 #define SHARE_VM_C1_C1_COMPILATION_HPP
 
 #include "ci/ciEnv.hpp"
+#include "ci/ciMethodData.hpp"
 #include "code/exceptionHandlerTable.hpp"
 #include "memory/resourceArea.hpp"
+#include "runtime/deoptimization.hpp"
 
 class CompilationResourceObj;
 class XHandlers;
@@ -66,6 +68,7 @@ class Compilation: public StackObj {
   int _next_block_id;
   AbstractCompiler*  _compiler;
   ciEnv*             _env;
+  CompileLog*        _log;
   ciMethod*          _method;
   int                _osr_bci;
   IR*                _hir;
@@ -84,6 +87,7 @@ class Compilation: public StackObj {
   LinearScan*        _allocator;
   CodeOffsets        _offsets;
   CodeBuffer         _code;
+  bool               _has_access_indexed;
 
   // compilation helpers
   void initialize();
@@ -123,10 +127,12 @@ class Compilation: public StackObj {
 
   // accessors
   ciEnv* env() const                             { return _env; }
+  CompileLog* log() const                        { return _log; }
   AbstractCompiler* compiler() const             { return _compiler; }
   bool has_exception_handlers() const            { return _has_exception_handlers; }
   bool has_fpu_code() const                      { return _has_fpu_code; }
   bool has_unsafe_access() const                 { return _has_unsafe_access; }
+  int max_vector_size() const                    { return 0; }
   ciMethod* method() const                       { return _method; }
   int osr_bci() const                            { return _osr_bci; }
   bool is_osr_compile() const                    { return osr_bci() >= 0; }
@@ -137,6 +143,7 @@ class Compilation: public StackObj {
   C1_MacroAssembler* masm() const                { return _masm; }
   CodeOffsets* offsets()                         { return &_offsets; }
   Arena* arena()                                 { return _arena; }
+  bool has_access_indexed()                      { return _has_access_indexed; }
 
   // Instruction ids
   int get_next_id()                              { return _next_id++; }
@@ -151,6 +158,7 @@ class Compilation: public StackObj {
   void set_has_fpu_code(bool f)                  { _has_fpu_code = f; }
   void set_has_unsafe_access(bool f)             { _has_unsafe_access = f; }
   void set_would_profile(bool f)                 { _would_profile = f; }
+  void set_has_access_indexed(bool f)            { _has_access_indexed = f; }
   // Add a set of exception handlers covering the given PC offset
   void add_exception_handlers_for_pco(int pco, XHandlers* exception_handlers);
   // Statistics gathering
@@ -230,6 +238,27 @@ class Compilation: public StackObj {
     return env()->comp_level() == CompLevel_full_profile &&
       C1UpdateMethodData && C1ProfileCheckcasts;
   }
+  bool profile_parameters() {
+    return env()->comp_level() == CompLevel_full_profile &&
+      C1UpdateMethodData && MethodData::profile_parameters();
+  }
+  bool profile_arguments() {
+    return env()->comp_level() == CompLevel_full_profile &&
+      C1UpdateMethodData && MethodData::profile_arguments();
+  }
+  bool profile_return() {
+    return env()->comp_level() == CompLevel_full_profile &&
+      C1UpdateMethodData && MethodData::profile_return();
+  }
+  // will compilation make optimistic assumptions that might lead to
+  // deoptimization and that the runtime will account for?
+  bool is_optimistic() const                             {
+    return !TieredCompilation &&
+      (RangeCheckElimination || UseLoopInvariantCodeMotion) &&
+      method()->method_data()->trap_count(Deoptimization::Reason_none) == 0;
+  }
+
+  ciKlass* cha_exact_type(ciType* type);
 };
 
 
@@ -263,8 +292,8 @@ class InstructionMark: public StackObj {
 // Base class for objects allocated by the compiler in the compilation arena
 class CompilationResourceObj ALLOCATION_SUPER_CLASS_SPEC {
  public:
-  void* operator new(size_t size) { return Compilation::current()->arena()->Amalloc(size); }
-  void* operator new(size_t size, Arena* arena) {
+  void* operator new(size_t size) throw() { return Compilation::current()->arena()->Amalloc(size); }
+  void* operator new(size_t size, Arena* arena) throw() {
     return arena->Amalloc(size);
   }
   void  operator delete(void* p) {} // nothing to do

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,15 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+/*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
 
 
 import java.awt.BorderLayout;
@@ -515,7 +524,7 @@ public final class FontPanel extends JPanel implements AdjustmentListener {
              * graphics anti-aliasing hint if the text anti-aliasing hint
              * was set. The dubious element here is that people simply
              * using this program may think this is built-in behaviour
-             * but its not - at least not when the app explictly draws
+             * but its not - at least not when the app explicitly draws
              * outline text.
              * This becomes more dubious in cases such as "GASP" where the
              * size at which text is AA'ed is not something you can easily

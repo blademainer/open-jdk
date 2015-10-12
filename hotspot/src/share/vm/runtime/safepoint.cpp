@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,6 +23,7 @@
  */
 
 #include "precompiled.hpp"
+#include "classfile/symbolTable.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "code/codeCache.hpp"
 #include "code/icBuffer.hpp"
@@ -47,8 +48,11 @@
 #include "runtime/stubRoutines.hpp"
 #include "runtime/sweeper.hpp"
 #include "runtime/synchronizer.hpp"
+#include "runtime/thread.inline.hpp"
+#include "services/memTracker.hpp"
 #include "services/runtimeService.hpp"
 #include "utilities/events.hpp"
+#include "utilities/macros.hpp"
 #ifdef TARGET_ARCH_x86
 # include "nativeInst_x86.hpp"
 # include "vmreg_x86.inline.hpp"
@@ -69,19 +73,10 @@
 # include "nativeInst_ppc.hpp"
 # include "vmreg_ppc.inline.hpp"
 #endif
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/concurrentMarkSweep/concurrentMarkSweepThread.hpp"
 #include "gc_implementation/shared/concurrentGCThread.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 #ifdef COMPILER1
 #include "c1/c1_globals.hpp"
 #endif
@@ -92,6 +87,7 @@
 SafepointSynchronize::SynchronizeState volatile SafepointSynchronize::_state = SafepointSynchronize::_not_synchronized;
 volatile int  SafepointSynchronize::_waiting_to_block = 0;
 volatile int SafepointSynchronize::_safepoint_counter = 0;
+int SafepointSynchronize::_current_jni_active_count = 0;
 long  SafepointSynchronize::_end_of_last_safepoint = 0;
 static volatile int PageArmed = 0 ;        // safepoint polling page is RO|RW vs PROT_NONE
 static volatile int TryingToBlock = 0 ;    // proximate value -- for advisory use only
@@ -108,7 +104,7 @@ void SafepointSynchronize::begin() {
     _ts_of_current_safepoint = tty->time_stamp().seconds();
   }
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   if (UseConcMarkSweepGC) {
     // In the future we should investigate whether CMS can use the
     // more-general mechanism below.  DLD (01/05).
@@ -116,7 +112,7 @@ void SafepointSynchronize::begin() {
   } else if (UseG1GC) {
     ConcurrentGCThread::safepoint_synchronize();
   }
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   // By getting the Threads_lock, we assure that no threads are about to start or
   // exit. It is released again in SafepointSynchronize::end().
@@ -132,8 +128,10 @@ void SafepointSynchronize::begin() {
 
   RuntimeService::record_safepoint_begin();
 
-  {
   MutexLocker mu(Safepoint_lock);
+
+  // Reset the count of active JNI critical threads
+  _current_jni_active_count = 0;
 
   // Set number of threads to wait for, before we initiate the callbacks
   _waiting_to_block = nof_threads;
@@ -213,6 +211,8 @@ void SafepointSynchronize::begin() {
 #ifdef ASSERT
   for (JavaThread *cur = Threads::first(); cur != NULL; cur = cur->next()) {
     assert(cur->safepoint_state()->is_running(), "Illegal initial state");
+    // Clear the visited flag to ensure that the critical counts are collected properly.
+    cur->set_visited_for_critical_count(false);
   }
 #endif // ASSERT
 
@@ -372,6 +372,16 @@ void SafepointSynchronize::begin() {
 
   OrderAccess::fence();
 
+#ifdef ASSERT
+  for (JavaThread *cur = Threads::first(); cur != NULL; cur = cur->next()) {
+    // make sure all the threads were visited
+    assert(cur->was_visited_for_critical_count(), "missed a thread");
+  }
+#endif // ASSERT
+
+  // Update the count of active JNI critical regions
+  GC_locker::set_jni_lock_count(_current_jni_active_count);
+
   if (TraceSafepoint) {
     VM_Operation *op = VMThread::vm_operation();
     tty->print_cr("Entering safepoint region: %s", (op != NULL) ? op->name() : "no vm operation");
@@ -388,7 +398,6 @@ void SafepointSynchronize::begin() {
   if (PrintSafepointStatistics) {
     // Record how much time spend on the above cleanup tasks
     update_statistics_on_cleanup_end(os::javaTimeNanos());
-  }
   }
 }
 
@@ -472,14 +481,14 @@ void SafepointSynchronize::end() {
     Threads_lock->unlock();
 
   }
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   // If there are any concurrent GC threads resume them.
   if (UseConcMarkSweepGC) {
     ConcurrentMarkSweepThread::desynchronize(false);
   } else if (UseG1GC) {
     ConcurrentGCThread::safepoint_desynchronize();
   }
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
   // record this time so VMThread can keep track how much time has elasped
   // since last safepoint.
   _end_of_last_safepoint = os::javaTimeMillis();
@@ -509,8 +518,29 @@ void SafepointSynchronize::do_cleanup_tasks() {
     CompilationPolicy::policy()->do_safepoint_work();
   }
 
-  TraceTime t4("sweeping nmethods", TraceSafepointCleanupTime);
-  NMethodSweeper::scan_stacks();
+  {
+    TraceTime t4("mark nmethods", TraceSafepointCleanupTime);
+    NMethodSweeper::mark_active_nmethods();
+  }
+
+  if (SymbolTable::needs_rehashing()) {
+    TraceTime t5("rehashing symbol table", TraceSafepointCleanupTime);
+    SymbolTable::rehash_table();
+  }
+
+  if (StringTable::needs_rehashing()) {
+    TraceTime t6("rehashing string table", TraceSafepointCleanupTime);
+    StringTable::rehash_table();
+  }
+
+  // rotate log files?
+  if (UseGCLogFileRotation) {
+    gclog_or_tty->rotate_log();
+  }
+
+  if (MemTracker::is_on()) {
+    MemTracker::sync();
+  }
 }
 
 
@@ -529,6 +559,42 @@ bool SafepointSynchronize::safepoint_safe(JavaThread *thread, JavaThreadState st
     return false;
   }
 }
+
+
+// See if the thread is running inside a lazy critical native and
+// update the thread critical count if so.  Also set a suspend flag to
+// cause the native wrapper to return into the JVM to do the unlock
+// once the native finishes.
+void SafepointSynchronize::check_for_lazy_critical_native(JavaThread *thread, JavaThreadState state) {
+  if (state == _thread_in_native &&
+      thread->has_last_Java_frame() &&
+      thread->frame_anchor()->walkable()) {
+    // This thread might be in a critical native nmethod so look at
+    // the top of the stack and increment the critical count if it
+    // is.
+    frame wrapper_frame = thread->last_frame();
+    CodeBlob* stub_cb = wrapper_frame.cb();
+    if (stub_cb != NULL &&
+        stub_cb->is_nmethod() &&
+        stub_cb->as_nmethod_or_null()->is_lazy_critical_native()) {
+      // A thread could potentially be in a critical native across
+      // more than one safepoint, so only update the critical state on
+      // the first one.  When it returns it will perform the unlock.
+      if (!thread->do_critical_native_unlock()) {
+#ifdef ASSERT
+        if (!thread->in_critical()) {
+          GC_locker::increment_debug_jni_lock_count();
+        }
+#endif
+        thread->enter_critical();
+        // Make sure the native wrapper calls back on return to
+        // perform the needed critical unlock.
+        thread->set_critical_native_unlock();
+      }
+    }
+  }
+}
+
 
 
 // -------------------------------------------------------------------------------------------------------
@@ -576,6 +642,12 @@ void SafepointSynchronize::block(JavaThread *thread) {
         assert(_waiting_to_block > 0, "sanity check");
         _waiting_to_block--;
         thread->safepoint_state()->set_has_called_back(true);
+
+        DEBUG_ONLY(thread->set_visited_for_critical_count(true));
+        if (thread->in_critical()) {
+          // Notice that this thread is in a critical section
+          increment_jni_active_count();
+        }
 
         // Consider (_waiting_to_block < 2) to pipeline the wakeup of the VM thread
         if (_waiting_to_block == 0) {
@@ -663,6 +735,9 @@ void SafepointSynchronize::block(JavaThread *thread) {
 // Exception handlers
 
 #ifndef PRODUCT
+
+#ifdef SPARC
+
 #ifdef _LP64
 #define PTR_PAD ""
 #else
@@ -670,20 +745,19 @@ void SafepointSynchronize::block(JavaThread *thread) {
 #endif
 
 static void print_ptrs(intptr_t oldptr, intptr_t newptr, bool wasoop) {
-  bool is_oop = newptr ? ((oop)newptr)->is_oop() : false;
+  bool is_oop = newptr ? (cast_to_oop(newptr))->is_oop() : false;
   tty->print_cr(PTR_FORMAT PTR_PAD " %s %c " PTR_FORMAT PTR_PAD " %s %s",
                 oldptr, wasoop?"oop":"   ", oldptr == newptr ? ' ' : '!',
                 newptr, is_oop?"oop":"   ", (wasoop && !is_oop) ? "STALE" : ((wasoop==false&&is_oop==false&&oldptr !=newptr)?"STOMP":"     "));
 }
 
 static void print_longs(jlong oldptr, jlong newptr, bool wasoop) {
-  bool is_oop = newptr ? ((oop)(intptr_t)newptr)->is_oop() : false;
+  bool is_oop = newptr ? (cast_to_oop(newptr))->is_oop() : false;
   tty->print_cr(PTR64_FORMAT " %s %c " PTR64_FORMAT " %s %s",
                 oldptr, wasoop?"oop":"   ", oldptr == newptr ? ' ' : '!',
                 newptr, is_oop?"oop":"   ", (wasoop && !is_oop) ? "STALE" : ((wasoop==false&&is_oop==false&&oldptr !=newptr)?"STOMP":"     "));
 }
 
-#ifdef SPARC
 static void print_me(intptr_t *new_sp, intptr_t *old_sp, bool *was_oops) {
 #ifdef _LP64
   tty->print_cr("--------+------address-----+------before-----------+-------after----------+");
@@ -853,8 +927,9 @@ void ThreadSafepointState::examine_state_of_thread() {
   // running, but are actually at a safepoint. We will happily
   // agree and update the safepoint state here.
   if (SafepointSynchronize::safepoint_safe(_thread, state)) {
-      roll_forward(_at_safepoint);
-      return;
+    SafepointSynchronize::check_for_lazy_critical_native(_thread, state);
+    roll_forward(_at_safepoint);
+    return;
   }
 
   if (state == _thread_in_vm) {
@@ -878,6 +953,11 @@ void ThreadSafepointState::roll_forward(suspend_type type) {
   switch(_type) {
     case _at_safepoint:
       SafepointSynchronize::signal_thread_at_safepoint();
+      DEBUG_ONLY(_thread->set_visited_for_critical_count(true));
+      if (_thread->in_critical()) {
+        // Notice that this thread is in a critical section
+        SafepointSynchronize::increment_jni_active_count();
+      }
       break;
 
     case _call_back:
@@ -1074,7 +1154,7 @@ void SafepointSynchronize::deferred_initialize_stat() {
     stats_array_size = PrintSafepointStatisticsCount;
   }
   _safepoint_stats = (SafepointStats*)os::malloc(stats_array_size
-                                                 * sizeof(SafepointStats));
+                                                 * sizeof(SafepointStats), mtInternal);
   guarantee(_safepoint_stats != NULL,
             "not enough memory for safepoint instrumentation data");
 

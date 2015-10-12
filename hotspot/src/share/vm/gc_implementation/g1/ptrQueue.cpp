@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,15 +28,7 @@
 #include "memory/allocation.inline.hpp"
 #include "runtime/mutex.hpp"
 #include "runtime/mutexLocker.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
+#include "runtime/thread.inline.hpp"
 
 PtrQueue::PtrQueue(PtrQueueSet* qset, bool perm, bool active) :
   _qset(qset), _buf(NULL), _index(0), _active(active),
@@ -60,15 +52,6 @@ void PtrQueue::flush() {
   }
 }
 
-
-static int byte_index_to_index(int ind) {
-  assert((ind % oopSize) == 0, "Invariant.");
-  return ind / oopSize;
-}
-
-static int index_to_byte_index(int byte_ind) {
-  return byte_ind * oopSize;
-}
 
 void PtrQueue::enqueue_known_active(void* ptr) {
   assert(0 <= _index && _index <= _sz, "Invariant.");
@@ -123,7 +106,7 @@ void** PtrQueueSet::allocate_buffer() {
     return res;
   } else {
     // Allocate space for the BufferNode in front of the buffer.
-    char *b =  NEW_C_HEAP_ARRAY(char, _sz + BufferNode::aligned_size());
+    char *b =  NEW_C_HEAP_ARRAY(char, _sz + BufferNode::aligned_size(), mtGC);
     return BufferNode::make_buffer_from_block(b);
   }
 }
@@ -146,7 +129,7 @@ void PtrQueueSet::reduce_free_list() {
     assert(_buf_free_list != NULL, "_buf_free_list_sz must be wrong.");
     void* b = BufferNode::make_block_from_node(_buf_free_list);
     _buf_free_list = _buf_free_list->next();
-    FREE_C_HEAP_ARRAY(char, b);
+    FREE_C_HEAP_ARRAY(char, b, mtGC);
     _buf_free_list_sz --;
     n--;
   }

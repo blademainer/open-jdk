@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,6 +30,10 @@
 #include "fontscalerdefs.h"
 
 #include <X11/extensions/Xrender.h>
+
+#ifdef __linux__
+    #include <sys/utsname.h>
+#endif
 
 /* On Solaris 10 updates 8, 9, the render.h file defines these
  * protocol values but does not define the structs in Xrender.h.
@@ -70,7 +74,6 @@ typedef struct _XRadialGradient {
 
 #ifdef __solaris__
 /* Solaris 10 will not have these symbols at runtime */
-#include <link.h>
 
 typedef Picture (*XRenderCreateLinearGradientFuncType)
                                      (Display *dpy,
@@ -113,7 +116,26 @@ static
 #define PKGINFO_LINE_LEN_MAX 256
 #define PKGINFO_LINE_CNT_MAX 50
 
-static jboolean IsXRenderAvailable(jboolean verbose) {
+/*
+ * X protocol uses (u_int16)length to specify the length in 4 bytes quantities
+ * of the whole request.  Both XRenderFillRectangles() and XFillRectangles()
+ * have provisions to fragment into several requests if the number of rectangles
+ * plus the current x request does not fit into 65535*4 bytes.  While
+ * XRenderCreateLinearGradient() and XRenderCreateRadialGradient() have
+ * provisions to gracefully degrade if the resulting request would exceed
+ * 65535*4 bytes.
+ *
+ * Below, we define a cap of 65535*4 bytes for the maximum X request payload
+ * allowed for Non-(XRenderFillRectangles() or XFillRectangles()) API calls,
+ * just to be conservative.  This is offset by the size of our maximum x*Req
+ * type in this compilation unit, which is xRenderCreateRadiaGradientReq.
+ *
+ * Note that sizeof(xRenderCreateRadiaGradientReq) = 36
+ */
+#define MAX_PAYLOAD (262140u - 36u)
+#define MAXUINT (0xffffffffu)
+
+static jboolean IsXRenderAvailable(jboolean verbose, jboolean ignoreLinuxVersion) {
 
     void *xrenderlib;
 
@@ -235,6 +257,31 @@ static jboolean IsXRenderAvailable(jboolean verbose) {
     }
 #endif
 
+#ifdef __linux__
+    /*
+     * Check for Linux >= 3.5 (Ubuntu 12.04.02 LTS) to avoid hitting
+     * https://bugs.freedesktop.org/show_bug.cgi?id=48045
+     */
+    struct utsname utsbuf;
+    if(uname(&utsbuf) >= 0) {
+        int major, minor, revision;
+        if(sscanf(utsbuf.release, "%i.%i.%i", &major, &minor, &revision) == 3) {
+            if(major < 3 || (major == 3 && minor < 5)) {
+                if(!ignoreLinuxVersion) {
+                    available = JNI_FALSE;
+                }
+                else if(verbose) {
+                 printf("WARNING: Linux < 3.5 detected.\n"
+                        "The pipeline will be enabled, but graphical "
+                        "artifacts can occur with old graphic drivers.\n"
+                        "See the release notes for more details.\n");
+                        fflush(stdout);
+                }
+            }
+        }
+    }
+#endif // __linux__
+
     return available;
 }
 /*
@@ -244,15 +291,22 @@ static jboolean IsXRenderAvailable(jboolean verbose) {
  */
 JNIEXPORT jboolean JNICALL
 Java_sun_awt_X11GraphicsEnvironment_initXRender
-(JNIEnv *env, jclass x11ge, jboolean verbose)
+(JNIEnv *env, jclass x11ge, jboolean verbose, jboolean ignoreLinuxVersion)
 {
 #ifndef HEADLESS
     static jboolean xrenderAvailable = JNI_FALSE;
     static jboolean firstTime = JNI_TRUE;
 
     if (firstTime) {
+#ifdef DISABLE_XRENDER_BY_DEFAULT
+        if (verbose == JNI_FALSE) {
+            xrenderAvailable = JNI_FALSE;
+            firstTime = JNI_FALSE;
+            return xrenderAvailable;
+        }
+#endif
         AWT_LOCK();
-        xrenderAvailable = IsXRenderAvailable(verbose);
+        xrenderAvailable = IsXRenderAvailable(verbose, ignoreLinuxVersion);
         AWT_UNLOCK();
         firstTime = JNI_FALSE;
     }
@@ -268,12 +322,24 @@ Java_sun_java2d_xr_XRBackendNative_initIDs(JNIEnv *env, jclass cls) {
     char *maskData;
     XImage* defaultImg;
     jfieldID maskImgID;
-    jlong fmt8 =
-        ptr_to_jlong(XRenderFindStandardFormat(awt_display, PictStandardA8));
-    jlong fmt32 =
-       ptr_to_jlong(XRenderFindStandardFormat(awt_display, PictStandardARGB32));
+    jlong fmt8;
+    jlong fmt32;
+
     jfieldID a8ID = (*env)->GetStaticFieldID(env, cls, "FMTPTR_A8", "J");
+    if (a8ID == NULL) {
+        return;
+    }
     jfieldID argb32ID = (*env)->GetStaticFieldID(env, cls, "FMTPTR_ARGB32", "J");
+    if (argb32ID == NULL) {
+        return;
+    }
+
+    if (awt_display == (Display *)NULL) {
+        return;
+    }
+
+    fmt8 = ptr_to_jlong(XRenderFindStandardFormat(awt_display, PictStandardA8));
+    fmt32 = ptr_to_jlong(XRenderFindStandardFormat(awt_display, PictStandardARGB32));
 
     (*env)->SetStaticLongField(env, cls, a8ID, fmt8);
     (*env)->SetStaticLongField(env, cls, argb32ID, fmt32);
@@ -286,6 +352,10 @@ Java_sun_java2d_xr_XRBackendNative_initIDs(JNIEnv *env, jclass cls) {
     defaultImg = XCreateImage(awt_display, NULL, 8, ZPixmap, 0, maskData, 32, 32, 8, 0);
     defaultImg->data = maskData; //required?
     maskImgID = (*env)->GetStaticFieldID(env, cls, "MASK_XIMG", "J");
+    if (maskImgID == NULL) {
+       return;
+    }
+
     (*env)->SetStaticLongField(env, cls, maskImgID, ptr_to_jlong(defaultImg));
 }
 
@@ -405,6 +475,10 @@ Java_sun_java2d_xr_XRBackendNative_XRenderRectanglesNative
     if (rectCnt <= 256) {
         xRects = &sRects[0];
     } else {
+        if (MAXUINT / sizeof(XRectangle) < (unsigned)rectCnt) {
+            /* rectCnt too big, integer overflow */
+            return;
+        }
         xRects = (XRectangle *) malloc(sizeof(XRectangle) * rectCnt);
         if (xRects == NULL) {
             return;
@@ -449,17 +523,21 @@ JNIEXPORT jint JNICALL
 Java_sun_java2d_xr_XRBackendNative_XRCreateLinearGradientPaintNative
     (JNIEnv *env, jclass xsd, jfloatArray fractionsArray,
      jshortArray pixelsArray, jint x1, jint y1, jint x2, jint y2,
-     jint numStops, jint repeat,
-     jint m00, jint m01, jint m02, jint m10, jint m11, jint m12) {
+     jint numStops, jint repeat) {
    jint i;
    jshort* pixels;
    jfloat* fractions;
-   XTransform tr;
    XRenderPictureAttributes pict_attr;
    Picture gradient = 0;
    XRenderColor *colors;
    XFixed *stops;
    XLinearGradient grad;
+
+   if (MAX_PAYLOAD / (sizeof(XRenderColor) + sizeof(XFixed))
+       < (unsigned)numStops) {
+       /* numStops too big, payload overflow */
+       return -1;
+   }
 
    if ((pixels = (jshort *)
         (*env)->GetPrimitiveArrayCritical(env, pixelsArray, NULL)) == NULL) {
@@ -480,6 +558,18 @@ Java_sun_java2d_xr_XRBackendNative_XRCreateLinearGradientPaintNative
     /*TODO optimized & malloc check*/
     colors = (XRenderColor *) malloc(numStops * sizeof(XRenderColor));
     stops =  (XFixed *) malloc(numStops * sizeof(XFixed));
+
+    if (colors == NULL || stops == NULL) {
+        if (colors != NULL) {
+            free(colors);
+        }
+        if (stops != NULL) {
+            free(stops);
+        }
+        (*env)->ReleasePrimitiveArrayCritical(env, pixelsArray, pixels, JNI_ABORT);
+        (*env)->ReleasePrimitiveArrayCritical(env, fractionsArray, fractions, JNI_ABORT);
+        return -1;
+    }
 
     for (i=0; i < numStops; i++) {
       stops[i] = XDoubleToFixed(fractions[i]);
@@ -502,8 +592,6 @@ Java_sun_java2d_xr_XRBackendNative_XRCreateLinearGradientPaintNative
    (*env)->ReleasePrimitiveArrayCritical(env, fractionsArray, fractions, JNI_ABORT);
 
     if (gradient != 0) {
-        BUILD_TRANSFORM_MATRIX(tr, m00, m01, m02, m10, m11, m12);
-        XRenderSetPictureTransform (awt_display, gradient, &tr);
         pict_attr.repeat = repeat;
         XRenderChangePicture (awt_display, gradient, CPRepeat, &pict_attr);
     }
@@ -516,18 +604,22 @@ JNIEXPORT jint JNICALL
 Java_sun_java2d_xr_XRBackendNative_XRCreateRadialGradientPaintNative
     (JNIEnv *env, jclass xsd, jfloatArray fractionsArray,
      jshortArray pixelsArray, jint numStops,
-     jint innerRadius, jint outerRadius, jint repeat,
-     jint m00, jint m01, jint m02, jint m10, jint m11, jint m12) {
+     jint centerX, jint centerY,
+     jint innerRadius, jint outerRadius, jint repeat) {
    jint i;
    jshort* pixels;
    jfloat* fractions;
-   XTransform tr;
    XRenderPictureAttributes pict_attr;
    Picture gradient = 0;
    XRenderColor *colors;
    XFixed *stops;
    XRadialGradient grad;
 
+   if (MAX_PAYLOAD / (sizeof(XRenderColor) + sizeof(XFixed))
+       < (unsigned)numStops) {
+       /* numStops too big, payload overflow */
+       return -1;
+   }
 
    if ((pixels =
        (jshort *)(*env)->GetPrimitiveArrayCritical(env, pixelsArray, NULL)) == NULL) {
@@ -540,16 +632,28 @@ Java_sun_java2d_xr_XRBackendNative_XRCreateRadialGradientPaintNative
        return -1; //TODO release pixels first
    }
 
-    grad.inner.x = 0;
-    grad.inner.y = 0;
+    grad.inner.x = centerX;
+    grad.inner.y = centerY;
     grad.inner.radius = innerRadius;
-    grad.outer.x = 0;
-    grad.outer.y = 0;
+    grad.outer.x = centerX;
+    grad.outer.y = centerY;
     grad.outer.radius = outerRadius;
 
     /*TODO optimized & malloc check*/
     colors = (XRenderColor *) malloc(numStops * sizeof(XRenderColor));
     stops =  (XFixed *) malloc(numStops * sizeof(XFixed));
+
+    if (colors == NULL || stops == NULL) {
+        if (colors != NULL) {
+            free(colors);
+        }
+        if (stops != NULL) {
+            free(stops);
+        }
+        (*env)->ReleasePrimitiveArrayCritical(env, pixelsArray, pixels, JNI_ABORT);
+        (*env)->ReleasePrimitiveArrayCritical(env, fractionsArray, fractions, JNI_ABORT);
+        return -1;
+    }
 
     for (i=0; i < numStops; i++) {
       stops[i] = XDoubleToFixed(fractions[i]);
@@ -573,8 +677,6 @@ Java_sun_java2d_xr_XRBackendNative_XRCreateRadialGradientPaintNative
 
 
     if (gradient != 0) {
-        BUILD_TRANSFORM_MATRIX(tr, m00, m01, m02, m10, m11, m12);
-        XRenderSetPictureTransform (awt_display, gradient, &tr);
         pict_attr.repeat = repeat;
         XRenderChangePicture (awt_display, gradient, CPRepeat, &pict_attr);
     }
@@ -709,6 +811,12 @@ Java_sun_java2d_xr_XRBackendNative_XRAddGlyphsNative
     unsigned char *pixelData;
     int i;
 
+    if (MAX_PAYLOAD / (sizeof(XGlyphInfo) + sizeof(Glyph))
+        < (unsigned)glyphCnt) {
+        /* glyphCnt too big, payload overflow */
+        return;
+    }
+
     XGlyphInfo *xginfo = (XGlyphInfo *) malloc(sizeof(XGlyphInfo) * glyphCnt);
     Glyph *gid = (Glyph *) malloc(sizeof(Glyph) * glyphCnt);
 
@@ -743,7 +851,12 @@ Java_sun_java2d_xr_XRBackendNative_XRAddGlyphsNative
     for (i=0; i < glyphCnt; i++) {
       GlyphInfo *jginfo = (GlyphInfo *) jlong_to_ptr(glyphInfoPtrs[i]);
 
-      gid[i] = (Glyph) (0x0ffffffffL & ((unsigned long)(jginfo->cellInfo)));
+      // 'jginfo->cellInfo' is of type 'void*'
+      // (see definition of 'GlyphInfo' in fontscalerdefs.h)
+      // 'Glyph' is typedefed to 'unsigned long'
+      // (see http://www.x.org/releases/X11R7.7/doc/libXrender/libXrender.txt)
+      // Maybe we should assert that (sizeof(void*) == sizeof(Glyph)) ?
+      gid[i] = (Glyph) (jginfo->cellInfo);
       xginfo[i].x = (-jginfo->topLeftX);
       xginfo[i].y = (-jginfo->topLeftY);
       xginfo[i].width = jginfo->width;
@@ -765,6 +878,11 @@ Java_sun_java2d_xr_XRBackendNative_XRAddGlyphsNative
 JNIEXPORT void JNICALL
 Java_sun_java2d_xr_XRBackendNative_XRFreeGlyphsNative
  (JNIEnv *env, jclass cls, jint glyphSet, jintArray gidArray, jint glyphCnt) {
+
+    if (MAX_PAYLOAD / sizeof(Glyph) < (unsigned)glyphCnt) {
+        /* glyphCnt too big, payload overflow */
+        return;
+    }
 
     /* The glyph ids are 32 bit but may be stored in a 64 bit long on
      * a 64 bit architecture. So optimise the 32 bit case to avoid
@@ -825,8 +943,9 @@ Java_sun_java2d_xr_XRBackendNative_XRenderCreateGlyphSetNative
 
 JNIEXPORT void JNICALL
 Java_sun_java2d_xr_XRBackendNative_XRenderCompositeTextNative
- (JNIEnv *env, jclass cls, jint op, jint src, jint dst, jlong maskFmt,
-  jintArray eltArray, jintArray  glyphIDArray, jint eltCnt, jint glyphCnt) {
+ (JNIEnv *env, jclass cls, jint op, jint src, jint dst,
+  jint sx, jint sy, jlong maskFmt, jintArray eltArray,
+  jintArray  glyphIDArray, jint eltCnt, jint glyphCnt) {
     jint i;
     jint *ids;
     jint *elts;
@@ -835,6 +954,15 @@ Java_sun_java2d_xr_XRBackendNative_XRenderCompositeTextNative
     XGlyphElt32 selts[24];
     unsigned int sids[256];
     int charCnt = 0;
+
+    if ((MAX_PAYLOAD / sizeof(XGlyphElt32) < (unsigned)eltCnt)
+        || (MAX_PAYLOAD / sizeof(unsigned int) < (unsigned)glyphCnt)
+        || ((MAX_PAYLOAD - sizeof(XGlyphElt32)*(unsigned)eltCnt) /
+            sizeof(unsigned int) < (unsigned)glyphCnt))
+    {
+        /* (eltCnt, glyphCnt) too big, payload overflow */
+        return;
+    }
 
     if (eltCnt <= 24) {
       xelts = &selts[0];
@@ -896,7 +1024,7 @@ Java_sun_java2d_xr_XRBackendNative_XRenderCompositeTextNative
 
     XRenderCompositeText32(awt_display, op, (Picture) src, (Picture) dst,
                            (XRenderPictFormat *) jlong_to_ptr(maskFmt),
-                            0, 0, 0, 0, xelts, eltCnt);
+                            sx, sy, 0, 0, xelts, eltCnt);
 
     (*env)->ReleasePrimitiveArrayCritical(env, glyphIDArray, ids, JNI_ABORT);
     (*env)->ReleasePrimitiveArrayCritical(env, eltArray, elts, JNI_ABORT);
@@ -934,6 +1062,11 @@ Java_sun_java2d_xr_XRBackendNative_GCRectanglesNative
     if (rectCnt <= 256) {
       xRects = &sRects[0];
     } else {
+      if (MAXUINT / sizeof(XRectangle) < (unsigned)rectCnt) {
+        /* rectCnt too big, integer overflow */
+        return;
+      }
+
       xRects = (XRectangle *) malloc(sizeof(XRectangle) * rectCnt);
       if (xRects == NULL) {
         return;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,6 +34,15 @@
 // Implementation of Instruction
 
 
+int Instruction::dominator_depth() {
+  int result = -1;
+  if (block()) {
+    result = block()->dominator_depth();
+  }
+  assert(result != -1 || this->as_Local(), "Only locals have dominator depth -1");
+  return result;
+}
+
 Instruction::Condition Instruction::mirror(Condition cond) {
   switch (cond) {
     case eql: return eql;
@@ -42,6 +51,8 @@ Instruction::Condition Instruction::mirror(Condition cond) {
     case leq: return geq;
     case gtr: return lss;
     case geq: return leq;
+    case aeq: return beq;
+    case beq: return aeq;
   }
   ShouldNotReachHere();
   return eql;
@@ -56,6 +67,8 @@ Instruction::Condition Instruction::negate(Condition cond) {
     case leq: return gtr;
     case gtr: return leq;
     case geq: return lss;
+    case aeq: assert(false, "Above equal cannot be negated");
+    case beq: assert(false, "Below equal cannot be negated");
   }
   ShouldNotReachHere();
   return eql;
@@ -70,10 +83,10 @@ void Instruction::update_exception_state(ValueStack* state) {
   }
 }
 
-
-Instruction* Instruction::prev(BlockBegin* block) {
+// Prev without need to have BlockBegin
+Instruction* Instruction::prev() {
   Instruction* p = NULL;
-  Instruction* q = block;
+  Instruction* q = block();
   while (q != this) {
     assert(q != NULL, "this is not in the block's instruction list");
     p = q; q = q->next();
@@ -89,6 +102,14 @@ void Instruction::state_values_do(ValueVisitor* f) {
   if (exception_state() != NULL){
     exception_state()->values_do(f);
   }
+}
+
+ciType* Instruction::exact_type() const {
+  ciType* t =  declared_type();
+  if (t != NULL && t->is_klass()) {
+    return t->as_klass()->exact_klass();
+  }
+  return NULL;
 }
 
 
@@ -122,67 +143,53 @@ void Instruction::print(InstructionPrinter& ip) {
 
 // perform constant and interval tests on index value
 bool AccessIndexed::compute_needs_range_check() {
-  Constant* clength = length()->as_Constant();
-  Constant* cindex = index()->as_Constant();
-  if (clength && cindex) {
-    IntConstant* l = clength->type()->as_IntConstant();
-    IntConstant* i = cindex->type()->as_IntConstant();
-    if (l && i && i->value() < l->value() && i->value() >= 0) {
-      return false;
+  if (length()) {
+    Constant* clength = length()->as_Constant();
+    Constant* cindex = index()->as_Constant();
+    if (clength && cindex) {
+      IntConstant* l = clength->type()->as_IntConstant();
+      IntConstant* i = cindex->type()->as_IntConstant();
+      if (l && i && i->value() < l->value() && i->value() >= 0) {
+        return false;
+      }
     }
   }
+
+  if (!this->check_flag(NeedsRangeCheckFlag)) {
+    return false;
+  }
+
   return true;
 }
 
 
-ciType* Local::exact_type() const {
-  ciType* type = declared_type();
-
-  // for primitive arrays, the declared type is the exact type
-  if (type->is_type_array_klass()) {
-    return type;
-  } else if (type->is_instance_klass()) {
-    ciInstanceKlass* ik = (ciInstanceKlass*)type;
-    if (ik->is_loaded() && ik->is_final() && !ik->is_interface()) {
-      return type;
-    }
-  } else if (type->is_obj_array_klass()) {
-    ciObjArrayKlass* oak = (ciObjArrayKlass*)type;
-    ciType* base = oak->base_element_type();
-    if (base->is_instance_klass()) {
-      ciInstanceKlass* ik = base->as_instance_klass();
-      if (ik->is_loaded() && ik->is_final()) {
-        return type;
-      }
-    } else if (base->is_primitive_type()) {
-      return type;
-    }
+ciType* Constant::exact_type() const {
+  if (type()->is_object() && type()->as_ObjectType()->is_loaded()) {
+    return type()->as_ObjectType()->exact_type();
   }
   return NULL;
 }
 
-
 ciType* LoadIndexed::exact_type() const {
   ciType* array_type = array()->exact_type();
-  if (array_type == NULL) {
-    return NULL;
-  }
-  assert(array_type->is_array_klass(), "what else?");
-  ciArrayKlass* ak = (ciArrayKlass*)array_type;
+  if (array_type != NULL) {
+    assert(array_type->is_array_klass(), "what else?");
+    ciArrayKlass* ak = (ciArrayKlass*)array_type;
 
-  if (ak->element_type()->is_instance_klass()) {
-    ciInstanceKlass* ik = (ciInstanceKlass*)ak->element_type();
-    if (ik->is_loaded() && ik->is_final()) {
-      return ik;
+    if (ak->element_type()->is_instance_klass()) {
+      ciInstanceKlass* ik = (ciInstanceKlass*)ak->element_type();
+      if (ik->is_loaded() && ik->is_final()) {
+        return ik;
+      }
     }
   }
-  return NULL;
+  return Instruction::exact_type();
 }
 
 
 ciType* LoadIndexed::declared_type() const {
   ciType* array_type = array()->declared_type();
-  if (array_type == NULL) {
+  if (array_type == NULL || !array_type->is_loaded()) {
     return NULL;
   }
   assert(array_type->is_array_klass(), "what else?");
@@ -193,22 +200,6 @@ ciType* LoadIndexed::declared_type() const {
 
 ciType* LoadField::declared_type() const {
   return field()->type();
-}
-
-
-ciType* LoadField::exact_type() const {
-  ciType* type = declared_type();
-  // for primitive arrays, the declared type is the exact type
-  if (type->is_type_array_klass()) {
-    return type;
-  }
-  if (type->is_instance_klass()) {
-    ciInstanceKlass* ik = (ciInstanceKlass*)type;
-    if (ik->is_loaded() && ik->is_final()) {
-      return type;
-    }
-  }
-  return NULL;
 }
 
 
@@ -234,16 +225,6 @@ ciType* NewInstance::declared_type() const {
 
 ciType* CheckCast::declared_type() const {
   return klass();
-}
-
-ciType* CheckCast::exact_type() const {
-  if (klass()->is_instance_klass()) {
-    ciInstanceKlass* ik = (ciInstanceKlass*)klass();
-    if (ik->is_loaded() && ik->is_final()) {
-      return ik;
-    }
-  }
-  return NULL;
 }
 
 // Implementation of ArithmeticOp
@@ -363,9 +344,6 @@ Invoke::Invoke(Bytecodes::Code code, ValueType* result_type, Value recv, Values*
   _signature = new BasicTypeList(number_of_arguments() + (has_receiver() ? 1 : 0));
   if (has_receiver()) {
     _signature->append(as_BasicType(receiver()->type()));
-  } else if (is_invokedynamic()) {
-    // Add the synthetic MethodHandle argument to the signature.
-    _signature->append(T_OBJECT);
   }
   for (int i = 0; i < number_of_arguments(); i++) {
     ValueType* t = argument_at(i)->type();
@@ -393,6 +371,8 @@ intx Constant::hash() const {
     switch (type()->tag()) {
     case intTag:
       return HASH2(name(), type()->as_IntConstant()->value());
+    case addressTag:
+      return HASH2(name(), type()->as_AddressConstant()->value());
     case longTag:
       {
         jlong temp = type()->as_LongConstant()->value();
@@ -408,6 +388,11 @@ intx Constant::hash() const {
     case objectTag:
       assert(type()->as_ObjectType()->is_loaded(), "can't handle unloaded values");
       return HASH2(name(), type()->as_ObjectType()->constant_value());
+    case metaDataTag:
+      assert(type()->as_MetadataType()->is_loaded(), "can't handle unloaded values");
+      return HASH2(name(), type()->as_MetadataType()->constant_value());
+    default:
+      ShouldNotReachHere();
     }
   }
   return 0;
@@ -449,6 +434,14 @@ bool Constant::is_equal(Value v) const {
       {
         ObjectType* t1 =    type()->as_ObjectType();
         ObjectType* t2 = v->type()->as_ObjectType();
+        return (t1 != NULL && t2 != NULL &&
+                t1->is_loaded() && t2->is_loaded() &&
+                t1->constant_value() == t2->constant_value());
+      }
+    case metaDataTag:
+      {
+        MetadataType* t1 =    type()->as_MetadataType();
+        MetadataType* t2 = v->type()->as_MetadataType();
         return (t1 != NULL && t2 != NULL &&
                 t1->is_loaded() && t2->is_loaded() &&
                 t1->constant_value() == t2->constant_value());
@@ -505,6 +498,18 @@ Constant::CompareResult Constant::compare(Instruction::Condition cond, Value rig
     }
     break;
   }
+  case metaDataTag: {
+    ciMetadata* xvalue = lt->as_MetadataType()->constant_value();
+    ciMetadata* yvalue = rt->as_MetadataType()->constant_value();
+    assert(xvalue != NULL && yvalue != NULL, "not constants");
+    if (xvalue->is_loaded() && yvalue->is_loaded()) {
+      switch (cond) {
+      case If::eql: return xvalue == yvalue ? cond_true : cond_false;
+      case If::neq: return xvalue != yvalue ? cond_true : cond_false;
+      }
+    }
+    break;
+  }
   }
   return not_comparable;
 }
@@ -514,33 +519,38 @@ Constant::CompareResult Constant::compare(Instruction::Condition cond, Value rig
 
 void BlockBegin::set_end(BlockEnd* end) {
   assert(end != NULL, "should not reset block end to NULL");
-  BlockEnd* old_end = _end;
-  if (end == old_end) {
+  if (end == _end) {
     return;
   }
-  // Must make the predecessors/successors match up with the
-  // BlockEnd's notion.
-  int i, n;
-  if (old_end != NULL) {
-    // disconnect from the old end
-    old_end->set_begin(NULL);
+  clear_end();
 
-    // disconnect this block from it's current successors
-    for (i = 0; i < _successors.length(); i++) {
-      _successors.at(i)->remove_predecessor(this);
-    }
-  }
+  // Set the new end
   _end = end;
 
   _successors.clear();
   // Now reset successors list based on BlockEnd
-  n = end->number_of_sux();
-  for (i = 0; i < n; i++) {
+  for (int i = 0; i < end->number_of_sux(); i++) {
     BlockBegin* sux = end->sux_at(i);
     _successors.append(sux);
     sux->_predecessors.append(this);
   }
   _end->set_begin(this);
+}
+
+
+void BlockBegin::clear_end() {
+  // Must make the predecessors/successors match up with the
+  // BlockEnd's notion.
+  if (_end != NULL) {
+    // disconnect from the old end
+    _end->set_begin(NULL);
+
+    // disconnect this block from it's current successors
+    for (int i = 0; i < _successors.length(); i++) {
+      _successors.at(i)->remove_predecessor(this);
+    }
+    _end = NULL;
+  }
 }
 
 
@@ -596,19 +606,25 @@ void BlockBegin::substitute_sux(BlockBegin* old_sux, BlockBegin* new_sux) {
 // of the inserted block, without recomputing the values of the other blocks
 // in the CFG. Therefore the value of "depth_first_number" in BlockBegin becomes meaningless.
 BlockBegin* BlockBegin::insert_block_between(BlockBegin* sux) {
-  BlockBegin* new_sux = new BlockBegin(end()->state()->bci());
+  int bci = sux->bci();
+  // critical edge splitting may introduce a goto after a if and array
+  // bound check elimination may insert a predicate between the if and
+  // goto. The bci of the goto can't be the one of the if otherwise
+  // the state and bci are inconsistent and a deoptimization triggered
+  // by the predicate would lead to incorrect execution/a crash.
+  BlockBegin* new_sux = new BlockBegin(bci);
 
   // mark this block (special treatment when block order is computed)
   new_sux->set(critical_edge_split_flag);
 
   // This goto is not a safepoint.
   Goto* e = new Goto(sux, false);
-  new_sux->set_next(e, end()->state()->bci());
+  new_sux->set_next(e, bci);
   new_sux->set_end(e);
   // setup states
   ValueStack* s = end()->state();
-  new_sux->set_state(s->copy());
-  e->set_state(s->copy());
+  new_sux->set_state(s->copy(s->kind(), bci));
+  e->set_state(s->copy(s->kind(), bci));
   assert(new_sux->state()->locals_size() == s->locals_size(), "local size mismatch!");
   assert(new_sux->state()->stack_size() == s->stack_size(), "stack size mismatch!");
   assert(new_sux->state()->locks_size() == s->locks_size(), "locks size mismatch!");
@@ -925,15 +941,14 @@ void BlockEnd::set_begin(BlockBegin* begin) {
   BlockList* sux = NULL;
   if (begin != NULL) {
     sux = begin->successors();
-  } else if (_begin != NULL) {
+  } else if (this->begin() != NULL) {
     // copy our sux list
-    BlockList* sux = new BlockList(_begin->number_of_sux());
-    for (int i = 0; i < _begin->number_of_sux(); i++) {
-      sux->append(_begin->sux_at(i));
+    BlockList* sux = new BlockList(this->begin()->number_of_sux());
+    for (int i = 0; i < this->begin()->number_of_sux(); i++) {
+      sux->append(this->begin()->sux_at(i));
     }
   }
   _sux = sux;
-  _begin = begin;
 }
 
 
@@ -973,7 +988,38 @@ int Phi::operand_count() const {
   }
 }
 
+#ifdef ASSERT
+// Constructor of Assert
+Assert::Assert(Value x, Condition cond, bool unordered_is_true, Value y) : Instruction(illegalType)
+  , _x(x)
+  , _cond(cond)
+  , _y(y)
+{
+  set_flag(UnorderedIsTrueFlag, unordered_is_true);
+  assert(x->type()->tag() == y->type()->tag(), "types must match");
+  pin();
 
+  stringStream strStream;
+  Compilation::current()->method()->print_name(&strStream);
+
+  stringStream strStream1;
+  InstructionPrinter ip1(1, &strStream1);
+  ip1.print_instr(x);
+
+  stringStream strStream2;
+  InstructionPrinter ip2(1, &strStream2);
+  ip2.print_instr(y);
+
+  stringStream ss;
+  ss.print("Assertion %s %s %s in method %s", strStream1.as_string(), ip2.cond_name(cond), strStream2.as_string(), strStream.as_string());
+
+  _message = ss.as_string();
+}
+#endif
+
+void RangeCheckPredicate::check_state() {
+  assert(state()->kind() != ValueStack::EmptyExceptionState && state()->kind() != ValueStack::ExceptionState, "will deopt with empty state");
+}
 
 void ProfileInvoke::state_values_do(ValueVisitor* f) {
   if (state() != NULL) state()->values_do(f);

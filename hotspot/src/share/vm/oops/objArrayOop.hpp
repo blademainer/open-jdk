@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,10 +31,10 @@
 // Evaluating "String arg[10]" will create an objArrayOop.
 
 class objArrayOopDesc : public arrayOopDesc {
-  friend class objArrayKlass;
+  friend class ObjArrayKlass;
   friend class Runtime1;
   friend class psPromotionManager;
-  friend class CSMarkOopClosure;
+  friend class CSetMarkOopClosure;
   friend class G1ParScanPartialArrayClosure;
 
   template <class T> T* obj_at_addr(int index) const {

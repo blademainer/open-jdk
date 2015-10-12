@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2008, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -51,7 +51,7 @@ export CLASSPATH
 
 TMPFILE="$$.tmp"
 touch $TMPFILE
-$JAVA DeleteOnClose $TMPFILE 2>&1
+$JAVA ${TESTVMOPTS} DeleteOnClose $TMPFILE 2>&1
 if [ $? != 0 ]; then exit 1; fi
 if [ -f $TMPFILE ]; then
     echo "$TMPFILE was not deleted"

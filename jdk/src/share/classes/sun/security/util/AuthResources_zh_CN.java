@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -99,7 +99,7 @@ public class AuthResources_zh_CN extends java.util.ListResourceBundle {
         /***    EVERYTHING BELOW IS DEPRECATED  ***/
 
         // com.sun.security.auth.PolicyFile
-        {".error.parsing.", ": \u8FDB\u884C\u8BED\u6CD5\u5206\u6790\u65F6\u51FA\u9519 "},
+        {".error.parsing.", ": \u89E3\u6790\u65F6\u51FA\u9519 "},
         {"COLON", ": "},
         {".error.adding.Permission.", ": \u6DFB\u52A0\u6743\u9650\u65F6\u51FA\u9519 "},
         {"SPACE", " "},

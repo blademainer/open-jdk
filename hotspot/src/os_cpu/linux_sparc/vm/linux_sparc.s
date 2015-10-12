@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2005, 2008, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -20,42 +20,6 @@
 # or visit www.oracle.com if you need additional information or have any
 # questions.
 #
-
-    # Prototype: int SafeFetch32 (int * adr, int ErrValue)
-    # The "ld" at Fetch32 is potentially faulting instruction.
-    # If the instruction traps the trap handler will arrange
-    # for control to resume at Fetch32Resume.  
-    # By convention with the trap handler we ensure there is a non-CTI
-    # instruction in the trap shadow.  
-        
-
-    .globl  SafeFetch32, Fetch32PFI, Fetch32Resume
-    .globl  SafeFetchN
-    .align  32
-    .type    SafeFetch32,@function
-SafeFetch32:        
-    mov     %o0, %g1
-    mov     %o1, %o0
-Fetch32PFI:
-    # <-- Potentially faulting instruction
-    ld      [%g1], %o0         
-Fetch32Resume:
-    nop
-    retl
-    nop
-
-    .globl  SafeFetchN, FetchNPFI, FetchNResume
-    .type    SafeFetchN,@function
-    .align  32
-SafeFetchN:
-    mov     %o0, %g1
-    mov     %o1, %o0
-FetchNPFI:
-    ldn     [%g1], %o0
-FetchNResume:
-    nop
-    retl
-    nop
 
     # Possibilities:
     # -- membar

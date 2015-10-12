@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -120,6 +120,7 @@ class NoCallStackClassLoader extends ClassLoader {
      */
     @Override
     protected Class<?> findClass(String name) throws ClassNotFoundException {
+        // Note: classNames is guaranteed by the constructor to be non-null.
         for (int i = 0; i < classNames.length; i++) {
             if (name.equals(classNames[i])) {
                 return defineClass(classNames[i], byteCodes[i], 0,

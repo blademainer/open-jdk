@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,15 +27,18 @@
 #include "gc_implementation/parallelScavenge/psOldGen.hpp"
 #include "gc_implementation/parallelScavenge/psPromotionManager.inline.hpp"
 #include "gc_implementation/parallelScavenge/psScavenge.inline.hpp"
+#include "gc_implementation/shared/gcTrace.hpp"
 #include "gc_implementation/shared/mutableSpace.hpp"
+#include "memory/allocation.inline.hpp"
 #include "memory/memRegion.hpp"
+#include "memory/padded.inline.hpp"
 #include "oops/oop.inline.hpp"
 #include "oops/oop.psgc.inline.hpp"
 
-PSPromotionManager**         PSPromotionManager::_manager_array = NULL;
-OopStarTaskQueueSet*         PSPromotionManager::_stack_array_depth = NULL;
-PSOldGen*                    PSPromotionManager::_old_gen = NULL;
-MutableSpace*                PSPromotionManager::_young_space = NULL;
+PaddedEnd<PSPromotionManager>* PSPromotionManager::_manager_array = NULL;
+OopStarTaskQueueSet*           PSPromotionManager::_stack_array_depth = NULL;
+PSOldGen*                      PSPromotionManager::_old_gen = NULL;
+MutableSpace*                  PSPromotionManager::_young_space = NULL;
 
 void PSPromotionManager::initialize() {
   ParallelScavengeHeap* heap = (ParallelScavengeHeap*)Universe::heap();
@@ -44,35 +47,32 @@ void PSPromotionManager::initialize() {
   _old_gen = heap->old_gen();
   _young_space = heap->young_gen()->to_space();
 
+  // To prevent false sharing, we pad the PSPromotionManagers
+  // and make sure that the first instance starts at a cache line.
   assert(_manager_array == NULL, "Attempt to initialize twice");
-  _manager_array = NEW_C_HEAP_ARRAY(PSPromotionManager*, ParallelGCThreads+1 );
+  _manager_array = PaddedArray<PSPromotionManager, mtGC>::create_unfreeable(ParallelGCThreads + 1);
   guarantee(_manager_array != NULL, "Could not initialize promotion manager");
 
   _stack_array_depth = new OopStarTaskQueueSet(ParallelGCThreads);
-  guarantee(_stack_array_depth != NULL, "Cound not initialize promotion manager");
+  guarantee(_stack_array_depth != NULL, "Could not initialize promotion manager");
 
   // Create and register the PSPromotionManager(s) for the worker threads.
   for(uint i=0; i<ParallelGCThreads; i++) {
-    _manager_array[i] = new PSPromotionManager();
-    guarantee(_manager_array[i] != NULL, "Could not create PSPromotionManager");
-    stack_array_depth()->register_queue(i, _manager_array[i]->claimed_stack_depth());
+    stack_array_depth()->register_queue(i, _manager_array[i].claimed_stack_depth());
   }
-
   // The VMThread gets its own PSPromotionManager, which is not available
   // for work stealing.
-  _manager_array[ParallelGCThreads] = new PSPromotionManager();
-  guarantee(_manager_array[ParallelGCThreads] != NULL, "Could not create PSPromotionManager");
 }
 
 PSPromotionManager* PSPromotionManager::gc_thread_promotion_manager(int index) {
   assert(index >= 0 && index < (int)ParallelGCThreads, "index out of range");
   assert(_manager_array != NULL, "Sanity");
-  return _manager_array[index];
+  return &_manager_array[index];
 }
 
 PSPromotionManager* PSPromotionManager::vm_thread_promotion_manager() {
   assert(_manager_array != NULL, "Sanity");
-  return _manager_array[ParallelGCThreads];
+  return &_manager_array[ParallelGCThreads];
 }
 
 void PSPromotionManager::pre_scavenge() {
@@ -86,13 +86,20 @@ void PSPromotionManager::pre_scavenge() {
   }
 }
 
-void PSPromotionManager::post_scavenge() {
+bool PSPromotionManager::post_scavenge(YoungGCTracer& gc_tracer) {
+  bool promotion_failure_occurred = false;
+
   TASKQUEUE_STATS_ONLY(if (PrintGCDetails && ParallelGCVerbose) print_stats());
   for (uint i = 0; i < ParallelGCThreads + 1; i++) {
     PSPromotionManager* manager = manager_array(i);
     assert(manager->claimed_stack_depth()->is_empty(), "should be empty");
+    if (manager->_promotion_failed_info.has_failed()) {
+      gc_tracer.report_promotion_failed(manager->_promotion_failed_info);
+      promotion_failure_occurred = true;
+    }
     manager->flush_labs();
   }
+  return promotion_failure_occurred;
 }
 
 #if TASKQUEUE_STATS
@@ -187,6 +194,8 @@ void PSPromotionManager::reset() {
   _old_lab.initialize(MemRegion(lab_base, (size_t)0));
   _old_gen_is_full = false;
 
+  _promotion_failed_info.reset();
+
   TASKQUEUE_STATS_ONLY(reset_stats());
 }
 
@@ -199,7 +208,6 @@ void PSPromotionManager::drain_stacks_depth(bool totally_drain) {
   assert(heap->kind() == CollectedHeap::ParallelScavengeHeap, "Sanity");
   MutableSpace* to_space = heap->young_gen()->to_space();
   MutableSpace* old_space = heap->old_gen()->object_space();
-  MutableSpace* perm_space = heap->perm_gen()->object_space();
 #endif /* ASSERT */
 
   OopStarTaskQueue* const tq = claimed_stack_depth();
@@ -245,167 +253,6 @@ void PSPromotionManager::flush_labs() {
   if (_young_gen_is_full) {
     PSScavenge::set_survivor_overflow(true);
   }
-}
-
-//
-// This method is pretty bulky. It would be nice to split it up
-// into smaller submethods, but we need to be careful not to hurt
-// performance.
-//
-
-oop PSPromotionManager::copy_to_survivor_space(oop o) {
-  assert(PSScavenge::should_scavenge(&o), "Sanity");
-
-  oop new_obj = NULL;
-
-  // NOTE! We must be very careful with any methods that access the mark
-  // in o. There may be multiple threads racing on it, and it may be forwarded
-  // at any time. Do not use oop methods for accessing the mark!
-  markOop test_mark = o->mark();
-
-  // The same test as "o->is_forwarded()"
-  if (!test_mark->is_marked()) {
-    bool new_obj_is_tenured = false;
-    size_t new_obj_size = o->size();
-
-    // Find the objects age, MT safe.
-    int age = (test_mark->has_displaced_mark_helper() /* o->has_displaced_mark() */) ?
-      test_mark->displaced_mark_helper()->age() : test_mark->age();
-
-    // Try allocating obj in to-space (unless too old)
-    if (age < PSScavenge::tenuring_threshold()) {
-      new_obj = (oop) _young_lab.allocate(new_obj_size);
-      if (new_obj == NULL && !_young_gen_is_full) {
-        // Do we allocate directly, or flush and refill?
-        if (new_obj_size > (YoungPLABSize / 2)) {
-          // Allocate this object directly
-          new_obj = (oop)young_space()->cas_allocate(new_obj_size);
-        } else {
-          // Flush and fill
-          _young_lab.flush();
-
-          HeapWord* lab_base = young_space()->cas_allocate(YoungPLABSize);
-          if (lab_base != NULL) {
-            _young_lab.initialize(MemRegion(lab_base, YoungPLABSize));
-            // Try the young lab allocation again.
-            new_obj = (oop) _young_lab.allocate(new_obj_size);
-          } else {
-            _young_gen_is_full = true;
-          }
-        }
-      }
-    }
-
-    // Otherwise try allocating obj tenured
-    if (new_obj == NULL) {
-#ifndef PRODUCT
-      if (Universe::heap()->promotion_should_fail()) {
-        return oop_promotion_failed(o, test_mark);
-      }
-#endif  // #ifndef PRODUCT
-
-      new_obj = (oop) _old_lab.allocate(new_obj_size);
-      new_obj_is_tenured = true;
-
-      if (new_obj == NULL) {
-        if (!_old_gen_is_full) {
-          // Do we allocate directly, or flush and refill?
-          if (new_obj_size > (OldPLABSize / 2)) {
-            // Allocate this object directly
-            new_obj = (oop)old_gen()->cas_allocate(new_obj_size);
-          } else {
-            // Flush and fill
-            _old_lab.flush();
-
-            HeapWord* lab_base = old_gen()->cas_allocate(OldPLABSize);
-            if(lab_base != NULL) {
-              _old_lab.initialize(MemRegion(lab_base, OldPLABSize));
-              // Try the old lab allocation again.
-              new_obj = (oop) _old_lab.allocate(new_obj_size);
-            }
-          }
-        }
-
-        // This is the promotion failed test, and code handling.
-        // The code belongs here for two reasons. It is slightly
-        // different thatn the code below, and cannot share the
-        // CAS testing code. Keeping the code here also minimizes
-        // the impact on the common case fast path code.
-
-        if (new_obj == NULL) {
-          _old_gen_is_full = true;
-          return oop_promotion_failed(o, test_mark);
-        }
-      }
-    }
-
-    assert(new_obj != NULL, "allocation should have succeeded");
-
-    // Copy obj
-    Copy::aligned_disjoint_words((HeapWord*)o, (HeapWord*)new_obj, new_obj_size);
-
-    // Now we have to CAS in the header.
-    if (o->cas_forward_to(new_obj, test_mark)) {
-      // We won any races, we "own" this object.
-      assert(new_obj == o->forwardee(), "Sanity");
-
-      // Increment age if obj still in new generation. Now that
-      // we're dealing with a markOop that cannot change, it is
-      // okay to use the non mt safe oop methods.
-      if (!new_obj_is_tenured) {
-        new_obj->incr_age();
-        assert(young_space()->contains(new_obj), "Attempt to push non-promoted obj");
-      }
-
-      // Do the size comparison first with new_obj_size, which we
-      // already have. Hopefully, only a few objects are larger than
-      // _min_array_size_for_chunking, and most of them will be arrays.
-      // So, the is->objArray() test would be very infrequent.
-      if (new_obj_size > _min_array_size_for_chunking &&
-          new_obj->is_objArray() &&
-          PSChunkLargeArrays) {
-        // we'll chunk it
-        oop* const masked_o = mask_chunked_array_oop(o);
-        push_depth(masked_o);
-        TASKQUEUE_STATS_ONLY(++_arrays_chunked; ++_masked_pushes);
-      } else {
-        // we'll just push its contents
-        new_obj->push_contents(this);
-      }
-    }  else {
-      // We lost, someone else "owns" this object
-      guarantee(o->is_forwarded(), "Object must be forwarded if the cas failed.");
-
-      // Try to deallocate the space.  If it was directly allocated we cannot
-      // deallocate it, so we have to test.  If the deallocation fails,
-      // overwrite with a filler object.
-      if (new_obj_is_tenured) {
-        if (!_old_lab.unallocate_object(new_obj)) {
-          CollectedHeap::fill_with_object((HeapWord*) new_obj, new_obj_size);
-        }
-      } else if (!_young_lab.unallocate_object(new_obj)) {
-        CollectedHeap::fill_with_object((HeapWord*) new_obj, new_obj_size);
-      }
-
-      // don't update this before the unallocation!
-      new_obj = o->forwardee();
-    }
-  } else {
-    assert(o->is_forwarded(), "Sanity");
-    new_obj = o->forwardee();
-  }
-
-#ifdef DEBUG
-  // This code must come after the CAS test, or it will print incorrect
-  // information.
-  if (TraceScavenge) {
-    gclog_or_tty->print_cr("{%s %s " PTR_FORMAT " -> " PTR_FORMAT " (" SIZE_FORMAT ")}",
-       PSScavenge::should_scavenge(&new_obj) ? "copying" : "tenuring",
-       new_obj->blueprint()->internal_name(), o, new_obj, new_obj->size());
-  }
-#endif
-
-  return new_obj;
 }
 
 template <class T> void PSPromotionManager::process_array_chunk_work(
@@ -467,6 +314,8 @@ oop PSPromotionManager::oop_promotion_failed(oop obj, markOop obj_mark) {
     // We won any races, we "own" this object.
     assert(obj == obj->forwardee(), "Sanity");
 
+    _promotion_failed_info.register_copy_failure(obj->size());
+
     obj->push_contents(this);
 
     // Save the mark if needed
@@ -479,12 +328,12 @@ oop PSPromotionManager::oop_promotion_failed(oop obj, markOop obj_mark) {
     obj = obj->forwardee();
   }
 
-#ifdef DEBUG
+#ifndef PRODUCT
   if (TraceScavenge) {
     gclog_or_tty->print_cr("{%s %s 0x%x (%d)}",
                            "promotion-failure",
-                           obj->blueprint()->internal_name(),
-                           obj, obj->size());
+                           obj->klass()->internal_name(),
+                           (void *)obj, obj->size());
 
   }
 #endif

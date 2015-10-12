@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -110,12 +110,7 @@ class RuntimeImpl implements RuntimeMXBean {
     }
 
     public long getUptime() {
-        long current = System.currentTimeMillis();
-
-        // TODO: If called from client side when we support
-        // MBean proxy to read performance counters from shared memory,
-        // need to check if the monitored VM exitd.
-        return (current - vmStartupTime);
+        return jvm.getUptime();
     }
 
     public long getStartTime() {
@@ -128,7 +123,7 @@ class RuntimeImpl implements RuntimeMXBean {
 
     public Map<String,String> getSystemProperties() {
         Properties sysProps = System.getProperties();
-        Map<String,String> map = new HashMap<String, String>();
+        Map<String,String> map = new HashMap<>();
 
         // Properties.entrySet() does not include the entries in
         // the default properties.  So use Properties.stringPropertyNames()

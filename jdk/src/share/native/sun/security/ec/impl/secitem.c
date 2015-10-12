@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2012, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
  * This library is free software; you can redistribute it and/or
@@ -43,9 +43,9 @@
 #include <sys/types.h>
 
 #ifndef _WIN32
-#ifndef __linux__
+#if !defined(__linux__) && !defined(_ALLBSD_SOURCE)
 #include <sys/systm.h>
-#endif /* __linux__ */
+#endif /* __linux__ || _ALLBSD_SOURCE */
 #include <sys/param.h>
 #endif /* _WIN32 */
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
  * questions.
  */
 
-#ifdef __linux__
+#if defined(__linux__)
 #include <string.h>
 #endif /* __linux__ */
 #include <stdio.h>
@@ -40,7 +40,8 @@
 
 #include <jni.h>
 #include <jni_util.h>
-#include <sun_font_FontManager.h>
+#include <jvm_md.h>
+#include <sizecalc.h>
 #ifndef HEADLESS
 #include <X11/Xlib.h>
 #include <awt.h>
@@ -58,10 +59,12 @@
 extern Display *awt_display;
 #endif /* !HEADLESS */
 
+#define FONTCONFIG_DLL_VERSIONED VERSIONED_JNI_LIB_NAME("fontconfig", "1")
+#define FONTCONFIG_DLL JNI_LIB_NAME("fontconfig")
 
 #define MAXFDIRS 512    /* Max number of directories that contain fonts */
 
-#ifndef __linux__
+#if !defined(__linux__)
 /*
  * This can be set in the makefile to "/usr/X11" if so desired.
  */
@@ -193,7 +196,7 @@ static void AddFontsToX11FontPath ( fDirRecord *fDirP )
 
     if ( fDirP->num == 0 ) return;
 
-    appendDirList = malloc ( fDirP->num * sizeof ( int ));
+    appendDirList = SAFE_SIZE_ARRAY_ALLOC(malloc, fDirP->num, sizeof ( int ));
     if ( appendDirList == NULL ) {
       return;  /* if it fails we cannot do much */
     }
@@ -250,7 +253,7 @@ static void AddFontsToX11FontPath ( fDirRecord *fDirP )
     }
 
 
-    newFontPath = malloc ( totalDirCount * sizeof ( char **) );
+    newFontPath = SAFE_SIZE_ARRAY_ALLOC(malloc, totalDirCount, sizeof ( char **) );
     /* if it fails free things and get out */
     if ( newFontPath == NULL ) {
       free ( ( void *) appendDirList );
@@ -271,7 +274,12 @@ static void AddFontsToX11FontPath ( fDirRecord *fDirP )
 
         /* printf ( "Appending %s\n", fDirP->name[index] ); */
 
-        onePath = malloc ( ( strlen (fDirP->name[index]) + 2 )* sizeof( char ) );
+        onePath = SAFE_SIZE_ARRAY_ALLOC(malloc, strlen (fDirP->name[index]) + 2, sizeof( char ) );
+        if (onePath == NULL) {
+            free ( ( void *) appendDirList );
+            XFreeFontPath ( origFontPath );
+            return;
+        }
         strcpy ( onePath, fDirP->name[index] );
         strcat ( onePath, "/" );
         newFontPath[nPaths++] = onePath;
@@ -362,7 +370,7 @@ static char **getX11FontPath ()
 
 #endif /* !HEADLESS */
 
-#ifdef __linux__
+#if defined(__linux__)
 /* from awt_LoadLibrary.c */
 JNIEXPORT jboolean JNICALL AWTIsHeadless();
 #endif
@@ -487,7 +495,7 @@ static char *getPlatformFontPathChars(JNIEnv *env, jboolean noType1) {
      */
     fcdirs = getFontConfigLocations();
 
-#ifdef __linux__
+#if defined(__linux__)
     knowndirs = fullLinuxFontPath;
 #else /* IF SOLARIS */
     knowndirs = fullSolarisFontPath;
@@ -499,7 +507,8 @@ static char *getPlatformFontPathChars(JNIEnv *env, jboolean noType1) {
      * be initialised.
      */
 #ifndef HEADLESS
-#ifdef __linux__        /* There's no headless build on linux ... */
+#if defined(__linux__)
+    /* There's no headless build on linux ... */
     if (!AWTIsHeadless()) { /* .. so need to call a function to check */
 #endif
       /* Using the X11 font path to locate font files is now a fallback
@@ -514,7 +523,7 @@ static char *getPlatformFontPathChars(JNIEnv *env, jboolean noType1) {
         x11dirs = getX11FontPath();
     }
     AWT_UNLOCK();
-#ifdef __linux__
+#if defined(__linux__)
     }
 #endif
 #endif /* !HEADLESS */
@@ -547,9 +556,6 @@ JNIEXPORT jstring JNICALL Java_sun_awt_X11FontManager_getFontPathNative
 }
 
 #include <dlfcn.h>
-#ifndef __linux__ /* i.e. is solaris */
-#include <link.h>
-#endif
 
 #include "fontconfig.h"
 
@@ -593,9 +599,9 @@ static void* openFontConfig() {
      * certain symbols - and functionality - to be available.
      * Also add explicit search for .so.1 in case .so symlink doesn't exist.
      */
-    libfontconfig = dlopen("libfontconfig.so.1", RTLD_LOCAL|RTLD_LAZY);
+    libfontconfig = dlopen(FONTCONFIG_DLL_VERSIONED, RTLD_LOCAL|RTLD_LAZY);
     if (libfontconfig == NULL) {
-        libfontconfig = dlopen("libfontconfig.so", RTLD_LOCAL|RTLD_LAZY);
+        libfontconfig = dlopen(FONTCONFIG_DLL, RTLD_LOCAL|RTLD_LAZY);
         if (libfontconfig == NULL) {
             return NULL;
         }
@@ -1191,15 +1197,23 @@ Java_sun_font_FontConfigManager_getFontConfig
 
             fontformat = NULL;
             (*FcPatternGetString)(fontPattern, FC_FONTFORMAT, 0, &fontformat);
-            if (fontformat != NULL && strcmp((char*)fontformat, "TrueType")
-                != 0) {
+            /* We only want TrueType fonts but some Linuxes still depend
+             * on Type 1 fonts for some Locale support, so we'll allow
+             * them there.
+             */
+            if (fontformat != NULL
+                && (strcmp((char*)fontformat, "TrueType") != 0)
+#ifdef __linux__
+                && (strcmp((char*)fontformat, "Type 1") != 0)
+#endif
+             ) {
                 continue;
             }
             result = (*FcPatternGetCharSet)(fontPattern,
                                             FC_CHARSET, 0, &charset);
             if (result != FcResultMatch) {
                 free(family);
-                free(family);
+                free(fullname);
                 free(styleStr);
                 free(file);
                 (*FcPatternDestroy)(pattern);

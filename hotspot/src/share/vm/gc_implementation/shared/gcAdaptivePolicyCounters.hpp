@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,10 +25,11 @@
 #ifndef SHARE_VM_GC_IMPLEMENTATION_SHARED_GCADAPTIVEPOLICYCOUNTERS_HPP
 #define SHARE_VM_GC_IMPLEMENTATION_SHARED_GCADAPTIVEPOLICYCOUNTERS_HPP
 
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/shared/adaptiveSizePolicy.hpp"
 #include "gc_implementation/shared/gcPolicyCounters.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
 // This class keeps statistical information and computes the
 // size of the heap.
@@ -188,7 +189,7 @@ class GCAdaptivePolicyCounters : public GCPolicyCounters {
   inline void update_survivor_overflowed(bool survivor_overflowed) {
     _survivor_overflowed_counter->set_value(survivor_overflowed);
   }
-  inline void update_tenuring_threshold(int threshold) {
+  inline void update_tenuring_threshold(uint threshold) {
     tenuring_threshold()->set_value(threshold);
   }
   inline void update_increment_tenuring_threshold_for_gc_cost() {

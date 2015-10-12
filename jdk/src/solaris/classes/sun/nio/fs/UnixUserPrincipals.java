@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -115,7 +115,7 @@ class UnixUserPrincipals {
     static User fromUid(int uid) {
         String name = null;
         try {
-            name = new String(getpwuid(uid));
+            name = Util.toString(getpwuid(uid));
         } catch (UnixException x) {
             name = Integer.toString(uid);
         }
@@ -126,7 +126,7 @@ class UnixUserPrincipals {
     static Group fromGid(int gid) {
         String name = null;
         try {
-            name = new String(getgrgid(gid));
+            name = Util.toString(getgrgid(gid));
         } catch (UnixException x) {
             name = Integer.toString(gid);
         }

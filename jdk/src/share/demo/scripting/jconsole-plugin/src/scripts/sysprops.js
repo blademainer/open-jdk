@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,20 +30,29 @@
  */
 
 /*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
+
+/*
  * This file defines 'sysprops' function to print Java System
  * properties.'sysprops' function which can be called once or periodically 
  * from a timer thread (calling it periodically would slow down the target
  * application). To call this once, just call 'sysprops()' in script
- * console prompt. To call jtop in a timer thread, you can use
+ * console prompt. To call sysprops in a timer thread, you can use
  *
- *     var t = setTimeout(function () { sysprops(print); }, 5000); 
+ *     var t = setInterval(function () { sysprops(print); }, 5000);
  *
  * The above call prints threads in sorted order for every 5 seconds.
  * The print output goes to OS console window from which jconsole was 
  * started. The timer can be cancelled later by clearTimeout() function
  * as shown below:
  * 
- *     clearTimeout(t);    
+ *     clearInterval(t);
  */
 
 
@@ -53,7 +62,7 @@
 function getSystemProps() {
     var runtimeBean = newPlatformMXBeanProxy(
                 "java.lang:type=Runtime",
-                java.lang.management.RuntimeMXBean);
+                java.lang.management.RuntimeMXBean.class);
     return runtimeBean.systemProperties;
 }
 

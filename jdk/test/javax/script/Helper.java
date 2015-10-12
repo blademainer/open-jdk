@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,13 +24,13 @@ import javax.script.*;
 
 /**
  * Helper class to consolidate testing requirements for a js engine.
- * A js engine is required as part of Sun's product JDK.
+ * A js engine is required as part of Oracle's product JDK.
  */
 public class Helper {
     private Helper() {}; // Don't instantiate
 
     public static ScriptEngine getJsEngine(ScriptEngineManager m) {
-        ScriptEngine e  = m.getEngineByName("js");
+        ScriptEngine e  = m.getEngineByName("nashorn");
         if (e == null &&
             System.getProperty("java.runtime.name").startsWith("Java(TM)")) {
             // A js engine is requied for Sun's product JDK

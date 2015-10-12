@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -46,9 +46,9 @@ class XArrayDataViewer {
         if (isViewableValue(value)) {
             Object[] arr;
             if (value instanceof Collection) {
-                arr = ((Collection) value).toArray();
+                arr = ((Collection<?>) value).toArray();
             } else if (value instanceof Map) {
-                arr = ((Map) value).entrySet().toArray();
+                arr = ((Map<?,?>) value).entrySet().toArray();
             } else if (value instanceof Object[]) {
                 arr = (Object[]) value;
             } else {

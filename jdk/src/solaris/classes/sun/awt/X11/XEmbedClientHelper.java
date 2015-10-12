@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,7 +53,7 @@ public class XEmbedClientHelper extends XEmbedHelper implements XEventDispatcher
     }
 
     void setClient(XEmbeddedFramePeer client) {
-        if (xembedLog.isLoggable(PlatformLogger.FINE)) {
+        if (xembedLog.isLoggable(PlatformLogger.Level.FINE)) {
             xembedLog.fine("XEmbed client: " + client);
         }
         if (embedded != null) {
@@ -67,7 +67,7 @@ public class XEmbedClientHelper extends XEmbedHelper implements XEventDispatcher
     }
 
     void install() {
-        if (xembedLog.isLoggable(PlatformLogger.FINE)) {
+        if (xembedLog.isLoggable(PlatformLogger.Level.FINE)) {
             xembedLog.fine("Installing xembedder on " + embedded);
         }
         long[] info = new long[] { XEMBED_VERSION, XEMBED_MAPPED };
@@ -95,9 +95,13 @@ public class XEmbedClientHelper extends XEmbedHelper implements XEventDispatcher
 
     void handleClientMessage(XEvent xev) {
         XClientMessageEvent msg = xev.get_xclient();
-        if (xembedLog.isLoggable(PlatformLogger.FINE)) xembedLog.fine(msg.toString());
+        if (xembedLog.isLoggable(PlatformLogger.Level.FINE)) {
+            xembedLog.fine(msg.toString());
+        }
         if (msg.get_message_type() == XEmbed.getAtom()) {
-            if (xembedLog.isLoggable(PlatformLogger.FINE)) xembedLog.fine("Embedded message: " + msgidToString((int)msg.get_data(1)));
+            if (xembedLog.isLoggable(PlatformLogger.Level.FINE)) {
+                xembedLog.fine("Embedded message: " + msgidToString((int)msg.get_data(1)));
+            }
             switch ((int)msg.get_data(1)) {
               case XEMBED_EMBEDDED_NOTIFY: // Notification about embedding protocol start
                   active = true;
@@ -204,7 +208,7 @@ public class XEmbedClientHelper extends XEmbedHelper implements XEventDispatcher
         // XEMBED_FOCUS_OUT client messages), so we first need to check if
         // embedded is an active window before sending WINDOW_LOST_FOCUS
         // to shared code
-        if (XKeyboardFocusManagerPeer.getCurrentNativeFocusedWindow() == embedded.target) {
+        if (XKeyboardFocusManagerPeer.getInstance().getCurrentFocusedWindow() == embedded.target) {
             embedded.handleWindowFocusOut(null, 0);
         }
     }

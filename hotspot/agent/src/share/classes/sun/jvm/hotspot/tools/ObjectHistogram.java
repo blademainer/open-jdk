@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,14 @@ import java.io.PrintStream;
     an object histogram from a remote or crashed VM. */
 public class ObjectHistogram extends Tool {
 
+    public ObjectHistogram() {
+       super();
+    }
+
+    public ObjectHistogram(JVMDebugger d) {
+       super(d);
+    }
+
    public void run() {
       run(System.out, System.err);
    }
@@ -53,7 +61,6 @@ public class ObjectHistogram extends Tool {
 
    public static void main(String[] args) {
       ObjectHistogram oh = new ObjectHistogram();
-      oh.start(args);
-      oh.stop();
+      oh.execute(args);
    }
 }

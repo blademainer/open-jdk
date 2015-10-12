@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,7 @@
  * @bug 6636138
  * @summary SuperWord::co_locate_pack(Node_List* p) generates memory graph that leads to memory order violation.
  *
- * @run main/othervm -server -Xbatch -XX:CompileOnly=Test2.shift Test2
+ * @run main/othervm -Xbatch -XX:CompileOnly=Test2.shift Test2
  */
 
 public class Test2 {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,19 +21,30 @@
  * questions.
  */
 
+/*
+ * @test
+ * @summary Unit test for Files.walkFileTree to test maxDepth parameter
+ * @library ../..
+ * @compile MaxDepth.java CreateFileTree.java
+ * @run main MaxDepth
+ */
+
 import java.nio.file.*;
 import java.nio.file.attribute.*;
 import java.io.IOException;
 import java.util.*;
 
-/**
- * Unit test for Files.walkFileTree to test maxDepth parameter
- */
-
 public class MaxDepth {
-    public static void main(String[] args) throws Exception {
-        final Path top = Paths.get(args[0]);
+    public static void main(String[] args) throws IOException {
+        Path top = CreateFileTree.create();
+        try {
+            test(top);
+        } finally {
+            TestUtil.removeAll(top);
+        }
+    }
 
+    static void test(final Path top) throws IOException {
         for (int i=0; i<5; i++) {
             Set<FileVisitOption> opts = Collections.emptySet();
             final int maxDepth = i;

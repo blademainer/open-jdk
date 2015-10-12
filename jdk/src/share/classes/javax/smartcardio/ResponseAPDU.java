@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -121,7 +121,7 @@ public final class ResponseAPDU implements java.io.Serializable {
      * Returns the value of the status bytes SW1 and SW2 as a single
      * status word SW.
      * It is defined as
-     * <code>(getSW1() << 8) | getSW2()</code>.
+     * {@code (getSW1() << 8) | getSW2()}
      *
      * @return the value of the status word SW.
      */

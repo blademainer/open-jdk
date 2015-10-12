@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,12 +21,19 @@
  * questions.
  */
 
+//
+// SunJSSE does not support dynamic system properties, no way to re-use
+// system properties in samevm/agentvm mode.
+//
+
 /*
  * @test
  * @bug 6405536
  * @summary Verify that all ciphersuites work (incl. ECC using NSS crypto)
  * @author Andreas Sterbenz
  * @library ..
+ * @library ../../../../java/security/testlibrary
+ * @run main/othervm ClientJSSEServerJSSE
  */
 
 import java.security.*;
@@ -45,7 +52,7 @@ public class ClientJSSEServerJSSE extends PKCS11Test {
             System.out.println("Provider does not support EC, skipping");
             return;
         }
-        Security.insertProviderAt(p, 1);
+        Providers.setAt(p, 1);
         CipherTest.main(new JSSEFactory(), cmdArgs);
         Security.removeProvider(p.getName());
     }

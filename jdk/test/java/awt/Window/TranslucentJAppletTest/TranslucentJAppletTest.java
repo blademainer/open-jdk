@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,11 +37,12 @@ import javax.swing.*;
 
 public class TranslucentJAppletTest {
 
+    private static volatile GraphicsConfiguration graphicsConfig = null;
     private static JFrame frame;
     private static volatile boolean paintComponentCalled = false;
 
     private static void initAndShowGUI() {
-        frame = new JFrame();
+        frame = new JFrame(graphicsConfig);
         JApplet applet = new JApplet();
         applet.setBackground(new Color(0, 0, 0, 0));
         JPanel panel = new JPanel() {
@@ -65,6 +66,27 @@ public class TranslucentJAppletTest {
         throws Exception
     {
         sun.awt.SunToolkit tk = (sun.awt.SunToolkit)Toolkit.getDefaultToolkit();
+
+        final GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+        for (GraphicsDevice gd : ge.getScreenDevices()) {
+            if (gd.isWindowTranslucencySupported(
+                        GraphicsDevice.WindowTranslucency.PERPIXEL_TRANSLUCENT))
+            {
+                for (GraphicsConfiguration gc : gd.getConfigurations()) {
+                    if (gc.isTranslucencyCapable()) {
+                        graphicsConfig = gc;
+                        break;
+                    }
+                }
+            }
+            if (graphicsConfig != null) {
+                break;
+            }
+        }
+        if (graphicsConfig == null) {
+            System.out.println("The system does not support translucency. Consider the test passed.");
+            return;
+        }
 
         Robot r = new Robot();
         Color color1 = r.getPixelColor(100, 100); // (0, 0) in frame coordinates

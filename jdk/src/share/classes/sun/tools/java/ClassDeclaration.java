@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -230,10 +230,15 @@ class ClassDeclaration implements Constants {
      * Equality
      */
     public boolean equals(Object obj) {
-        if ((obj != null) && (obj instanceof ClassDeclaration)) {
+        if (obj instanceof ClassDeclaration) {
             return type.equals(((ClassDeclaration)obj).type);
         }
         return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return type.hashCode();
     }
 
     /**

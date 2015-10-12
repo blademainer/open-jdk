@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,7 @@ class FreeIdSet;
 
 // A closure class for processing card table entries.  Note that we don't
 // require these closure objects to be stack-allocated.
-class CardTableEntryClosure: public CHeapObj {
+class CardTableEntryClosure: public CHeapObj<mtGC> {
 public:
   // Process the card whose card table entry is "card_ptr".  If returns
   // "false", terminate the iteration early.

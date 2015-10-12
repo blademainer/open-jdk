@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,7 +33,8 @@
 #include "oops/instanceRefKlass.hpp"
 #include "oops/oop.inline.hpp"
 #include "utilities/preserveException.hpp"
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/g1/g1OopClosures.inline.hpp"
 #include "gc_implementation/g1/g1RemSet.inline.hpp"
@@ -42,27 +43,26 @@
 #include "gc_implementation/parallelScavenge/psPromotionManager.inline.hpp"
 #include "gc_implementation/parallelScavenge/psScavenge.inline.hpp"
 #include "oops/oop.pcgc.inline.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
 template <class T>
-static void specialized_oop_follow_contents(instanceRefKlass* ref, oop obj) {
+void specialized_oop_follow_contents(InstanceRefKlass* ref, oop obj) {
   T* referent_addr = (T*)java_lang_ref_Reference::referent_addr(obj);
   T heap_oop = oopDesc::load_heap_oop(referent_addr);
   debug_only(
     if(TraceReferenceGC && PrintGCDetails) {
-      gclog_or_tty->print_cr("instanceRefKlass::oop_follow_contents " INTPTR_FORMAT, obj);
+      gclog_or_tty->print_cr("InstanceRefKlass::oop_follow_contents " INTPTR_FORMAT, (void *)obj);
     }
   )
   if (!oopDesc::is_null(heap_oop)) {
     oop referent = oopDesc::decode_heap_oop_not_null(heap_oop);
     if (!referent->is_gc_marked() &&
-        MarkSweep::ref_processor()->
-          discover_reference(obj, ref->reference_type())) {
-      // reference already enqueued, referent will be traversed later
-      ref->instanceKlass::oop_follow_contents(obj);
+        MarkSweep::ref_processor()->discover_reference(obj, ref->reference_type())) {
+      // reference was discovered, referent will be traversed later
+      ref->InstanceKlass::oop_follow_contents(obj);
       debug_only(
         if(TraceReferenceGC && PrintGCDetails) {
-          gclog_or_tty->print_cr("       Non NULL enqueued " INTPTR_FORMAT, obj);
+          gclog_or_tty->print_cr("       Non NULL enqueued " INTPTR_FORMAT, (void *)obj);
         }
       )
       return;
@@ -70,24 +70,50 @@ static void specialized_oop_follow_contents(instanceRefKlass* ref, oop obj) {
       // treat referent as normal oop
       debug_only(
         if(TraceReferenceGC && PrintGCDetails) {
-          gclog_or_tty->print_cr("       Non NULL normal " INTPTR_FORMAT, obj);
+          gclog_or_tty->print_cr("       Non NULL normal " INTPTR_FORMAT, (void *)obj);
         }
       )
       MarkSweep::mark_and_push(referent_addr);
     }
   }
-  // treat next as normal oop.  next is a link in the pending list.
   T* next_addr = (T*)java_lang_ref_Reference::next_addr(obj);
+  if (ReferenceProcessor::pending_list_uses_discovered_field()) {
+    // Treat discovered as normal oop, if ref is not "active",
+    // i.e. if next is non-NULL.
+    T  next_oop = oopDesc::load_heap_oop(next_addr);
+    if (!oopDesc::is_null(next_oop)) { // i.e. ref is not "active"
+      T* discovered_addr = (T*)java_lang_ref_Reference::discovered_addr(obj);
+      debug_only(
+        if(TraceReferenceGC && PrintGCDetails) {
+          gclog_or_tty->print_cr("   Process discovered as normal "
+                                 INTPTR_FORMAT, discovered_addr);
+        }
+      )
+      MarkSweep::mark_and_push(discovered_addr);
+    }
+  } else {
+#ifdef ASSERT
+    // In the case of older JDKs which do not use the discovered
+    // field for the pending list, an inactive ref (next != NULL)
+    // must always have a NULL discovered field.
+    oop next = oopDesc::load_decode_heap_oop(next_addr);
+    oop discovered = java_lang_ref_Reference::discovered(obj);
+    assert(oopDesc::is_null(next) || oopDesc::is_null(discovered),
+           err_msg("Found an inactive reference " PTR_FORMAT " with a non-NULL discovered field",
+                   (oopDesc*)obj));
+#endif
+  }
+  // treat next as normal oop.  next is a link in the reference queue.
   debug_only(
     if(TraceReferenceGC && PrintGCDetails) {
       gclog_or_tty->print_cr("   Process next as normal " INTPTR_FORMAT, next_addr);
     }
   )
   MarkSweep::mark_and_push(next_addr);
-  ref->instanceKlass::oop_follow_contents(obj);
+  ref->InstanceKlass::oop_follow_contents(obj);
 }
 
-void instanceRefKlass::oop_follow_contents(oop obj) {
+void InstanceRefKlass::oop_follow_contents(oop obj) {
   if (UseCompressedOops) {
     specialized_oop_follow_contents<narrowOop>(this, obj);
   } else {
@@ -95,16 +121,16 @@ void instanceRefKlass::oop_follow_contents(oop obj) {
   }
 }
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 template <class T>
-void specialized_oop_follow_contents(instanceRefKlass* ref,
+void specialized_oop_follow_contents(InstanceRefKlass* ref,
                                      ParCompactionManager* cm,
                                      oop obj) {
   T* referent_addr = (T*)java_lang_ref_Reference::referent_addr(obj);
   T heap_oop = oopDesc::load_heap_oop(referent_addr);
   debug_only(
     if(TraceReferenceGC && PrintGCDetails) {
-      gclog_or_tty->print_cr("instanceRefKlass::oop_follow_contents " INTPTR_FORMAT, obj);
+      gclog_or_tty->print_cr("InstanceRefKlass::oop_follow_contents " INTPTR_FORMAT, (void *)obj);
     }
   )
   if (!oopDesc::is_null(heap_oop)) {
@@ -113,10 +139,10 @@ void specialized_oop_follow_contents(instanceRefKlass* ref,
         PSParallelCompact::ref_processor()->
           discover_reference(obj, ref->reference_type())) {
       // reference already enqueued, referent will be traversed later
-      ref->instanceKlass::oop_follow_contents(cm, obj);
+      ref->InstanceKlass::oop_follow_contents(cm, obj);
       debug_only(
         if(TraceReferenceGC && PrintGCDetails) {
-          gclog_or_tty->print_cr("       Non NULL enqueued " INTPTR_FORMAT, obj);
+          gclog_or_tty->print_cr("       Non NULL enqueued " INTPTR_FORMAT, (void *)obj);
         }
       )
       return;
@@ -124,24 +150,44 @@ void specialized_oop_follow_contents(instanceRefKlass* ref,
       // treat referent as normal oop
       debug_only(
         if(TraceReferenceGC && PrintGCDetails) {
-          gclog_or_tty->print_cr("       Non NULL normal " INTPTR_FORMAT, obj);
+          gclog_or_tty->print_cr("       Non NULL normal " INTPTR_FORMAT, (void *)obj);
         }
       )
       PSParallelCompact::mark_and_push(cm, referent_addr);
     }
   }
-  // treat next as normal oop.  next is a link in the pending list.
   T* next_addr = (T*)java_lang_ref_Reference::next_addr(obj);
-  debug_only(
-    if(TraceReferenceGC && PrintGCDetails) {
-      gclog_or_tty->print_cr("   Process next as normal " INTPTR_FORMAT, next_addr);
+  if (ReferenceProcessor::pending_list_uses_discovered_field()) {
+    // Treat discovered as normal oop, if ref is not "active",
+    // i.e. if next is non-NULL.
+    T  next_oop = oopDesc::load_heap_oop(next_addr);
+    if (!oopDesc::is_null(next_oop)) { // i.e. ref is not "active"
+      T* discovered_addr = (T*)java_lang_ref_Reference::discovered_addr(obj);
+      debug_only(
+        if(TraceReferenceGC && PrintGCDetails) {
+          gclog_or_tty->print_cr("   Process discovered as normal "
+                                 INTPTR_FORMAT, discovered_addr);
+        }
+      )
+      PSParallelCompact::mark_and_push(cm, discovered_addr);
     }
-  )
+  } else {
+#ifdef ASSERT
+    // In the case of older JDKs which do not use the discovered
+    // field for the pending list, an inactive ref (next != NULL)
+    // must always have a NULL discovered field.
+    T next = oopDesc::load_heap_oop(next_addr);
+    oop discovered = java_lang_ref_Reference::discovered(obj);
+    assert(oopDesc::is_null(next) || oopDesc::is_null(discovered),
+           err_msg("Found an inactive reference " PTR_FORMAT " with a non-NULL discovered field",
+                   (oopDesc*)obj));
+#endif
+  }
   PSParallelCompact::mark_and_push(cm, next_addr);
-  ref->instanceKlass::oop_follow_contents(cm, obj);
+  ref->InstanceKlass::oop_follow_contents(cm, obj);
 }
 
-void instanceRefKlass::oop_follow_contents(ParCompactionManager* cm,
+void InstanceRefKlass::oop_follow_contents(ParCompactionManager* cm,
                                            oop obj) {
   if (UseCompressedOops) {
     specialized_oop_follow_contents<narrowOop>(this, cm, obj);
@@ -149,7 +195,7 @@ void instanceRefKlass::oop_follow_contents(ParCompactionManager* cm,
     specialized_oop_follow_contents<oop>(this, cm, obj);
   }
 }
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
 #ifdef ASSERT
 template <class T> void trace_reference_gc(const char *s, oop obj,
@@ -173,20 +219,20 @@ template <class T> void trace_reference_gc(const char *s, oop obj,
 }
 #endif
 
-template <class T> void specialized_oop_adjust_pointers(instanceRefKlass *ref, oop obj) {
+template <class T> void specialized_oop_adjust_pointers(InstanceRefKlass *ref, oop obj) {
   T* referent_addr = (T*)java_lang_ref_Reference::referent_addr(obj);
   MarkSweep::adjust_pointer(referent_addr);
   T* next_addr = (T*)java_lang_ref_Reference::next_addr(obj);
   MarkSweep::adjust_pointer(next_addr);
   T* discovered_addr = (T*)java_lang_ref_Reference::discovered_addr(obj);
   MarkSweep::adjust_pointer(discovered_addr);
-  debug_only(trace_reference_gc("instanceRefKlass::oop_adjust_pointers", obj,
+  debug_only(trace_reference_gc("InstanceRefKlass::oop_adjust_pointers", obj,
                                 referent_addr, next_addr, discovered_addr);)
 }
 
-int instanceRefKlass::oop_adjust_pointers(oop obj) {
+int InstanceRefKlass::oop_adjust_pointers(oop obj) {
   int size = size_helper();
-  instanceKlass::oop_adjust_pointers(obj);
+  InstanceKlass::oop_adjust_pointers(obj);
 
   if (UseCompressedOops) {
     specialized_oop_adjust_pointers<narrowOop>(this, obj);
@@ -197,27 +243,53 @@ int instanceRefKlass::oop_adjust_pointers(oop obj) {
 }
 
 #define InstanceRefKlass_SPECIALIZED_OOP_ITERATE(T, nv_suffix, contains)        \
+  T* disc_addr = (T*)java_lang_ref_Reference::discovered_addr(obj);             \
   if (closure->apply_to_weak_ref_discovered_field()) {                          \
-    T* disc_addr = (T*)java_lang_ref_Reference::discovered_addr(obj);           \
     closure->do_oop##nv_suffix(disc_addr);                                      \
   }                                                                             \
                                                                                 \
   T* referent_addr = (T*)java_lang_ref_Reference::referent_addr(obj);           \
   T heap_oop = oopDesc::load_heap_oop(referent_addr);                           \
-  if (!oopDesc::is_null(heap_oop) && contains(referent_addr)) {                 \
-    ReferenceProcessor* rp = closure->_ref_processor;                           \
+  ReferenceProcessor* rp = closure->_ref_processor;                             \
+  if (!oopDesc::is_null(heap_oop)) {                                            \
     oop referent = oopDesc::decode_heap_oop_not_null(heap_oop);                 \
     if (!referent->is_gc_marked() && (rp != NULL) &&                            \
         rp->discover_reference(obj, reference_type())) {                        \
       return size;                                                              \
-    } else {                                                                    \
+    } else if (contains(referent_addr)) {                                       \
       /* treat referent as normal oop */                                        \
       SpecializationStats::record_do_oop_call##nv_suffix(SpecializationStats::irk);\
       closure->do_oop##nv_suffix(referent_addr);                                \
     }                                                                           \
   }                                                                             \
-  /* treat next as normal oop */                                                \
   T* next_addr = (T*)java_lang_ref_Reference::next_addr(obj);                   \
+  if (ReferenceProcessor::pending_list_uses_discovered_field()) {               \
+    T next_oop  = oopDesc::load_heap_oop(next_addr);                            \
+    /* Treat discovered as normal oop, if ref is not "active" (next non-NULL) */\
+    if (!oopDesc::is_null(next_oop) && contains(disc_addr)) {                   \
+        /* i.e. ref is not "active" */                                          \
+      debug_only(                                                               \
+        if(TraceReferenceGC && PrintGCDetails) {                                \
+          gclog_or_tty->print_cr("   Process discovered as normal "             \
+                                 INTPTR_FORMAT, disc_addr);                     \
+        }                                                                       \
+      )                                                                         \
+      SpecializationStats::record_do_oop_call##nv_suffix(SpecializationStats::irk);\
+      closure->do_oop##nv_suffix(disc_addr);                                    \
+    }                                                                           \
+  } else {                                                                      \
+    /* In the case of older JDKs which do not use the discovered field for  */  \
+    /* the pending list, an inactive ref (next != NULL) must always have a  */  \
+    /* NULL discovered field. */                                                \
+    debug_only(                                                                 \
+      T next_oop = oopDesc::load_heap_oop(next_addr);                           \
+      T disc_oop = oopDesc::load_heap_oop(disc_addr);                           \
+      assert(oopDesc::is_null(next_oop) || oopDesc::is_null(disc_oop),          \
+           err_msg("Found an inactive reference " PTR_FORMAT " with a non-NULL" \
+                   "discovered field", (oopDesc*)obj));                                   \
+    )                                                                           \
+  }                                                                             \
+  /* treat next as normal oop */                                                \
   if (contains(next_addr)) {                                                    \
     SpecializationStats::record_do_oop_call##nv_suffix(SpecializationStats::irk); \
     closure->do_oop##nv_suffix(next_addr);                                      \
@@ -227,17 +299,17 @@ int instanceRefKlass::oop_adjust_pointers(oop obj) {
 
 template <class T> bool contains(T *t) { return true; }
 
-// Macro to define instanceRefKlass::oop_oop_iterate for virtual/nonvirtual for
+// Macro to define InstanceRefKlass::oop_oop_iterate for virtual/nonvirtual for
 // all closures.  Macros calling macros above for each oop size.
 
 #define InstanceRefKlass_OOP_OOP_ITERATE_DEFN(OopClosureType, nv_suffix)        \
                                                                                 \
-int instanceRefKlass::                                                          \
+int InstanceRefKlass::                                                          \
 oop_oop_iterate##nv_suffix(oop obj, OopClosureType* closure) {                  \
   /* Get size before changing pointers */                                       \
   SpecializationStats::record_iterate_call##nv_suffix(SpecializationStats::irk);\
                                                                                 \
-  int size = instanceKlass::oop_oop_iterate##nv_suffix(obj, closure);           \
+  int size = InstanceKlass::oop_oop_iterate##nv_suffix(obj, closure);           \
                                                                                 \
   if (UseCompressedOops) {                                                      \
     InstanceRefKlass_SPECIALIZED_OOP_ITERATE(narrowOop, nv_suffix, contains);   \
@@ -246,15 +318,15 @@ oop_oop_iterate##nv_suffix(oop obj, OopClosureType* closure) {                  
   }                                                                             \
 }
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 #define InstanceRefKlass_OOP_OOP_ITERATE_BACKWARDS_DEFN(OopClosureType, nv_suffix) \
                                                                                 \
-int instanceRefKlass::                                                          \
+int InstanceRefKlass::                                                          \
 oop_oop_iterate_backwards##nv_suffix(oop obj, OopClosureType* closure) {        \
   /* Get size before changing pointers */                                       \
   SpecializationStats::record_iterate_call##nv_suffix(SpecializationStats::irk);\
                                                                                 \
-  int size = instanceKlass::oop_oop_iterate_backwards##nv_suffix(obj, closure); \
+  int size = InstanceKlass::oop_oop_iterate_backwards##nv_suffix(obj, closure); \
                                                                                 \
   if (UseCompressedOops) {                                                      \
     InstanceRefKlass_SPECIALIZED_OOP_ITERATE(narrowOop, nv_suffix, contains);   \
@@ -262,18 +334,18 @@ oop_oop_iterate_backwards##nv_suffix(oop obj, OopClosureType* closure) {        
     InstanceRefKlass_SPECIALIZED_OOP_ITERATE(oop, nv_suffix, contains);         \
   }                                                                             \
 }
-#endif // !SERIALGC
+#endif // INCLUDE_ALL_GCS
 
 
 #define InstanceRefKlass_OOP_OOP_ITERATE_DEFN_m(OopClosureType, nv_suffix)      \
                                                                                 \
-int instanceRefKlass::                                                          \
+int InstanceRefKlass::                                                          \
 oop_oop_iterate##nv_suffix##_m(oop obj,                                         \
                                OopClosureType* closure,                         \
                                MemRegion mr) {                                  \
   SpecializationStats::record_iterate_call##nv_suffix(SpecializationStats::irk);\
                                                                                 \
-  int size = instanceKlass::oop_oop_iterate##nv_suffix##_m(obj, closure, mr);   \
+  int size = InstanceKlass::oop_oop_iterate##nv_suffix##_m(obj, closure, mr);   \
   if (UseCompressedOops) {                                                      \
     InstanceRefKlass_SPECIALIZED_OOP_ITERATE(narrowOop, nv_suffix, mr.contains); \
   } else {                                                                      \
@@ -283,38 +355,67 @@ oop_oop_iterate##nv_suffix##_m(oop obj,                                         
 
 ALL_OOP_OOP_ITERATE_CLOSURES_1(InstanceRefKlass_OOP_OOP_ITERATE_DEFN)
 ALL_OOP_OOP_ITERATE_CLOSURES_2(InstanceRefKlass_OOP_OOP_ITERATE_DEFN)
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 ALL_OOP_OOP_ITERATE_CLOSURES_1(InstanceRefKlass_OOP_OOP_ITERATE_BACKWARDS_DEFN)
 ALL_OOP_OOP_ITERATE_CLOSURES_2(InstanceRefKlass_OOP_OOP_ITERATE_BACKWARDS_DEFN)
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 ALL_OOP_OOP_ITERATE_CLOSURES_1(InstanceRefKlass_OOP_OOP_ITERATE_DEFN_m)
 ALL_OOP_OOP_ITERATE_CLOSURES_2(InstanceRefKlass_OOP_OOP_ITERATE_DEFN_m)
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 template <class T>
-void specialized_oop_push_contents(instanceRefKlass *ref,
+void specialized_oop_push_contents(InstanceRefKlass *ref,
                                    PSPromotionManager* pm, oop obj) {
   T* referent_addr = (T*)java_lang_ref_Reference::referent_addr(obj);
   if (PSScavenge::should_scavenge(referent_addr)) {
     ReferenceProcessor* rp = PSScavenge::reference_processor();
     if (rp->discover_reference(obj, ref->reference_type())) {
       // reference already enqueued, referent and next will be traversed later
-      ref->instanceKlass::oop_push_contents(pm, obj);
+      ref->InstanceKlass::oop_push_contents(pm, obj);
       return;
     } else {
       // treat referent as normal oop
       pm->claim_or_forward_depth(referent_addr);
     }
   }
-  // treat next as normal oop
+  // Treat discovered as normal oop, if ref is not "active",
+  // i.e. if next is non-NULL.
   T* next_addr = (T*)java_lang_ref_Reference::next_addr(obj);
+  if (ReferenceProcessor::pending_list_uses_discovered_field()) {
+    T  next_oop = oopDesc::load_heap_oop(next_addr);
+    if (!oopDesc::is_null(next_oop)) { // i.e. ref is not "active"
+      T* discovered_addr = (T*)java_lang_ref_Reference::discovered_addr(obj);
+      debug_only(
+        if(TraceReferenceGC && PrintGCDetails) {
+          gclog_or_tty->print_cr("   Process discovered as normal "
+                                 INTPTR_FORMAT, discovered_addr);
+        }
+      )
+      if (PSScavenge::should_scavenge(discovered_addr)) {
+        pm->claim_or_forward_depth(discovered_addr);
+      }
+    }
+  } else {
+#ifdef ASSERT
+    // In the case of older JDKs which do not use the discovered
+    // field for the pending list, an inactive ref (next != NULL)
+    // must always have a NULL discovered field.
+    oop next = oopDesc::load_decode_heap_oop(next_addr);
+    oop discovered = java_lang_ref_Reference::discovered(obj);
+    assert(oopDesc::is_null(next) || oopDesc::is_null(discovered),
+           err_msg("Found an inactive reference " PTR_FORMAT " with a non-NULL discovered field",
+                   (oopDesc*)obj));
+#endif
+  }
+
+  // Treat next as normal oop;  next is a link in the reference queue.
   if (PSScavenge::should_scavenge(next_addr)) {
     pm->claim_or_forward_depth(next_addr);
   }
-  ref->instanceKlass::oop_push_contents(pm, obj);
+  ref->InstanceKlass::oop_push_contents(pm, obj);
 }
 
-void instanceRefKlass::oop_push_contents(PSPromotionManager* pm, oop obj) {
+void InstanceRefKlass::oop_push_contents(PSPromotionManager* pm, oop obj) {
   if (UseCompressedOops) {
     specialized_oop_push_contents<narrowOop>(this, pm, obj);
   } else {
@@ -323,7 +424,7 @@ void instanceRefKlass::oop_push_contents(PSPromotionManager* pm, oop obj) {
 }
 
 template <class T>
-void specialized_oop_update_pointers(instanceRefKlass *ref,
+void specialized_oop_update_pointers(InstanceRefKlass *ref,
                                     ParCompactionManager* cm, oop obj) {
   T* referent_addr = (T*)java_lang_ref_Reference::referent_addr(obj);
   PSParallelCompact::adjust_pointer(referent_addr);
@@ -331,12 +432,12 @@ void specialized_oop_update_pointers(instanceRefKlass *ref,
   PSParallelCompact::adjust_pointer(next_addr);
   T* discovered_addr = (T*)java_lang_ref_Reference::discovered_addr(obj);
   PSParallelCompact::adjust_pointer(discovered_addr);
-  debug_only(trace_reference_gc("instanceRefKlass::oop_update_ptrs", obj,
+  debug_only(trace_reference_gc("InstanceRefKlass::oop_update_ptrs", obj,
                                 referent_addr, next_addr, discovered_addr);)
 }
 
-int instanceRefKlass::oop_update_pointers(ParCompactionManager* cm, oop obj) {
-  instanceKlass::oop_update_pointers(cm, obj);
+int InstanceRefKlass::oop_update_pointers(ParCompactionManager* cm, oop obj) {
+  InstanceKlass::oop_update_pointers(cm, obj);
   if (UseCompressedOops) {
     specialized_oop_update_pointers<narrowOop>(this, cm, obj);
   } else {
@@ -344,15 +445,15 @@ int instanceRefKlass::oop_update_pointers(ParCompactionManager* cm, oop obj) {
   }
   return size_helper();
 }
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
-void instanceRefKlass::update_nonstatic_oop_maps(klassOop k) {
+void InstanceRefKlass::update_nonstatic_oop_maps(Klass* k) {
   // Clear the nonstatic oop-map entries corresponding to referent
   // and nextPending field.  They are treated specially by the
   // garbage collector.
   // The discovered field is used only by the garbage collector
   // and is also treated specially.
-  instanceKlass* ik = instanceKlass::cast(k);
+  InstanceKlass* ik = InstanceKlass::cast(k);
 
   // Check that we have the right class
   debug_only(static bool first_time = true);
@@ -385,8 +486,8 @@ void instanceRefKlass::update_nonstatic_oop_maps(klassOop k) {
 
 // Verification
 
-void instanceRefKlass::oop_verify_on(oop obj, outputStream* st) {
-  instanceKlass::oop_verify_on(obj, st);
+void InstanceRefKlass::oop_verify_on(oop obj, outputStream* st) {
+  InstanceKlass::oop_verify_on(obj, st);
   // Verify referent field
   oop referent = java_lang_ref_Reference::referent(obj);
 
@@ -397,48 +498,30 @@ void instanceRefKlass::oop_verify_on(oop obj, outputStream* st) {
 
   if (referent != NULL) {
     guarantee(referent->is_oop(), "referent field heap failed");
-    if (gch != NULL && !gch->is_in_young(obj)) {
-      // We do a specific remembered set check here since the referent
-      // field is not part of the oop mask and therefore skipped by the
-      // regular verify code.
-      if (UseCompressedOops) {
-        narrowOop* referent_addr = (narrowOop*)java_lang_ref_Reference::referent_addr(obj);
-        obj->verify_old_oop(referent_addr, true);
-      } else {
-        oop* referent_addr = (oop*)java_lang_ref_Reference::referent_addr(obj);
-        obj->verify_old_oop(referent_addr, true);
-      }
-    }
   }
   // Verify next field
   oop next = java_lang_ref_Reference::next(obj);
   if (next != NULL) {
     guarantee(next->is_oop(), "next field verify failed");
     guarantee(next->is_instanceRef(), "next field verify failed");
-    if (gch != NULL && !gch->is_in_young(obj)) {
-      // We do a specific remembered set check here since the next field is
-      // not part of the oop mask and therefore skipped by the regular
-      // verify code.
-      if (UseCompressedOops) {
-        narrowOop* next_addr = (narrowOop*)java_lang_ref_Reference::next_addr(obj);
-        obj->verify_old_oop(next_addr, true);
-      } else {
-        oop* next_addr = (oop*)java_lang_ref_Reference::next_addr(obj);
-        obj->verify_old_oop(next_addr, true);
-      }
-    }
   }
 }
 
-bool instanceRefKlass::owns_pending_list_lock(JavaThread* thread) {
+bool InstanceRefKlass::owns_pending_list_lock(JavaThread* thread) {
   if (java_lang_ref_Reference::pending_list_lock() == NULL) return false;
   Handle h_lock(thread, java_lang_ref_Reference::pending_list_lock());
   return ObjectSynchronizer::current_thread_holds_lock(thread, h_lock);
 }
 
-void instanceRefKlass::acquire_pending_list_lock(BasicLock *pending_list_basic_lock) {
+void InstanceRefKlass::acquire_pending_list_lock(BasicLock *pending_list_basic_lock) {
   // we may enter this with pending exception set
   PRESERVE_EXCEPTION_MARK;  // exceptions are never thrown, needed for TRAPS argument
+
+  // Create a HandleMark in case we retry a GC multiple times.
+  // Each time we attempt the GC, we allocate the handle below
+  // to hold the pending list lock. We want to free this handle.
+  HandleMark hm;
+
   Handle h_lock(THREAD, java_lang_ref_Reference::pending_list_lock());
   ObjectSynchronizer::fast_enter(h_lock, pending_list_basic_lock, false, THREAD);
   assert(ObjectSynchronizer::current_thread_holds_lock(
@@ -447,11 +530,16 @@ void instanceRefKlass::acquire_pending_list_lock(BasicLock *pending_list_basic_l
   if (HAS_PENDING_EXCEPTION) CLEAR_PENDING_EXCEPTION;
 }
 
-void instanceRefKlass::release_and_notify_pending_list_lock(
+void InstanceRefKlass::release_and_notify_pending_list_lock(
   BasicLock *pending_list_basic_lock) {
   // we may enter this with pending exception set
   PRESERVE_EXCEPTION_MARK;  // exceptions are never thrown, needed for TRAPS argument
-  //
+
+  // Create a HandleMark in case we retry a GC multiple times.
+  // Each time we attempt the GC, we allocate the handle below
+  // to hold the pending list lock. We want to free this handle.
+  HandleMark hm;
+
   Handle h_lock(THREAD, java_lang_ref_Reference::pending_list_lock());
   assert(ObjectSynchronizer::current_thread_holds_lock(
            JavaThread::current(), h_lock),

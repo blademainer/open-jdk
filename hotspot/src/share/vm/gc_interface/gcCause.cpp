@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,12 +42,6 @@ const char* GCCause::to_string(GCCause::Cause cause) {
     case _jvmti_force_gc:
       return "JvmtiEnv ForceGarbageCollection";
 
-    case _no_gc:
-      return "No GC";
-
-    case _allocation_failure:
-      return "Allocation Failure";
-
     case _gc_locker:
       return "GCLocker Initiated GC";
 
@@ -57,11 +51,17 @@ const char* GCCause::to_string(GCCause::Cause cause) {
     case _heap_dump:
       return "Heap Dump Initiated GC";
 
+    case _no_gc:
+      return "No GC";
+
+    case _allocation_failure:
+      return "Allocation Failure";
+
     case _tenured_generation_full:
       return "Tenured Generation Full";
 
-    case _permanent_generation_full:
-      return "Permanent Generation Full";
+    case _metadata_GC_threshold:
+      return "Metadata GC Threshold";
 
     case _cms_generation_full:
       return "CMS Generation Full";
@@ -72,14 +72,23 @@ const char* GCCause::to_string(GCCause::Cause cause) {
     case _cms_final_remark:
       return "CMS Final Remark";
 
+    case _cms_concurrent_mark:
+      return "CMS Concurrent Mark";
+
     case _old_generation_expanded_on_last_scavenge:
       return "Old Generation Expanded On Last Scavenge";
 
     case _old_generation_too_full_to_scavenge:
       return "Old Generation Too Full To Scavenge";
 
+    case _adaptive_size_policy:
+      return "Ergonomics";
+
     case _g1_inc_collection_pause:
       return "G1 Evacuation Pause";
+
+    case _g1_humongous_allocation:
+      return "G1 Humongous Allocation";
 
     case _last_ditch_collection:
       return "Last ditch collection";

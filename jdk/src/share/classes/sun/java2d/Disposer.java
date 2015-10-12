@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,7 +57,12 @@ public class Disposer implements Runnable {
 
     static {
         java.security.AccessController.doPrivileged(
-            new sun.security.action.LoadLibraryAction("awt"));
+            new java.security.PrivilegedAction<Void>() {
+                public Void run() {
+                    System.loadLibrary("awt");
+                    return null;
+                }
+            });
         initIDs();
         String type = (String) java.security.AccessController.doPrivileged(
                 new sun.security.action.GetPropertyAction("sun.java2d.reftype"));
@@ -150,8 +155,7 @@ public class Disposer implements Runnable {
                 rec = null;
                 clearDeferredRecords();
             } catch (Exception e) {
-                System.out.println("Exception while removing reference: " + e);
-                e.printStackTrace();
+                System.out.println("Exception while removing reference.");
             }
         }
     }
@@ -177,7 +181,6 @@ public class Disposer implements Runnable {
                 rec.dispose();
             } catch (Exception e) {
                 System.out.println("Exception while disposing deferred rec.");
-                e.printStackTrace();
             }
         }
         deferredRecords.clear();
@@ -228,8 +231,7 @@ public class Disposer implements Runnable {
                 }
             }
         } catch (Exception e) {
-            System.out.println("Exception while removing reference: " + e);
-            e.printStackTrace();
+            System.out.println("Exception while removing reference.");
         } finally {
             pollingQueue = false;
         }

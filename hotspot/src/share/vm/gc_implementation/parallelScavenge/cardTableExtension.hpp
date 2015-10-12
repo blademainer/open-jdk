@@ -60,16 +60,12 @@ class CardTableExtension : public CardTableModRefBS {
   // BarrierSet::Name kind() { return BarrierSet::CardTableExtension; }
 
   // Scavenge support
-  void scavenge_contents(ObjectStartArray* start_array,
-                         MutableSpace* sp,
-                         HeapWord* space_top,
-                         PSPromotionManager* pm);
-
   void scavenge_contents_parallel(ObjectStartArray* start_array,
                                   MutableSpace* sp,
                                   HeapWord* space_top,
                                   PSPromotionManager* pm,
-                                  uint stripe_number);
+                                  uint stripe_number,
+                                  uint stripe_total);
 
   // Verification
   static void verify_all_young_refs_imprecise();

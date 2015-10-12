@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,8 @@ package javax.swing;
 
 import java.util.List;
 import java.util.ArrayList;
-import java.util.Vector;
+import java.util.Collection;
+import java.util.Iterator;
 import javax.swing.plaf.*;
 import javax.accessibility.*;
 
@@ -42,7 +43,6 @@ import java.io.IOException;
 import java.beans.PropertyVetoException;
 import java.util.Set;
 import java.util.TreeSet;
-
 /**
  * A container used to create a multiple-document interface or a virtual desktop.
  * You create <code>JInternalFrame</code> objects and add them to the
@@ -50,20 +50,20 @@ import java.util.TreeSet;
  * <code>JLayeredPane</code> to manage the potentially overlapping internal
  * frames. It also maintains a reference to an instance of
  * <code>DesktopManager</code> that is set by the UI
- * class for the current look and feel (L&F).  Note that <code>JDesktopPane</code>
+ * class for the current look and feel (L&amp;F).  Note that <code>JDesktopPane</code>
  * does not support borders.
  * <p>
  * This class is normally used as the parent of <code>JInternalFrames</code>
  * to provide a pluggable <code>DesktopManager</code> object to the
  * <code>JInternalFrames</code>. The <code>installUI</code> of the
- * L&F specific implementation is responsible for setting the
+ * L&amp;F specific implementation is responsible for setting the
  * <code>desktopManager</code> variable appropriately.
  * When the parent of a <code>JInternalFrame</code> is a <code>JDesktopPane</code>,
  * it should delegate most of its behavior to the <code>desktopManager</code>
  * (closing, resizing, etc).
  * <p>
  * For further documentation and examples see
- * <a href="http://java.sun.com/docs/books/tutorial/uiswing/components/internalframe.html">How to Use Internal Frames</a>,
+ * <a href="http://docs.oracle.com/javase/tutorial/uiswing/components/internalframe.html">How to Use Internal Frames</a>,
  * a section in <em>The Java Tutorial</em>.
  * <p>
  * <strong>Warning:</strong> Swing is not thread safe. For more
@@ -76,7 +76,7 @@ import java.util.TreeSet;
  * future Swing releases. The current serialization support is
  * appropriate for short term storage or RMI between applications running
  * the same version of Swing.  As of 1.4, support for long term storage
- * of all JavaBeans<sup><font size="-2">TM</font></sup>
+ * of all JavaBeans&trade;
  * has been added to the <code>java.beans</code> package.
  * Please see {@link java.beans.XMLEncoder}.
  *
@@ -146,7 +146,7 @@ public class JDesktopPane extends JLayeredPane implements Accessible
     }
 
     /**
-     * Returns the L&F object that renders this component.
+     * Returns the L&amp;F object that renders this component.
      *
      * @return the <code>DesktopPaneUI</code> object that
      *   renders this component
@@ -156,9 +156,9 @@ public class JDesktopPane extends JLayeredPane implements Accessible
     }
 
     /**
-     * Sets the L&F object that renders this component.
+     * Sets the L&amp;F object that renders this component.
      *
-     * @param ui  the DesktopPaneUI L&F object
+     * @param ui  the DesktopPaneUI L&amp;F object
      * @see UIDefaults#getUI
      * @beaninfo
      *        bound: true
@@ -232,7 +232,7 @@ public class JDesktopPane extends JLayeredPane implements Accessible
     }
 
     /**
-     * Notification from the <code>UIManager</code> that the L&F has changed.
+     * Notification from the <code>UIManager</code> that the L&amp;F has changed.
      * Replaces the current UI object with the latest version from the
      * <code>UIManager</code>.
      *
@@ -244,7 +244,7 @@ public class JDesktopPane extends JLayeredPane implements Accessible
 
 
     /**
-     * Returns the name of the L&F class that renders this component.
+     * Returns the name of the L&amp;F class that renders this component.
      *
      * @return the string "DesktopPaneUI"
      * @see JComponent#getUIClassID
@@ -261,25 +261,26 @@ public class JDesktopPane extends JLayeredPane implements Accessible
      * @return an array of <code>JInternalFrame</code> objects
      */
     public JInternalFrame[] getAllFrames() {
-        int i, count;
-        JInternalFrame[] results;
-        Vector<JInternalFrame> vResults = new Vector<JInternalFrame>(10);
+        return getAllFrames(this).toArray(new JInternalFrame[0]);
+    }
 
-        count = getComponentCount();
-        for(i = 0; i < count; i++) {
-            Component next = getComponent(i);
-            if(next instanceof JInternalFrame)
-                vResults.addElement((JInternalFrame) next);
-            else if(next instanceof JInternalFrame.JDesktopIcon)  {
-                JInternalFrame tmp = ((JInternalFrame.JDesktopIcon)next).getInternalFrame();
-                if(tmp != null)
-                    vResults.addElement(tmp);
+    private static Collection<JInternalFrame> getAllFrames(Container parent) {
+        int i, count;
+        Collection<JInternalFrame> results = new ArrayList<JInternalFrame>();
+        count = parent.getComponentCount();
+        for (i = 0; i < count; i++) {
+            Component next = parent.getComponent(i);
+            if (next instanceof JInternalFrame) {
+                results.add((JInternalFrame) next);
+            } else if (next instanceof JInternalFrame.JDesktopIcon) {
+                JInternalFrame tmp = ((JInternalFrame.JDesktopIcon) next).getInternalFrame();
+                if (tmp != null) {
+                    results.add(tmp);
+                }
+            } else if (next instanceof Container) {
+                results.addAll(getAllFrames((Container) next));
             }
         }
-
-        results = new JInternalFrame[vResults.size()];
-        vResults.copyInto(results);
-
         return results;
     }
 
@@ -322,27 +323,14 @@ public class JDesktopPane extends JLayeredPane implements Accessible
      * @see JLayeredPane
      */
     public JInternalFrame[] getAllFramesInLayer(int layer) {
-        int i, count;
-        JInternalFrame[] results;
-        Vector<JInternalFrame> vResults = new Vector<JInternalFrame>(10);
-
-        count = getComponentCount();
-        for(i = 0; i < count; i++) {
-            Component next = getComponent(i);
-            if(next instanceof JInternalFrame) {
-                if(((JInternalFrame)next).getLayer() == layer)
-                    vResults.addElement((JInternalFrame) next);
-            } else if(next instanceof JInternalFrame.JDesktopIcon)  {
-                JInternalFrame tmp = ((JInternalFrame.JDesktopIcon)next).getInternalFrame();
-                if(tmp != null && tmp.getLayer() == layer)
-                    vResults.addElement(tmp);
+        Collection<JInternalFrame> allFrames = getAllFrames(this);
+        Iterator<JInternalFrame> iterator = allFrames.iterator();
+        while (iterator.hasNext()) {
+            if (iterator.next().getLayer() != layer) {
+                iterator.remove();
             }
         }
-
-        results = new JInternalFrame[vResults.size()];
-        vResults.copyInto(results);
-
-        return results;
+        return allFrames.toArray(new JInternalFrame[0]);
     }
 
     private List<JInternalFrame> getFrames() {
@@ -437,6 +425,15 @@ public class JDesktopPane extends JLayeredPane implements Accessible
             componentOrderChanged = false;
             updateFramesCache();
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void remove(Component comp) {
+        super.remove(comp);
+        updateFramesCache();
     }
 
     /**
@@ -615,7 +612,7 @@ public class JDesktopPane extends JLayeredPane implements Accessible
      * future Swing releases. The current serialization support is
      * appropriate for short term storage or RMI between applications running
      * the same version of Swing.  As of 1.4, support for long term storage
-     * of all JavaBeans<sup><font size="-2">TM</font></sup>
+     * of all JavaBeans&trade;
      * has been added to the <code>java.beans</code> package.
      * Please see {@link java.beans.XMLEncoder}.
      */

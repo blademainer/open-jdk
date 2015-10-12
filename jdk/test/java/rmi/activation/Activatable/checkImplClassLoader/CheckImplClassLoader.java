@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,14 +24,11 @@
 /* @test
  * @bug 4289544
  * @summary ActivationGroupImpl.newInstance does not set context classloader for impl
- *
  * @author Laird Dornin; code borrowed from Ann Wollrath
  *
  * @library ../../../testlibrary
- * @build TestLibrary RMID JavaVM StreamPipe
- * @build MyRMI
- * @build CheckImplClassLoader ActivatableImpl
- * @build ActivatableImpl ActivatableImpl_Stub
+ * @build TestLibrary RMID
+ *     MyRMI ActivatableImpl ActivatableImpl ActivatableImpl_Stub
  * @run main/othervm/policy=security.policy/timeout=150 CheckImplClassLoader
  */
 

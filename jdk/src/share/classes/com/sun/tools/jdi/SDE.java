@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -171,7 +171,7 @@ class SDE {
         }
 
         public boolean equals(Object obj) {
-            if ((obj != null) && (obj instanceof LineStratum)) {
+            if (obj instanceof LineStratum) {
                 LineStratum other = (LineStratum)obj;
                 return (lti == other.lti) &&
                        (sti == other.sti) &&
@@ -180,6 +180,11 @@ class SDE {
             } else {
                 return false;
             }
+        }
+
+        @Override
+        public int hashCode() {
+            return (lineNumber() * 17) ^ refType.hashCode();
         }
 
         int lineNumber() {

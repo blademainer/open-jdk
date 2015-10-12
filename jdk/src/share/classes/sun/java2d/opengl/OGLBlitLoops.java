@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 
 package sun.java2d.opengl;
 
+import java.awt.AlphaComposite;
 import java.awt.Composite;
 import java.awt.Transparency;
 import java.awt.geom.AffineTransform;
@@ -44,6 +45,7 @@ import sun.java2d.pipe.Region;
 import sun.java2d.pipe.RenderBuffer;
 import sun.java2d.pipe.RenderQueue;
 import static sun.java2d.pipe.BufferedOpCodes.*;
+import java.lang.annotation.Native;
 
 class OGLBlitLoops {
 
@@ -95,6 +97,8 @@ class OGLBlitLoops {
             new OGLGeneralBlit(OGLSurfaceData.OpenGLSurface,
                                CompositeType.AnyAlpha,
                                blitIntArgbPreToSurface),
+
+            new OGLAnyCompositeBlit(OGLSurfaceData.OpenGLSurface),
 
             new OGLSwToSurfaceScale(SurfaceType.IntRgb,
                                     OGLSurfaceData.PF_INT_RGB),
@@ -172,6 +176,9 @@ class OGLBlitLoops {
             new OGLGeneralBlit(OGLSurfaceData.OpenGLTexture,
                                CompositeType.SrcNoEa,
                                blitIntArgbPreToTexture),
+
+            new OGLAnyCompositeBlit(OGLSurfaceData.OpenGLTexture),
+
         };
         GraphicsPrimitiveMgr.register(primitives);
     }
@@ -181,12 +188,12 @@ class OGLBlitLoops {
      * createPackedParams().  (They are also used at the native level when
      * unpacking the params.)
      */
-    private static final int OFFSET_SRCTYPE = 16;
-    private static final int OFFSET_HINT    =  8;
-    private static final int OFFSET_TEXTURE =  3;
-    private static final int OFFSET_RTT     =  2;
-    private static final int OFFSET_XFORM   =  1;
-    private static final int OFFSET_ISOBLIT =  0;
+    @Native private static final int OFFSET_SRCTYPE = 16;
+    @Native private static final int OFFSET_HINT    =  8;
+    @Native private static final int OFFSET_TEXTURE =  3;
+    @Native private static final int OFFSET_RTT     =  2;
+    @Native private static final int OFFSET_XFORM   =  1;
+    @Native private static final int OFFSET_ISOBLIT =  0;
 
     /**
      * Packs the given parameters into a single int value in order to save
@@ -347,7 +354,7 @@ class OGLBlitLoops {
                 OGLBufImgOps.disableBufImgOp(rq, biop);
             }
 
-            if (rtt && (oglDst.getType() == OGLSurfaceData.WINDOW)) {
+            if (rtt && oglDst.isOnScreen()) {
                 // we only have to flush immediately when copying from a
                 // (non-texture) surface to the screen; otherwise Swing apps
                 // might appear unresponsive until the auto-flush completes
@@ -713,7 +720,7 @@ class OGLTextureToSurfaceTransform extends TransformBlit {
 }
 
 /**
- * This general Blit implemenation converts any source surface to an
+ * This general Blit implementation converts any source surface to an
  * intermediate IntArgbPre surface, and then uses the more specific
  * IntArgbPre->OpenGLSurface/Texture loop to get the intermediate
  * (premultiplied) surface down to OpenGL.
@@ -758,5 +765,51 @@ class OGLGeneralBlit extends Blit {
             // cache the intermediate surface
             srcTmp = new WeakReference(src);
         }
+    }
+}
+
+class OGLAnyCompositeBlit extends Blit {
+    private WeakReference<SurfaceData> dstTmp;
+
+    public OGLAnyCompositeBlit(SurfaceType dstType) {
+        super(SurfaceType.Any, CompositeType.Any, dstType);
+    }
+    public synchronized void Blit(SurfaceData src, SurfaceData dst,
+                                  Composite comp, Region clip,
+                                  int sx, int sy, int dx, int dy,
+                                  int w, int h)
+    {
+        Blit convertdst = Blit.getFromCache(dst.getSurfaceType(),
+                                            CompositeType.SrcNoEa,
+                                            SurfaceType.IntArgbPre);
+
+        SurfaceData cachedDst = null;
+
+        if (dstTmp != null) {
+            // use cached intermediate surface, if available
+            cachedDst = dstTmp.get();
+        }
+
+        // convert source to IntArgbPre
+        SurfaceData dstBuffer = convertFrom(convertdst, dst, dx, dy, w, h,
+                          cachedDst, BufferedImage.TYPE_INT_ARGB_PRE);
+
+        Blit performop = Blit.getFromCache(src.getSurfaceType(),
+                CompositeType.Any, dstBuffer.getSurfaceType());
+
+        performop.Blit(src, dstBuffer, comp, clip,
+                       sx, sy, 0, 0, w, h);
+
+        if (dstBuffer != cachedDst) {
+            // cache the intermediate surface
+            dstTmp = new WeakReference(dstBuffer);
+        }
+
+        // now blit the buffer back to the destination
+        convertdst = Blit.getFromCache(dstBuffer.getSurfaceType(),
+                                            CompositeType.SrcNoEa,
+                                            dst.getSurfaceType());
+        convertdst.Blit(dstBuffer, dst, AlphaComposite.Src,
+                 clip, 0, 0, dx, dy, w, h);
     }
 }

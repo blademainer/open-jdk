@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,7 @@
  *   and verify their signatures
  * @author Andreas Sterbenz
  * @library ..
+ * @library ../../../../java/security/testlibrary
  */
 
 import java.io.*;
@@ -36,6 +37,7 @@ import java.util.*;
 import java.security.cert.*;
 import java.security.*;
 import java.security.interfaces.*;
+import java.security.spec.ECParameterSpec;
 
 import javax.security.auth.x500.X500Principal;
 
@@ -62,7 +64,11 @@ public class ReadCertificates extends PKCS11Test {
             System.out.println("Provider does not support ECDSA, skipping...");
             return;
         }
-        Security.insertProviderAt(p, 1);
+
+        /*
+         * PKCS11Test.main will remove this provider if needed
+         */
+        Providers.setAt(p, 1);
 
         random = new SecureRandom();
         factory = CertificateFactory.getInstance("X.509");
@@ -96,19 +102,44 @@ public class ReadCertificates extends PKCS11Test {
         }
         System.out.println("OK: " + certs.size() + " certificates.");
 
+        // Get supported curves
+        Vector<ECParameterSpec> supportedEC = getKnownCurves(p);
+
+        System.out.println("Test Certs:\n");
         for (X509Certificate cert : certs.values()) {
             X509Certificate issuer = certs.get(cert.getIssuerX500Principal());
-            System.out.println("Verifying " + cert.getSubjectX500Principal() + "...");
+            System.out.print("Verifying " + cert.getSubjectX500Principal() +
+                    "...  ");
             PublicKey key = issuer.getPublicKey();
-            // First try the provider under test (if it does not support the
-            // necessary algorithm then try any registered provider).
-            try {
-                cert.verify(key, p.getName());
-            } catch (NoSuchAlgorithmException e) {
-                System.out.println("Warning: " + e.getMessage() +
-                ". Trying another provider...");
-                cert.verify(key);
+            // Check if curve is supported
+            if (issuer.getPublicKey() instanceof ECPublicKey) {
+                if (!checkSupport(supportedEC,
+                        ((ECPublicKey)key).getParams())) {
+                    System.out.println("Curve not found. Skipped.");
+                    continue;
+                }
             }
+
+           try {
+               cert.verify(key, p.getName());
+               System.out.println("Pass.");
+           } catch (NoSuchAlgorithmException e) {
+               System.out.println("Warning: " + e.getMessage() +
+                   ". Trying another provider...");
+               cert.verify(key);
+           } catch (Exception e) {
+               System.out.println(e.getMessage());
+               if (key instanceof ECPublicKey) {
+                   System.out.println("Failed.\n\tCurve: " +
+                           ((ECPublicKey)key).getParams() +
+                           "\n\tSignature Alg: " + cert.getSigAlgName());
+               } else {
+                   System.out.println("Key: "+key.toString());
+               }
+
+               System.err.println("Verifying " + cert.getSubjectX500Principal());
+               e.printStackTrace();
+           }
         }
 
         // try some random invalid signatures to make sure we get the correct
@@ -131,7 +162,6 @@ public class ReadCertificates extends PKCS11Test {
             }
         }
 
-        Security.removeProvider(p.getName());
         System.out.println("OK");
     }
 

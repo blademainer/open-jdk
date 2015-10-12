@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,6 +24,8 @@
  */
 
 package javax.swing;
+
+import sun.awt.AWTAccessor;
 
 /**
  * An enumeration for keys used as client properties within the Swing
@@ -85,6 +87,15 @@ enum ClientPropertyKey {
      * not implement {@code Serializable}.
      */
     private final boolean reportValueNotSerializable;
+
+    static {
+        AWTAccessor.setClientPropertyKeyAccessor(
+            new AWTAccessor.ClientPropertyKeyAccessor() {
+                public Object getJComponent_TRANSFER_HANDLER() {
+                    return JComponent_TRANSFER_HANDLER;
+                }
+            });
+    }
 
     /**
      * Constructs a key with the {@code reportValueNotSerializable} property

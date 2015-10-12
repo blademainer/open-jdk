@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -323,9 +323,8 @@ Java_com_sun_java_swing_plaf_gtk_GTKEngine_nativeFinishPainting(
 JNIEXPORT void JNICALL Java_com_sun_java_swing_plaf_gtk_GTKEngine_native_1switch_1theme(
         JNIEnv *env, jobject this)
 {
-    fp_gdk_threads_enter();
+    // Note that flush_gtk_event_loop takes care of locks (7053002)
     flush_gtk_event_loop();
-    fp_gdk_threads_leave();
 }
 
 /*

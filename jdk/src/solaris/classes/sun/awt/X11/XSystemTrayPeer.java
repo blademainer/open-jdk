@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,10 +27,9 @@ package sun.awt.X11;
 
 import java.awt.*;
 import java.awt.peer.SystemTrayPeer;
-import java.lang.reflect.Method;
-import java.lang.reflect.InvocationTargetException;
 import sun.awt.SunToolkit;
 import sun.awt.AppContext;
+import sun.awt.AWTAccessor;
 import sun.util.logging.PlatformLogger;
 
 public class XSystemTrayPeer implements SystemTrayPeer, XMSelectionListener {
@@ -41,11 +40,6 @@ public class XSystemTrayPeer implements SystemTrayPeer, XMSelectionListener {
 
     private volatile boolean available;
     private final XMSelection selection = new XMSelection("_NET_SYSTEM_TRAY");
-
-    private static final Method firePropertyChangeMethod =
-        XToolkit.getMethod(SystemTray.class, "firePropertyChange", new Class[] {String.class, Object.class, Object.class});
-    private static final Method addNotifyMethod = XToolkit.getMethod(TrayIcon.class, "addNotify", null);
-    private static final Method removeNotifyMethod = XToolkit.getMethod(TrayIcon.class, "removeNotify", null);
 
     private static final int SCREEN = 0;
     private static final String SYSTEM_TRAY_PROPERTY_NAME = "systemTray";
@@ -64,7 +58,9 @@ public class XSystemTrayPeer implements SystemTrayPeer, XMSelectionListener {
         long selection_owner = selection.getOwner(SCREEN);
         available = (selection_owner != XConstants.None);
 
-        log.fine(" check if system tray is available. selection owner: " + selection_owner);
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine(" check if system tray is available. selection owner: " + selection_owner);
+        }
     }
 
     public void ownerChanged(int screen, XMSelection sel, long newOwner, long data, long timestamp) {
@@ -112,7 +108,9 @@ public class XSystemTrayPeer implements SystemTrayPeer, XMSelectionListener {
     void addTrayIcon(XTrayIconPeer tiPeer) throws AWTException {
         long selection_owner = selection.getOwner(SCREEN);
 
-        log.fine(" send SYSTEM_TRAY_REQUEST_DOCK message to owner: " + selection_owner);
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine(" send SYSTEM_TRAY_REQUEST_DOCK message to owner: " + selection_owner);
+        }
 
         if (selection_owner == XConstants.None) {
             throw new AWTException("TrayIcon couldn't be displayed.");
@@ -157,44 +155,43 @@ public class XSystemTrayPeer implements SystemTrayPeer, XMSelectionListener {
         return peerInstance;
     }
 
-    private void firePropertyChange(final String propertyName, final Object oldValue, final Object newValue) {
+    private void firePropertyChange(final String propertyName,
+                                    final Object oldValue,
+                                    final Object newValue) {
         Runnable runnable = new Runnable() {
                 public void run() {
-                    Object[] args = new Object[] {propertyName, oldValue, newValue};
-                    invokeMethod(firePropertyChangeMethod, target, args);
+                    AWTAccessor.getSystemTrayAccessor()
+                        .firePropertyChange(target, propertyName, oldValue, newValue);
                 }
             };
         invokeOnEachAppContext(runnable);
     }
 
     private void createTrayPeers() {
-        invokeOnEachTrayIcon(addNotifyMethod);
-    }
-
-    private void removeTrayPeers() {
-        invokeOnEachTrayIcon(removeNotifyMethod);
-    }
-
-    private void invokeOnEachTrayIcon(final Method method) {
         Runnable runnable = new Runnable() {
                 public void run() {
                     TrayIcon[] icons = target.getTrayIcons();
-                    for (TrayIcon ti : icons) {
-                        invokeMethod(method, ti, (Object[]) null);
+                    try {
+                        for (TrayIcon ti : icons) {
+                            AWTAccessor.getTrayIconAccessor().addNotify(ti);
+                        }
+                    } catch (AWTException e) {
                     }
                 }
             };
         invokeOnEachAppContext(runnable);
     }
 
-    private void invokeMethod(Method method, Object obj, Object[] args) {
-        try{
-            method.invoke(obj, args);
-        } catch (InvocationTargetException e){
-            e.printStackTrace();
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        }
+    private void removeTrayPeers() {
+        Runnable runnable = new Runnable() {
+                public void run() {
+                    TrayIcon[] icons = target.getTrayIcons();
+                    for (TrayIcon ti : icons) {
+                        AWTAccessor.getTrayIconAccessor().removeNotify(ti);
+                    }
+                }
+            };
+        invokeOnEachAppContext(runnable);
     }
 
     private void invokeOnEachAppContext(Runnable runnable) {

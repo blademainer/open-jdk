@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,7 +36,7 @@
 
 class ObjectStartArray;
 
-class PSPromotionLAB : public CHeapObj {
+class PSPromotionLAB : public CHeapObj<mtGC> {
  protected:
   static size_t filler_header_size;
 
@@ -73,7 +73,7 @@ class PSPromotionLAB : public CHeapObj {
 
   bool is_flushed()                  { return _state == flushed; }
 
-  bool unallocate_object(oop obj);
+  bool unallocate_object(HeapWord* obj, size_t obj_size);
 
   // Returns a subregion containing all objects in this space.
   MemRegion used_region()            { return MemRegion(bottom(), top()); }

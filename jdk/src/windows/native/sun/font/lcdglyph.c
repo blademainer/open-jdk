@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,6 +54,7 @@
 #include <jni.h>
 #include <jni_util.h>
 #include <jlong_md.h>
+#include <sizecalc.h>
 #include <sun_font_FileFontStrike.h>
 
 #include "fontscalerdefs.h"
@@ -374,11 +375,11 @@ Java_sun_font_FileFontStrike__1getGlyphImageFromWindows
     bmi.bmiHeader.biBitCount = 24;
     bmi.bmiHeader.biCompression = BI_RGB;
 
-    dibImageSize = dibBytesWidth*height;
-    dibImage = malloc(dibImageSize);
+    dibImage = SAFE_SIZE_ARRAY_ALLOC(malloc, dibBytesWidth, height);
     if (dibImage == NULL) {
         FREE_AND_RETURN;
     }
+    dibImageSize = dibBytesWidth*height;
     memset(dibImage, 0, dibImageSize);
 
     err = GetDIBits(hMemoryDC, hBitmap, 0, height, dibImage,
@@ -407,11 +408,12 @@ Java_sun_font_FileFontStrike__1getGlyphImageFromWindows
      * that extra "1" was added as padding, so the sub-pixel positioning of
      * fractional metrics could index into it.
      */
-    imageSize = bytesWidth*height;
-    glyphInfo = (GlyphInfo*)malloc(sizeof(GlyphInfo)+imageSize);
-    if (malloc == NULL) {
+    glyphInfo = (GlyphInfo*)SAFE_SIZE_STRUCT_ALLOC(malloc, sizeof(GlyphInfo),
+            bytesWidth, height);
+    if (glyphInfo == NULL) {
         FREE_AND_RETURN;
     }
+    imageSize = bytesWidth*height;
     glyphInfo->cellInfo = NULL;
     glyphInfo->rowBytes = bytesWidth;
     glyphInfo->width = width;

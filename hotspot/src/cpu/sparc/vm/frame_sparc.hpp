@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -204,25 +204,6 @@
   intptr_t*     out_register_addr(Register reg) const {
     return younger_sp_addr_at(reg->after_save()->sp_offset_in_saved_window());
   }
-  intptr_t* memory_param_addr(int param_ix, bool is_in) const {
-    int offset = callee_register_argument_save_area_sp_offset + param_ix;
-    if (is_in)
-      return fp_addr_at(offset);
-    else
-      return sp_addr_at(offset);
-  }
-  intptr_t*        param_addr(int param_ix, bool is_in) const {
-    if (param_ix >= callee_register_argument_save_area_words)
-      return memory_param_addr(param_ix, is_in);
-    else if (is_in)
-      return register_addr(Argument(param_ix, true).as_register());
-    else {
-      // the registers are stored in the next younger frame
-      // %%% is this really necessary?
-      ShouldNotReachHere();
-      return NULL;
-    }
-  }
 
 
   // Interpreter frames
@@ -259,32 +240,20 @@
   };
 #endif /* CC_INTERP */
 
-  // the compiler frame has many of the same fields as the interpreter frame
-  // %%%%% factor out declarations of the shared fields
   enum compiler_frame_fixed_locals {
-       compiler_frame_d_scratch_fp_offset          = -2,
-       compiler_frame_vm_locals_fp_offset          = -2, // should be same as above
-
-       compiler_frame_vm_local_words = -compiler_frame_vm_locals_fp_offset
+       compiler_frame_vm_locals_fp_offset          = -2
   };
 
  private:
-  constantPoolCacheOop* interpreter_frame_cpoolcache_addr() const;
+  ConstantPoolCache** interpreter_frame_cpoolcache_addr() const;
 
 #ifndef CC_INTERP
 
   // where Lmonitors is saved:
-  BasicObjectLock**  interpreter_frame_monitors_addr() const {
-    return (BasicObjectLock**) sp_addr_at(Lmonitors->sp_offset_in_saved_window());
-  }
-  intptr_t** interpreter_frame_esp_addr() const {
-    return (intptr_t**)sp_addr_at(Lesp->sp_offset_in_saved_window());
-  }
+  inline BasicObjectLock** interpreter_frame_monitors_addr() const;
+  inline intptr_t** interpreter_frame_esp_addr() const;
 
   inline void interpreter_frame_set_tos_address(intptr_t* x);
-
-
-  // %%%%% Another idea: instead of defining 3 fns per item, just define one returning a ref
 
   // monitors:
 
@@ -298,22 +267,8 @@
     return ((interpreterState)sp_at(interpreter_state_ptr_offset));
   }
 
-
 #endif /* CC_INTERP */
 
-
-
- // Compiled frames
-
  public:
-  // Tells if this register can hold 64 bits on V9 (really, V8+).
-  static bool holds_a_doubleword(Register reg) {
-#ifdef _LP64
-    //    return true;
-    return reg->is_out() || reg->is_global();
-#else
-    return reg->is_out() || reg->is_global();
-#endif
-  }
 
 #endif // CPU_SPARC_VM_FRAME_SPARC_HPP

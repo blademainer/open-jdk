@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@ import java.awt.Component;
 import java.awt.Container;
 
 import sun.tools.jconsole.MBeansTab;
-import sun.tools.jconsole.Resources;
+import sun.tools.jconsole.Messages;
 
 public class XDataViewer {
 
@@ -100,10 +100,10 @@ public class XDataViewer {
     public static String getActionLabel(int type) {
         if(type == ARRAY ||
            type == OPEN)
-            return Resources.getText("visualize");
+            return Messages.VISUALIZE;
         if(type == NUMERIC)
-            return Resources.getText("plot");
-        return Resources.getText("expand");
+            return Messages.PLOT;
+        return Messages.EXPAND;
     }
 
     public Component createOperationViewer(Object value,

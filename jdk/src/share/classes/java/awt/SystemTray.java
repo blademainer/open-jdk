@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ import sun.awt.AppContext;
 import sun.awt.SunToolkit;
 import sun.awt.HeadlessToolkit;
 import sun.security.util.SecurityConstants;
+import sun.awt.AWTAccessor;
 
 /**
  * The <code>SystemTray</code> class represents the system tray for a
@@ -62,8 +63,8 @@ import sun.security.util.SecurityConstants;
  *
  * <p>The following code snippet demonstrates how to access
  * and customize the system tray:
- * <code>
  * <pre>
+ * <code>
  *     {@link TrayIcon} trayIcon = null;
  *     if (SystemTray.isSupported()) {
  *         // get the SystemTray instance
@@ -108,8 +109,8 @@ import sun.security.util.SecurityConstants;
  *         trayIcon.{@link TrayIcon#setImage(java.awt.Image) setImage}(updatedImage);
  *     }
  *     // ...
- * </pre>
  * </code>
+ * </pre>
  *
  * @since 1.6
  * @see TrayIcon
@@ -126,6 +127,18 @@ public class SystemTray {
     transient private SystemTrayPeer peer;
 
     private static final TrayIcon[] EMPTY_TRAY_ARRAY = new TrayIcon[0];
+
+    static {
+        AWTAccessor.setSystemTrayAccessor(
+            new AWTAccessor.SystemTrayAccessor() {
+                public void firePropertyChange(SystemTray tray,
+                                               String propertyName,
+                                               Object oldValue,
+                                               Object newValue) {
+                    tray.firePropertyChange(propertyName, oldValue, newValue);
+                }
+            });
+    }
 
     /**
      * Private <code>SystemTray</code> constructor.
@@ -348,7 +361,7 @@ public class SystemTray {
     /**
      * Adds a {@code PropertyChangeListener} to the list of listeners for the
      * specific property. The following properties are currently supported:
-     * <p> </p>
+     *
      * <table border=1 summary="SystemTray properties">
      * <tr>
      *    <th>Property</th>
@@ -371,7 +384,7 @@ public class SystemTray {
      *        The property is accessed by the {@link #getSystemTray} method.</td>
      * </tr>
      * </table>
-     * <p> </p>
+     * <p>
      * The {@code listener} listens to property changes only in this context.
      * <p>
      * If {@code listener} is {@code null}, no exception is thrown

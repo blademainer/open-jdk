@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
  * questions.
  */
 
-#ifdef __linux__
+#if defined(__linux__) || defined(_ALLBSD_SOURCE)
 #include <stdio.h>
 #include <ctype.h>
 #endif
@@ -42,9 +42,21 @@
 #include <time.h>
 #include <errno.h>
 
+#ifdef MACOSX
+#include "java_props_macosx.h"
+#endif
+
+#if defined(_ALLBSD_SOURCE)
+#if !defined(P_tmpdir)
+#include <paths.h>
+#define P_tmpdir _PATH_VARTMP
+#endif
+#endif
+
 #include "locale_str.h"
 #include "java_props.h"
 
+#if !defined(_ALLBSD_SOURCE)
 #ifdef __linux__
   #ifndef CODESET
   #define CODESET _NL_CTYPE_CODESET_NAME
@@ -54,6 +66,7 @@
 #define CODESET ALT_CODESET_KEY
 #endif
 #endif
+#endif /* !_ALLBSD_SOURCE */
 
 #ifdef JAVASE_EMBEDDED
 #include <dlfcn.h>
@@ -122,19 +135,33 @@ setPathEnvironment(char *envstring)
 #define P_tmpdir "/var/tmp"
 #endif
 
-static int ParseLocale(int cat, char ** std_language, char ** std_script,
+static int ParseLocale(JNIEnv* env, int cat, char ** std_language, char ** std_script,
                        char ** std_country, char ** std_variant, char ** std_encoding) {
-    char temp[64];
+    char *temp = NULL;
     char *language = NULL, *country = NULL, *variant = NULL,
          *encoding = NULL;
-    char *p, encoding_variant[64];
+    char *p, *encoding_variant, *old_temp, *old_ev;
     char *lc;
 
     /* Query the locale set for the category */
+
+#ifdef MACOSX
+    lc = setupMacOSXLocale(cat); // malloc'd memory, need to free
+#else
     lc = setlocale(cat, NULL);
+#endif
 
 #ifndef __linux__
     if (lc == NULL) {
+        return 0;
+    }
+
+    temp = malloc(strlen(lc) + 1);
+    if (temp == NULL) {
+#ifdef MACOSX
+        free(lc); // malloced memory
+#endif
+        JNU_ThrowOutOfMemoryError(env, NULL);
         return 0;
     }
 
@@ -148,7 +175,6 @@ static int ParseLocale(int cat, char ** std_language, char ** std_script,
          * the encoding - without it, we wouldn't get ISO-8859-15.
          * Therefore, this code section is Solaris-specific.
          */
-        lc = strdup(lc);    /* keep a copy, setlocale trashes original. */
         strcpy(temp, lc);
         p = strstr(temp, "@euro");
         if (p != NULL) {
@@ -160,6 +186,13 @@ static int ParseLocale(int cat, char ** std_language, char ** std_script,
     if (lc == NULL || !strcmp(lc, "C") || !strcmp(lc, "POSIX")) {
         lc = "en_US";
     }
+
+    temp = malloc(strlen(lc) + 1);
+    if (temp == NULL) {
+        JNU_ThrowOutOfMemoryError(env, NULL);
+        return 0;
+    }
+
 #endif
 
     /*
@@ -169,7 +202,9 @@ static int ParseLocale(int cat, char ** std_language, char ** std_script,
      */
 
     strcpy(temp, lc);
-
+#ifdef MACOSX
+    free(lc); // malloced memory
+#endif
     /* Parse the language, country, encoding, and variant from the
      * locale.  Any of the elements may be missing, but they must occur
      * in the order language_country.encoding@variant, and must be
@@ -183,6 +218,14 @@ static int ParseLocale(int cat, char ** std_language, char ** std_script,
      * to a default country if that's possible.  It's also used to map
      * the Solaris locale aliases to their proper Java locale IDs.
      */
+
+    encoding_variant = malloc(strlen(temp)+1);
+    if (encoding_variant == NULL) {
+        free(temp);
+        JNU_ThrowOutOfMemoryError(env, NULL);
+        return 0;
+    }
+
     if ((p = strchr(temp, '.')) != NULL) {
         strcpy(encoding_variant, p); /* Copy the leading '.' */
         *p = '\0';
@@ -194,7 +237,23 @@ static int ParseLocale(int cat, char ** std_language, char ** std_script,
     }
 
     if (mapLookup(locale_aliases, temp, &p)) {
+        old_temp = temp;
+        temp = realloc(temp, strlen(p)+1);
+        if (temp == NULL) {
+            free(old_temp);
+            free(encoding_variant);
+            JNU_ThrowOutOfMemoryError(env, NULL);
+            return 0;
+        }
         strcpy(temp, p);
+        old_ev = encoding_variant;
+        encoding_variant = realloc(encoding_variant, strlen(temp)+1);
+        if (encoding_variant == NULL) {
+            free(old_ev);
+            free(temp);
+            JNU_ThrowOutOfMemoryError(env, NULL);
+            return 0;
+        }
         // check the "encoding_variant" again, if any.
         if ((p = strchr(temp, '.')) != NULL) {
             strcpy(encoding_variant, p); /* Copy the leading '.' */
@@ -304,13 +363,35 @@ static int ParseLocale(int cat, char ** std_language, char ** std_script,
             *std_encoding = "Big5-HKSCS-2001";
         }
 #endif
+#ifdef MACOSX
+        /*
+         * For the case on MacOS X where encoding is set to US-ASCII, but we
+         * don't have any encoding hints from LANG/LC_ALL/LC_CTYPE, use UTF-8
+         * instead.
+         *
+         * The contents of ASCII files will still be read and displayed
+         * correctly, but so will files containing UTF-8 characters beyond the
+         * standard ASCII range.
+         *
+         * Specifically, this allows apps launched by double-clicking a .jar
+         * file to correctly read UTF-8 files using the default encoding (see
+         * 8011194).
+         */
+        if (strcmp(p,"US-ASCII") == 0 && getenv("LANG") == NULL &&
+            getenv("LC_ALL") == NULL && getenv("LC_CTYPE") == NULL) {
+            *std_encoding = "UTF-8";
+        }
+#endif
     }
+
+    free(temp);
+    free(encoding_variant);
 
     return 1;
 }
 
 #ifdef JAVASE_EMBEDDED
-/* Determine the default embedded toolkit based on whether lib/xawt/
+/* Determine the default embedded toolkit based on whether libawt_xawt
  * exists in the JRE. This can still be overridden by -Dawt.toolkit=XXX
  */
 static char* getEmbeddedToolkit() {
@@ -325,8 +406,8 @@ static char* getEmbeddedToolkit() {
     realpath((char *)dlinfo.dli_fname, buf);
     len = strlen(buf);
     p = strrchr(buf, '/');
-    /* Default AWT Toolkit on Linux and Solaris is XAWT. */
-    strncpy(p, "/xawt/", MAXPATHLEN-len-1);
+    /* Default AWT Toolkit on Linux and Solaris is XAWT (libawt_xawt.so). */
+    strncpy(p, "/libawt_xawt.so", MAXPATHLEN-len-1);
     /* Check if it exists */
     if (stat(buf, &statbuf) == -1 && errno == ENOENT) {
         /* No - this is a reduced-headless-jre so use special HToolkit */
@@ -354,21 +435,41 @@ GetJavaProperties(JNIEnv *env)
 
     /* tmp dir */
     sprops.tmp_dir = P_tmpdir;
+#ifdef MACOSX
+    /* darwin has a per-user temp dir */
+    static char tmp_path[PATH_MAX];
+    int pathSize = confstr(_CS_DARWIN_USER_TEMP_DIR, tmp_path, PATH_MAX);
+    if (pathSize > 0 && pathSize <= PATH_MAX) {
+        sprops.tmp_dir = tmp_path;
+    }
+#endif /* MACOSX */
 
     /* Printing properties */
+#ifdef MACOSX
+    sprops.printerJob = "sun.lwawt.macosx.CPrinterJob";
+#else
     sprops.printerJob = "sun.print.PSPrinterJob";
+#endif
 
     /* patches/service packs installed */
     sprops.patch_level = "unknown";
 
-    /* Java 2D properties */
-    sprops.graphics_env = "sun.awt.X11GraphicsEnvironment";
+    /* Java 2D/AWT properties */
+#ifdef MACOSX
+    // Always the same GraphicsEnvironment and Toolkit on Mac OS X
+    sprops.graphics_env = "sun.awt.CGraphicsEnvironment";
+    sprops.awt_toolkit = "sun.lwawt.macosx.LWCToolkit";
 
+    // check if we're in a GUI login session and set java.awt.headless=true if not
+    sprops.awt_headless = isInAquaSession() ? NULL : "true";
+#else
+    sprops.graphics_env = "sun.awt.X11GraphicsEnvironment";
 #ifdef JAVASE_EMBEDDED
     sprops.awt_toolkit = getEmbeddedToolkit();
     if (sprops.awt_toolkit == NULL) // default as below
 #endif
     sprops.awt_toolkit = "sun.awt.X11.XToolkit";
+#endif
 
     /* This is used only for debugging of font problems. */
     v = getenv("JAVA2D_FONTPATH");
@@ -396,10 +497,14 @@ GetJavaProperties(JNIEnv *env)
 
     /* os properties */
     {
+#ifdef MACOSX
+        setOSNameAndVersion(&sprops);
+#else
         struct utsname name;
         uname(&name);
         sprops.os_name = strdup(name.sysname);
         sprops.os_version = strdup(name.release);
+#endif
 
         sprops.os_arch = ARCHPROPNAME;
 
@@ -411,17 +516,22 @@ GetJavaProperties(JNIEnv *env)
         }
     }
 
+    /* ABI property (optional) */
+#ifdef JDK_ARCH_ABI_PROP_NAME
+    sprops.sun_arch_abi = JDK_ARCH_ABI_PROP_NAME;
+#endif
+
     /* Determine the language, country, variant, and encoding from the host,
      * and store these in the user.language, user.country, user.variant and
      * file.encoding system properties. */
     setlocale(LC_ALL, "");
-    if (ParseLocale(LC_CTYPE,
+    if (ParseLocale(env, LC_CTYPE,
                     &(sprops.format_language),
                     &(sprops.format_script),
                     &(sprops.format_country),
                     &(sprops.format_variant),
                     &(sprops.encoding))) {
-        ParseLocale(LC_MESSAGES,
+        ParseLocale(env, LC_MESSAGES,
                     &(sprops.language),
                     &(sprops.script),
                     &(sprops.country),
@@ -435,8 +545,20 @@ GetJavaProperties(JNIEnv *env)
     sprops.display_script = sprops.script;
     sprops.display_country = sprops.country;
     sprops.display_variant = sprops.variant;
-    sprops.sun_jnu_encoding = sprops.encoding;
 
+#ifdef MACOSX
+    sprops.sun_jnu_encoding = "UTF-8";
+#else
+    sprops.sun_jnu_encoding = sprops.encoding;
+#endif
+
+#ifdef _ALLBSD_SOURCE
+#if BYTE_ORDER == _LITTLE_ENDIAN
+     sprops.unicode_encoding = "UnicodeLittle";
+ #else
+     sprops.unicode_encoding = "UnicodeBig";
+ #endif
+#else /* !_ALLBSD_SOURCE */
 #ifdef __linux__
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     sprops.unicode_encoding = "UnicodeLittle";
@@ -446,12 +568,20 @@ GetJavaProperties(JNIEnv *env)
 #else
     sprops.unicode_encoding = "UnicodeBig";
 #endif
+#endif /* _ALLBSD_SOURCE */
 
     /* user properties */
     {
         struct passwd *pwent = getpwuid(getuid());
         sprops.user_name = pwent ? strdup(pwent->pw_name) : "?";
-        sprops.user_home = pwent ? strdup(pwent->pw_dir) : "?";
+#ifdef MACOSX
+        setUserHome(&sprops);
+#else
+        sprops.user_home = pwent ? strdup(pwent->pw_dir) : NULL;
+#endif
+        if (sprops.user_home == NULL) {
+            sprops.user_home = "?";
+        }
     }
 
     /* User TIMEZONE */
@@ -482,12 +612,19 @@ GetJavaProperties(JNIEnv *env)
     sprops.path_separator = ":";
     sprops.line_separator = "\n";
 
+#if !defined(_ALLBSD_SOURCE)
     /* Append CDE message and resource search path to NLSPATH and
      * XFILESEARCHPATH, in order to pick localized message for
      * FileSelectionDialog window (Bug 4173641).
      */
     setPathEnvironment("NLSPATH=/usr/dt/lib/nls/msg/%L/%N.cat");
     setPathEnvironment("XFILESEARCHPATH=/usr/dt/app-defaults/%L/Dt");
+#endif
+
+
+#ifdef MACOSX
+    setProxyProperties(&sprops);
+#endif
 
     return &sprops;
 }

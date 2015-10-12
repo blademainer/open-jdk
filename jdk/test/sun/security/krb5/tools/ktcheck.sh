@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -58,7 +58,7 @@ ${TESTJAVA}${FS}bin${FS}javac -d . ${TESTSRC}${FS}KtabCheck.java
 
 EXTRA_OPTIONS="-Djava.security.krb5.conf=${TESTSRC}${FS}onlythree.conf"
 KTAB="${TESTJAVA}${FS}bin${FS}ktab -J${EXTRA_OPTIONS} -k $KEYTAB -f"
-CHECK="${TESTJAVA}${FS}bin${FS}java ${EXTRA_OPTIONS} KtabCheck $KEYTAB"
+CHECK="${TESTJAVA}${FS}bin${FS}java ${TESTVMOPTS} ${EXTRA_OPTIONS} KtabCheck $KEYTAB"
 
 echo ${EXTRA_OPTIONS}
 

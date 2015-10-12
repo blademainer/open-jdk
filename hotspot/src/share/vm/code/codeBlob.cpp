@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -74,6 +74,7 @@ unsigned int CodeBlob::allocation_size(CodeBuffer* cb, int header_size) {
   size = align_code_offset(size);
   size += round_to(cb->total_content_size(), oopSize);
   size += round_to(cb->total_oop_size(), oopSize);
+  size += round_to(cb->total_metadata_size(), oopSize);
   return size;
 }
 
@@ -144,7 +145,7 @@ void CodeBlob::set_oop_maps(OopMapSet* p) {
   // chunk of memory, its your job to free it.
   if (p != NULL) {
     // We need to allocate a chunk big enough to hold the OopMapSet and all of its OopMaps
-    _oop_maps = (OopMapSet* )NEW_C_HEAP_ARRAY(unsigned char, p->heap_size());
+    _oop_maps = (OopMapSet* )NEW_C_HEAP_ARRAY(unsigned char, p->heap_size(), mtCode);
     p->copy_to((address)_oop_maps);
   } else {
     _oop_maps = NULL;
@@ -161,8 +162,10 @@ void CodeBlob::trace_new_stub(CodeBlob* stub, const char* name1, const char* nam
     assert(strlen(name1) + strlen(name2) < sizeof(stub_id), "");
     jio_snprintf(stub_id, sizeof(stub_id), "%s%s", name1, name2);
     if (PrintStubCode) {
+      ttyLocker ttyl;
       tty->print_cr("Decoding %s " INTPTR_FORMAT, stub_id, (intptr_t) stub);
       Disassembler::decode(stub->code_begin(), stub->code_end());
+      tty->cr();
     }
     Forte::register_stub(stub_id, stub->code_begin(), stub->code_end());
 
@@ -180,10 +183,10 @@ void CodeBlob::trace_new_stub(CodeBlob* stub, const char* name1, const char* nam
 
 void CodeBlob::flush() {
   if (_oop_maps) {
-    FREE_C_HEAP_ARRAY(unsigned char, _oop_maps);
+    FREE_C_HEAP_ARRAY(unsigned char, _oop_maps, mtCode);
     _oop_maps = NULL;
   }
-  _comments.free();
+  _strings.free();
 }
 
 
@@ -242,8 +245,8 @@ BufferBlob* BufferBlob::create(const char* name, CodeBuffer* cb) {
 }
 
 
-void* BufferBlob::operator new(size_t s, unsigned size) {
-  void* p = CodeCache::allocate(size);
+void* BufferBlob::operator new(size_t s, unsigned size, bool is_critical) throw() {
+  void* p = CodeCache::allocate(size, is_critical);
   return p;
 }
 
@@ -274,7 +277,10 @@ AdapterBlob* AdapterBlob::create(CodeBuffer* cb) {
   unsigned int size = allocation_size(cb, sizeof(AdapterBlob));
   {
     MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-    blob = new (size) AdapterBlob(size, cb);
+    // The parameter 'true' indicates a critical memory allocation.
+    // This means that CodeCacheMinimumFreeSpace is used, if necessary
+    const bool is_critical = true;
+    blob = new (size, is_critical) AdapterBlob(size, cb);
   }
   // Track memory usage statistic after releasing CodeCache_lock
   MemoryService::track_code_cache_memory_usage();
@@ -296,7 +302,10 @@ MethodHandlesAdapterBlob* MethodHandlesAdapterBlob::create(int buffer_size) {
   size += round_to(buffer_size, oopSize);
   {
     MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-    blob = new (size) MethodHandlesAdapterBlob(size);
+    // The parameter 'true' indicates a critical memory allocation.
+    // This means that CodeCacheMinimumFreeSpace is used, if necessary
+    const bool is_critical = true;
+    blob = new (size, is_critical) MethodHandlesAdapterBlob(size);
   }
   // Track memory usage statistic after releasing CodeCache_lock
   MemoryService::track_code_cache_memory_usage();
@@ -344,54 +353,17 @@ RuntimeStub* RuntimeStub::new_runtime_stub(const char* stub_name,
 }
 
 
-void* RuntimeStub::operator new(size_t s, unsigned size) {
-  void* p = CodeCache::allocate(size);
+void* RuntimeStub::operator new(size_t s, unsigned size) throw() {
+  void* p = CodeCache::allocate(size, true);
   if (!p) fatal("Initial size of CodeCache is too small");
   return p;
 }
 
 // operator new shared by all singletons:
-void* SingletonBlob::operator new(size_t s, unsigned size) {
-  void* p = CodeCache::allocate(size);
+void* SingletonBlob::operator new(size_t s, unsigned size) throw() {
+  void* p = CodeCache::allocate(size, true);
   if (!p) fatal("Initial size of CodeCache is too small");
   return p;
-}
-
-
-//----------------------------------------------------------------------------------------------------
-// Implementation of RicochetBlob
-
-RicochetBlob::RicochetBlob(
-  CodeBuffer* cb,
-  int         size,
-  int         bounce_offset,
-  int         exception_offset,
-  int         frame_size
-)
-: SingletonBlob("RicochetBlob", cb, sizeof(RicochetBlob), size, frame_size, (OopMapSet*) NULL)
-{
-  _bounce_offset = bounce_offset;
-  _exception_offset = exception_offset;
-}
-
-
-RicochetBlob* RicochetBlob::create(
-  CodeBuffer* cb,
-  int         bounce_offset,
-  int         exception_offset,
-  int         frame_size)
-{
-  RicochetBlob* blob = NULL;
-  ThreadInVMfromUnknown __tiv;  // get to VM state in case we block on CodeCache_lock
-  {
-    MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-    unsigned int size = allocation_size(cb, sizeof(RicochetBlob));
-    blob = new (size) RicochetBlob(cb, size, bounce_offset, exception_offset, frame_size);
-  }
-
-  trace_new_stub(blob, "RicochetBlob");
-
-  return blob;
 }
 
 
@@ -584,6 +556,7 @@ void RuntimeStub::verify() {
 }
 
 void RuntimeStub::print_on(outputStream* st) const {
+  ttyLocker ttyl;
   CodeBlob::print_on(st);
   st->print("Runtime Stub (" INTPTR_FORMAT "): ", this);
   st->print_cr(name());
@@ -599,6 +572,7 @@ void SingletonBlob::verify() {
 }
 
 void SingletonBlob::print_on(outputStream* st) const {
+  ttyLocker ttyl;
   CodeBlob::print_on(st);
   st->print_cr(name());
   Disassembler::decode((CodeBlob*)this, st);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,5 +40,5 @@ public interface JavaUtilJarAccess {
     public Enumeration<String> entryNames(JarFile jar, CodeSource[] cs);
     public Enumeration<JarEntry> entries2(JarFile jar);
     public void setEagerValidation(JarFile jar, boolean eager);
-    public List getManifestDigests(JarFile jar);
+    public List<Object> getManifestDigests(JarFile jar);
 }

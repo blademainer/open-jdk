@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -184,8 +184,9 @@ EntryPoint TemplateInterpreter::_deopt_entry [TemplateInterpreter::number_of_deo
 EntryPoint TemplateInterpreter::_continuation_entry;
 EntryPoint TemplateInterpreter::_safept_entry;
 
-address    TemplateInterpreter::_return_3_addrs_by_index[TemplateInterpreter::number_of_return_addrs];
-address    TemplateInterpreter::_return_5_addrs_by_index[TemplateInterpreter::number_of_return_addrs];
+address TemplateInterpreter::_invoke_return_entry[TemplateInterpreter::number_of_return_addrs];
+address TemplateInterpreter::_invokeinterface_return_entry[TemplateInterpreter::number_of_return_addrs];
+address TemplateInterpreter::_invokedynamic_return_entry[TemplateInterpreter::number_of_return_addrs];
 
 DispatchTable TemplateInterpreter::_active_table;
 DispatchTable TemplateInterpreter::_normal_table;
@@ -237,19 +238,34 @@ void TemplateInterpreterGenerator::generate_all() {
 #endif // !PRODUCT
 
   { CodeletMark cm(_masm, "return entry points");
+    const int index_size = sizeof(u2);
     for (int i = 0; i < Interpreter::number_of_return_entries; i++) {
       Interpreter::_return_entry[i] =
         EntryPoint(
-          generate_return_entry_for(itos, i),
-          generate_return_entry_for(itos, i),
-          generate_return_entry_for(itos, i),
-          generate_return_entry_for(atos, i),
-          generate_return_entry_for(itos, i),
-          generate_return_entry_for(ltos, i),
-          generate_return_entry_for(ftos, i),
-          generate_return_entry_for(dtos, i),
-          generate_return_entry_for(vtos, i)
+          generate_return_entry_for(itos, i, index_size),
+          generate_return_entry_for(itos, i, index_size),
+          generate_return_entry_for(itos, i, index_size),
+          generate_return_entry_for(atos, i, index_size),
+          generate_return_entry_for(itos, i, index_size),
+          generate_return_entry_for(ltos, i, index_size),
+          generate_return_entry_for(ftos, i, index_size),
+          generate_return_entry_for(dtos, i, index_size),
+          generate_return_entry_for(vtos, i, index_size)
         );
+    }
+  }
+
+  { CodeletMark cm(_masm, "invoke return entry points");
+    const TosState states[] = {itos, itos, itos, itos, ltos, ftos, dtos, atos, vtos};
+    const int invoke_length = Bytecodes::length_for(Bytecodes::_invokestatic);
+    const int invokeinterface_length = Bytecodes::length_for(Bytecodes::_invokeinterface);
+    const int invokedynamic_length = Bytecodes::length_for(Bytecodes::_invokedynamic);
+
+    for (int i = 0; i < Interpreter::number_of_return_addrs; i++) {
+      TosState state = states[i];
+      Interpreter::_invoke_return_entry[i] = generate_return_entry_for(state, invoke_length, sizeof(u2));
+      Interpreter::_invokeinterface_return_entry[i] = generate_return_entry_for(state, invokeinterface_length, sizeof(u2));
+      Interpreter::_invokedynamic_return_entry[i] = generate_return_entry_for(state, invokedynamic_length, sizeof(u4));
     }
   }
 
@@ -296,13 +312,6 @@ void TemplateInterpreterGenerator::generate_all() {
         Interpreter::_native_abi_to_tosca[Interpreter::BasicType_as_index(type)] = generate_result_handler_for(type);
       }
     }
-  }
-
-  for (int j = 0; j < number_of_states; j++) {
-    const TosState states[] = {btos, ctos, stos, itos, ltos, ftos, dtos, atos, vtos};
-    int index = Interpreter::TosState_as_index(states[j]);
-    Interpreter::_return_3_addrs_by_index[index] = Interpreter::return_entry(states[j], 3);
-    Interpreter::_return_5_addrs_by_index[index] = Interpreter::return_entry(states[j], 5);
   }
 
   { CodeletMark cm(_masm, "continuation entry points");
@@ -362,7 +371,6 @@ void TemplateInterpreterGenerator::generate_all() {
   method_entry(empty)
   method_entry(accessor)
   method_entry(abstract)
-  method_entry(method_handle)
   method_entry(java_lang_math_sin  )
   method_entry(java_lang_math_cos  )
   method_entry(java_lang_math_tan  )
@@ -370,7 +378,17 @@ void TemplateInterpreterGenerator::generate_all() {
   method_entry(java_lang_math_sqrt )
   method_entry(java_lang_math_log  )
   method_entry(java_lang_math_log10)
+  method_entry(java_lang_math_exp  )
+  method_entry(java_lang_math_pow  )
   method_entry(java_lang_ref_reference_get)
+
+  if (UseCRC32Intrinsics) {
+    method_entry(java_util_zip_CRC32_update)
+    method_entry(java_util_zip_CRC32_updateBytes)
+    method_entry(java_util_zip_CRC32_updateByteBuffer)
+  }
+
+  initialize_method_handle_entries();
 
   // all native method kinds (must be one contiguous block)
   Interpreter::_native_entry_begin = Interpreter::code()->code_end();
@@ -503,7 +521,7 @@ void TemplateInterpreterGenerator::generate_and_dispatch(Template* t, TosState t
     assert(step > 0, "just checkin'");
     // setup stuff for dispatching next bytecode
     if (ProfileInterpreter && VerifyDataPointer
-        && methodDataOopDesc::bytecode_has_profile(t->bytecode())) {
+        && MethodData::bytecode_has_profile(t->bytecode())) {
       __ verify_method_data_pointer();
     }
     __ dispatch_prolog(tos_out, step);
@@ -525,9 +543,46 @@ void TemplateInterpreterGenerator::generate_and_dispatch(Template* t, TosState t
 //------------------------------------------------------------------------------------------------------------------------
 // Entry points
 
-address TemplateInterpreter::return_entry(TosState state, int length) {
+/**
+ * Returns the return entry table for the given invoke bytecode.
+ */
+address* TemplateInterpreter::invoke_return_entry_table_for(Bytecodes::Code code) {
+  switch (code) {
+  case Bytecodes::_invokestatic:
+  case Bytecodes::_invokespecial:
+  case Bytecodes::_invokevirtual:
+  case Bytecodes::_invokehandle:
+    return Interpreter::invoke_return_entry_table();
+  case Bytecodes::_invokeinterface:
+    return Interpreter::invokeinterface_return_entry_table();
+  case Bytecodes::_invokedynamic:
+    return Interpreter::invokedynamic_return_entry_table();
+  default:
+    fatal(err_msg("invalid bytecode: %s", Bytecodes::name(code)));
+    return NULL;
+  }
+}
+
+/**
+ * Returns the return entry address for the given top-of-stack state and bytecode.
+ */
+address TemplateInterpreter::return_entry(TosState state, int length, Bytecodes::Code code) {
   guarantee(0 <= length && length < Interpreter::number_of_return_entries, "illegal length");
-  return _return_entry[length].entry(state);
+  const int index = TosState_as_index(state);
+  switch (code) {
+  case Bytecodes::_invokestatic:
+  case Bytecodes::_invokespecial:
+  case Bytecodes::_invokevirtual:
+  case Bytecodes::_invokehandle:
+    return _invoke_return_entry[index];
+  case Bytecodes::_invokeinterface:
+    return _invokeinterface_return_entry[index];
+  case Bytecodes::_invokedynamic:
+    return _invokedynamic_return_entry[index];
+  default:
+    assert(!Bytecodes::is_invoke(code), err_msg("invoke instructions should be handled separately: %s", Bytecodes::name(code)));
+    return _return_entry[length].entry(state);
+  }
 }
 
 
@@ -581,7 +636,7 @@ void TemplateInterpreter::ignore_safepoints() {
 // Deoptimization support
 
 // If deoptimization happens, this function returns the point of next bytecode to continue execution
-address TemplateInterpreter::deopt_continue_after_entry(methodOop method, address bcp, int callee_parameters, bool is_top_frame) {
+address TemplateInterpreter::deopt_continue_after_entry(Method* method, address bcp, int callee_parameters, bool is_top_frame) {
   return AbstractInterpreter::deopt_continue_after_entry(method, bcp, callee_parameters, is_top_frame);
 }
 
@@ -589,7 +644,7 @@ address TemplateInterpreter::deopt_continue_after_entry(methodOop method, addres
 // the bytecode.
 // Note: Bytecodes::_athrow (C1 only) and Bytecodes::_return are the special cases
 //       that do not return "Interpreter::deopt_entry(vtos, 0)"
-address TemplateInterpreter::deopt_reexecute_entry(methodOop method, address bcp) {
+address TemplateInterpreter::deopt_reexecute_entry(Method* method, address bcp) {
   assert(method->contains(bcp), "just checkin'");
   Bytecodes::Code code   = Bytecodes::java_code_at(method, bcp);
   if (code == Bytecodes::_return) {

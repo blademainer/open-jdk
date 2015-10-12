@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
 
 /*
  * @test
- * @bug 5033583 6316717 6470106
+ * @bug 5033583 6316717 6470106 8004979
  * @summary Check toGenericString() and toString() methods
  * @author Joseph D. Darcy
  */
@@ -39,6 +39,7 @@ public class GenericStringTest {
         classList.add(TestClass1.class);
         classList.add(TestClass2.class);
         classList.add(Roebling.class);
+        classList.add(TestInterface1.class);
 
 
         for(Class<?> clazz: classList)
@@ -47,10 +48,18 @@ public class GenericStringTest {
                 if (egs != null) {
                     String actual = method.toGenericString();
                     System.out.println(actual);
-                    if (! egs.value().equals(actual)) {
-                        failures++;
-                        System.err.printf("ERROR: Expected ''%s''; got ''%s''.\n",
-                                          egs.value(), actual);
+                    if (method.isBridge()) {
+                        if (! egs.bridgeValue().equals(actual)) {
+                            failures++;
+                            System.err.printf("ERROR: Expected ''%s''; got ''%s''.\n",
+                                              egs.value(), actual);
+                        }
+                    } else {
+                        if (! egs.value().equals(actual)) {
+                            failures++;
+                            System.err.printf("ERROR: Expected ''%s''; got ''%s''.\n",
+                                              egs.value(), actual);
+                        }
                     }
                 }
 
@@ -116,7 +125,8 @@ class TestClass2<E, F extends Exception> {
 
 class Roebling implements Comparable<Roebling> {
     @ExpectedGenericString(
-   "public int Roebling.compareTo(Roebling)")
+    value="public int Roebling.compareTo(Roebling)",
+    bridgeValue="public int Roebling.compareTo(java.lang.Object)")
     public int compareTo(Roebling r) {
         throw new IllegalArgumentException();
     }
@@ -129,12 +139,35 @@ class Roebling implements Comparable<Roebling> {
     void varArg(Object ... arg) {}
 }
 
+interface TestInterface1 {
+    @ExpectedGenericString(
+   "public default void TestInterface1.foo()")
+    @ExpectedString(
+   "public default void TestInterface1.foo()")
+    public default void foo(){;}
+
+    @ExpectedString(
+   "public default java.lang.Object TestInterface1.bar()")
+    @ExpectedGenericString(
+   "public default <A> A TestInterface1.bar()")
+    default <A> A bar(){return null;}
+
+    @ExpectedString(
+   "public default strictfp double TestInterface1.quux()")
+    @ExpectedGenericString(
+    "public default strictfp double TestInterface1.quux()")
+    strictfp default double quux(){return 1.0;}
+
+}
+
 @Retention(RetentionPolicy.RUNTIME)
 @interface ExpectedGenericString {
     String value();
+    String bridgeValue() default "";
 }
 
 @Retention(RetentionPolicy.RUNTIME)
 @interface ExpectedString {
     String value();
 }
+

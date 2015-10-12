@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
 
 /*
  * @test
- * @bug 4886838 4886830
+ * @bug 4886838 4886830 8025204
  * @summary Tests that idle timeouts happen at appropriate times
  * @author Eamonn McManus
  * @run clean IdleTimeoutTest
@@ -52,21 +52,27 @@ import javax.management.remote.JMXServiceURL;
 import com.sun.jmx.remote.util.EnvHelp;
 
 public class IdleTimeoutTest {
+
+    static boolean isPresent(String cn) {
+        try {
+            Class.forName(cn);
+            return true;
+        } catch (ClassNotFoundException x) {
+            return false;
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         boolean ok = true;
         List protos;
         if (args.length > 0)
             protos = Arrays.asList(args);
         else {
-            protos =
-                new ArrayList(Arrays.asList(new String[] {"rmi", "iiop"}));
-            try {
-                Class.forName("javax.management.remote.jmxmp." +
-                              "JMXMPConnectorServer");
+            protos = new ArrayList(Arrays.asList(new String[] {"rmi"}));
+            if (isPresent("javax.management.remote.rmi._RMIConnectionImpl_Tie"))
+                protos.add("iiop");
+            if (isPresent("javax.management.remote.jmxmp.JMXMPConnectorServer"))
                 protos.add("jmxmp");
-            } catch (ClassNotFoundException e) {
-                // OK: Optional JMXMP support is not present
-            }
         }
         for (Iterator it = protos.iterator(); it.hasNext(); ) {
             String proto = (String) it.next();
@@ -81,13 +87,13 @@ public class IdleTimeoutTest {
             }
         }
         if (!ok) {
-            System.out.println("SOME TESTS FAILED");
-            System.exit(1);
+            throw new RuntimeException("Some tests failed - see log for details");
         }
     }
 
     private static long getIdleTimeout(MBeanServer mbs, JMXServiceURL url)
-        throws Exception {
+        throws Exception
+    {
         JMXConnectorServer server =
             JMXConnectorServerFactory.newJMXConnectorServer(url, null, mbs);
         server.start();
@@ -272,19 +278,11 @@ public class IdleTimeoutTest {
                 }
 
                 System.out.println("Waiting for id list to drop ours");
-                deadline = System.currentTimeMillis() + timeout*2 + 10000;
-                while (true) {
-                    ids = Arrays.asList(server.getConnectionIds());
-                    if (!ids.contains(connId)
-                        || System.currentTimeMillis() >= deadline)
-                        break;
-                    Thread.sleep(500);
-                }
-                if (ids.contains(connId)) {
-                    System.out.println("Client id still in list after " +
-                                       "deadline: " + ids);
-                    return false;
-                }
+                // pass or timed out by test harness - see 8025204
+                do {
+                   Thread.sleep(100);
+                   ids = Arrays.asList(server.getConnectionIds());
+                } while (ids.contains(connId));
 
                 conn.getDefaultDomain();
                 if (connId.equals(client.getConnectionId())) {

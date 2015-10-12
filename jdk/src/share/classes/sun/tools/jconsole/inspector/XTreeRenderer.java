@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,8 +30,6 @@ import javax.swing.ImageIcon;
 import javax.swing.JTree;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
-import sun.tools.jconsole.Resources;
-import sun.tools.jconsole.inspector.XNodeInfo.Type;
 
 @SuppressWarnings("serial")
 public class XTreeRenderer extends DefaultTreeCellRenderer {

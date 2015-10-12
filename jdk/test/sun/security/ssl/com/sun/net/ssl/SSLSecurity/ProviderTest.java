@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@
  * @compile JavaxSSLContextImpl.java ComSSLContextImpl.java
  *      JavaxTrustManagerFactoryImpl.java ComTrustManagerFactoryImpl.java
  *      JavaxKeyManagerFactoryImpl.java ComKeyManagerFactoryImpl.java
+ * @run main/othervm ProviderTest
  * @summary brokenness in the com.sun.net.ssl.SSLSecurity wrappers
  */
 
@@ -40,28 +41,32 @@ public class ProviderTest {
         TrustManagerFactory tmf;
         KeyManagerFactory kmf;
 
-        Security.addProvider(new MyProvider());
+        Provider extraProvider = new MyProvider();
+        Security.addProvider(extraProvider);
+        try {
+            System.out.println("getting a javax SSLContext");
+            sslc = SSLContext.getInstance("javax");
+            sslc.init(null, null, null);
+            System.out.println("\ngetting a com SSLContext");
+            sslc = SSLContext.getInstance("com");
+            sslc.init(null, null, null);
 
-        System.out.println("getting a javax SSLContext");
-        sslc = SSLContext.getInstance("javax");
-        sslc.init(null, null, null);
-        System.out.println("\ngetting a com SSLContext");
-        sslc = SSLContext.getInstance("com");
-        sslc.init(null, null, null);
+            System.out.println("\ngetting a javax TrustManagerFactory");
+            tmf = TrustManagerFactory.getInstance("javax");
+            tmf.init((KeyStore) null);
+            System.out.println("\ngetting a com TrustManagerFactory");
+            tmf = TrustManagerFactory.getInstance("com");
+            tmf.init((KeyStore) null);
 
-        System.out.println("\ngetting a javax TrustManagerFactory");
-        tmf = TrustManagerFactory.getInstance("javax");
-        tmf.init((KeyStore) null);
-        System.out.println("\ngetting a com TrustManagerFactory");
-        tmf = TrustManagerFactory.getInstance("com");
-        tmf.init((KeyStore) null);
-
-        System.out.println("\ngetting a javax KeyManagerFactory");
-        kmf = KeyManagerFactory.getInstance("javax");
-        kmf.init((KeyStore) null, null);
-        System.out.println("\ngetting a com KeyManagerFactory");
-        kmf = KeyManagerFactory.getInstance("com");
-        kmf.init((KeyStore) null, null);
+            System.out.println("\ngetting a javax KeyManagerFactory");
+            kmf = KeyManagerFactory.getInstance("javax");
+            kmf.init((KeyStore) null, null);
+            System.out.println("\ngetting a com KeyManagerFactory");
+            kmf = KeyManagerFactory.getInstance("com");
+            kmf.init((KeyStore) null, null);
+        } finally {
+            Security.removeProvider(extraProvider.getName());
+        }
     }
 }
 

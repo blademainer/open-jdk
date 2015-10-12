@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,6 +45,7 @@ import sun.rmi.transport.tcp.TCPEndpoint;
  *
  * @author Ann Wollrath
  */
+@SuppressWarnings("deprecation")
 public class StreamRemoteCall implements RemoteCall {
     private ConnectionInputStream in = null;
     private ConnectionOutputStream out = null;
@@ -199,6 +200,7 @@ public class StreamRemoteCall implements RemoteCall {
     /**
      * Do whatever it takes to execute the call.
      */
+    @SuppressWarnings("fallthrough")
     public void executeCall() throws Exception {
         byte returnType;
 
@@ -252,6 +254,7 @@ public class StreamRemoteCall implements RemoteCall {
             } else {
                 throw new UnmarshalException("Return type not Exception");
             }
+            // Exception is thrown before fallthrough can occur
         default:
             if (Transport.transportLog.isLoggable(Log.BRIEF)) {
                 Transport.transportLog.log(Log.BRIEF,

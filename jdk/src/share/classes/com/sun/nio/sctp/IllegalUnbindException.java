@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,6 +31,7 @@ package com.sun.nio.sctp;
  *
  * @since 1.7
  */
+@jdk.Exported
 public class IllegalUnbindException extends IllegalStateException {
     private static final long serialVersionUID = -310540883995532224L;
 
@@ -41,6 +42,9 @@ public class IllegalUnbindException extends IllegalStateException {
 
     /**
      * Constructs an instance of this class with the specified detailed message.
+     *
+     * @param  msg
+     *         The String that contains a detailed message
      */
     public IllegalUnbindException(String msg) {
         super(msg);

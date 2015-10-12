@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,12 +44,12 @@ class BooleanValueExp extends QueryEval implements ValueExp {
     private boolean val = false;
 
 
-    /** Creates a new BooleanValueExp representing the boolean literal <val>.*/
+    /** Creates a new BooleanValueExp representing the boolean literal {@code val}.*/
     BooleanValueExp(boolean val) {
         this.val = val;
     }
 
-    /**Creates a new BooleanValueExp representing the Boolean object <val>.*/
+    /**Creates a new BooleanValueExp representing the Boolean object {@code val}.*/
     BooleanValueExp(Boolean val) {
         this.val = val.booleanValue();
     }

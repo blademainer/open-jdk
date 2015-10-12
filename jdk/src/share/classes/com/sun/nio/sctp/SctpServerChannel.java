@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -47,7 +47,7 @@ import java.nio.channels.spi.AbstractSelectableChannel;
  * {@link #setOption(SctpSocketOption,Object) setOption} method. SCTP server socket
  * channels support the following options:
  * <blockquote>
- * <table border>
+ * <table border summary="Socket options">
  *   <tr>
  *     <th>Option Name</th>
  *     <th>Description</th>
@@ -68,6 +68,7 @@ import java.nio.channels.spi.AbstractSelectableChannel;
  *
  * @since 1.7
  */
+@jdk.Exported
 public abstract class SctpServerChannel
     extends AbstractSelectableChannel
 {
@@ -98,7 +99,7 @@ public abstract class SctpServerChannel
      */
     public static SctpServerChannel open() throws
         IOException {
-        return new sun.nio.ch.SctpServerChannelImpl((SelectorProvider)null);
+        return new sun.nio.ch.sctp.SctpServerChannelImpl((SelectorProvider)null);
     }
 
     /**
@@ -345,6 +346,9 @@ public abstract class SctpServerChannel
     /**
      * Returns the value of a socket option.
      *
+     * @param   <T>
+     *          The type of the socket option value
+     *
      * @param   name
      *          The socket option
      *
@@ -366,6 +370,9 @@ public abstract class SctpServerChannel
 
     /**
      * Sets the value of a socket option.
+     *
+     * @param   <T>
+     *          The type of the socket option value
      *
      * @param   name
      *          The socket option

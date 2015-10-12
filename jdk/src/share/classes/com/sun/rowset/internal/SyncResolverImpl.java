@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -65,7 +65,7 @@ public class SyncResolverImpl extends CachedRowSetImpl implements SyncResolver {
      *  This ArrayList will contain the status of a row
      *  from the SyncResolver.* values else it will be null.
      */
-    private ArrayList stats;
+    private ArrayList<?> stats;
 
     /**
      * The RowSetWriter associated with the original
@@ -429,6 +429,7 @@ public class SyncResolverImpl extends CachedRowSetImpl implements SyncResolver {
      * This is used to set the status of each row
      * to either of the values SyncResolver.*_CONFLICT
      **/
+    @SuppressWarnings("rawtypes")
     void setStatus(ArrayList status){
              stats = status;
     }
@@ -856,6 +857,7 @@ public class SyncResolverImpl extends CachedRowSetImpl implements SyncResolver {
      * @see #toCollection(String)
      * @see java.util.TreeMap
      */
+    @SuppressWarnings("rawtypes")
     public Collection toCollection() throws SQLException {
        throw new UnsupportedOperationException();
     }
@@ -878,6 +880,7 @@ public class SyncResolverImpl extends CachedRowSetImpl implements SyncResolver {
      * @see #toCollection(String)
      * @see java.util.Vector
      */
+    @SuppressWarnings("rawtypes")
     public Collection toCollection(int column) throws SQLException {
        throw new UnsupportedOperationException();
     }
@@ -900,6 +903,7 @@ public class SyncResolverImpl extends CachedRowSetImpl implements SyncResolver {
      * @see #toCollection(int)
      * @see java.util.Vector
      */
+    @SuppressWarnings("rawtypes")
     public Collection toCollection(String column) throws SQLException {
         throw new UnsupportedOperationException();
     }
@@ -1284,6 +1288,7 @@ public class SyncResolverImpl extends CachedRowSetImpl implements SyncResolver {
      *            the cursor is not on a valid row, or this method fails
      * @deprecated
      */
+    @Deprecated
     public BigDecimal getBigDecimal(int columnIndex, int scale) throws SQLException {
        throw new UnsupportedOperationException();
     }
@@ -1420,6 +1425,7 @@ public class SyncResolverImpl extends CachedRowSetImpl implements SyncResolver {
      * @throws SQLException if an error occurs
      * @deprecated
      */
+    @Deprecated
     public java.io.InputStream getUnicodeStream(int columnIndex) throws SQLException {
        throw new UnsupportedOperationException();
     }
@@ -1649,6 +1655,7 @@ public class SyncResolverImpl extends CachedRowSetImpl implements SyncResolver {
      * @deprecated Use the <code>getBigDecimal(String columnName)</code>
      *             method instead
      */
+    @Deprecated
     public BigDecimal getBigDecimal(String columnName, int scale) throws SQLException {
         throw new UnsupportedOperationException();
     }
@@ -1780,6 +1787,7 @@ public class SyncResolverImpl extends CachedRowSetImpl implements SyncResolver {
      *            this rowset's rows or its insert row
      * @deprecated use the method <code>getCharacterStream</code> instead
      */
+    @Deprecated
     public java.io.InputStream getUnicodeStream(String columnName) throws SQLException {
         throw new UnsupportedOperationException();
     }
@@ -4101,7 +4109,7 @@ public class SyncResolverImpl extends CachedRowSetImpl implements SyncResolver {
     /**
      * Returns a result set containing the original value of the rowset. The
      * original value is the state of the <code>CachedRowSetImpl</code> after the
-     * last population or synchronization (whichever occured most recently) with
+     * last population or synchronization (whichever occurred most recently) with
      * the data source.
      * <p>
      * The cursor is positioned before the first row in the result set.
@@ -4120,7 +4128,7 @@ public class SyncResolverImpl extends CachedRowSetImpl implements SyncResolver {
      * Returns a result set containing the original value of the current
      * row only.
      * The original value is the state of the <code>CachedRowSetImpl</code> after
-     * the last population or synchronization (whichever occured most recently)
+     * the last population or synchronization (whichever occurred most recently)
      * with the data source.
      *
      * @return the original result set of the row

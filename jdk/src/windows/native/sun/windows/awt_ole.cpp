@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -70,7 +70,7 @@ namespace SUN_DBG_NS{
             bErrorReport?_T("Error:"):_T(""),
             szBuffer) < 0)
         {
-            _tcscpy(szBuffer1 + DTRACE_BUF_LEN - 5, _T("...")); //reserver for \n
+            _tcscpy_s(szBuffer1 + DTRACE_BUF_LEN - 5, 5, _T("...")); //reserver for \n
         }
         memcpy(szBuffer1, szTime, iTimeLen*sizeof(TCHAR));
         _tcscat(szBuffer1, _T("\n"));

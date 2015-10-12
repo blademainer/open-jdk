@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,7 +29,6 @@
 
 #include "java_lang_SecurityManager.h"
 #include "java_lang_ClassLoader.h"
-#include "java_util_ResourceBundle.h"
 
 /*
  * Make sure a security manager instance is initialized.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,11 +31,7 @@
  * @author Peter Jones
  *
  * @library ../../../testlibrary
- * @build TestLibrary
- * @build Receiver
- * @build DownloadArrayClass
- * @build DownloadArrayClass_Stub
- * @build Foo
+ * @build TestLibrary Receiver DownloadArrayClass_Stub Foo
  * @run main/othervm/policy=security.policy DownloadArrayClass
  */
 
@@ -67,6 +63,10 @@ public class DownloadArrayClass
         } catch (MalformedURLException e) {
             TestLibrary.bomb(e);
         }
+
+        System.err.println("Setting codebase property to: " + remoteCodebase);
+        System.setProperty("java.rmi.server.codebase",
+            remoteCodebase.toString());
 
         /*
          * Load Foo from a non-RMI class loader so that it won't be already

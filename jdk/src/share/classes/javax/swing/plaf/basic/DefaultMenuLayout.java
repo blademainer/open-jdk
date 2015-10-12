@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@ import java.awt.Dimension;
 /**
  * The default layout manager for Popup menus and menubars.  This
  * class is an extension of BoxLayout which adds the UIResource tag
- * so that pluggable L&Fs can distinguish it from user-installed
+ * so that pluggable L&amp;Fs can distinguish it from user-installed
  * layout managers on menus.
  *
  * @author Georges Saab

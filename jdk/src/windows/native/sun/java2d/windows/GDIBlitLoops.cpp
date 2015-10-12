@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -161,11 +161,12 @@ Java_sun_java2d_windows_GDIBlitLoops_nativeBlit
                 // yet created the byteGrayPalette, create it now and copy
                 // it into our temporary bmi structure.
                 // REMIND: byteGrayPalette is a leak since we do not have
-                // a mechansim to free it up.  This should be fine, since it
+                // a mechanism to free it up.  This should be fine, since it
                 // is only 256 bytes for any process and only gets malloc'd
                 // when using ByteGray surfaces.  Eventually, we should use
                 // the new Disposer mechanism to delete this native memory.
                 if (byteGrayPalette == NULL) {
+                    // assert (256 * sizeof(RGBQUAD)) <= SIZE_MAX
                     byteGrayPalette = (RGBQUAD *)safe_Malloc(256 * sizeof(RGBQUAD));
                     for (int i = 0; i < 256; ++i) {
                         byteGrayPalette[i].rgbRed = i;

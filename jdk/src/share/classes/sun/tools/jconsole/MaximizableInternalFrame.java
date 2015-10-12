@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -222,7 +222,7 @@ public class MaximizableInternalFrame extends JInternalFrame {
     static {
         if (JConsole.IS_WIN) {
             try {
-                Class Part =
+                Class<?> Part =
                     Class.forName("com.sun.java.swing.plaf.windows.TMSchema$Part");
                 if (Part != null) {
                     WP_MINBUTTON        = Part.getField("WP_MINBUTTON").get(null);

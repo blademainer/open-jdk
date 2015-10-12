@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,7 +38,7 @@ import javax.sql.rowset.*;
  * <p>
  * <code>SyncProvider</code>  implementations that supply XML data writer
  * capabilities such as output XML stream capabilities can implement this
- * interface to provider standard <code>XmlWriter</code> objects to
+ * interface to provide standard <code>XmlWriter</code> objects to
  * <code>WebRowSet</code> implementations.
  * <P>
  * Writing a <code>WebRowSet</code> object includes printing the

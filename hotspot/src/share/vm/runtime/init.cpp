@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,6 +23,7 @@
  */
 
 #include "precompiled.hpp"
+#include "classfile/symbolTable.hpp"
 #include "code/icBuffer.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "interpreter/bytecodes.hpp"
@@ -33,6 +34,7 @@
 #include "runtime/init.hpp"
 #include "runtime/safepoint.hpp"
 #include "runtime/sharedRuntime.hpp"
+#include "utilities/macros.hpp"
 
 // Initialization done by VM thread in vm_init_globals()
 void check_ThreadShadow();
@@ -47,15 +49,16 @@ void bytecodes_init();
 void classLoader_init();
 void codeCache_init();
 void VM_Version_init();
+void os_init_globals();        // depends on VM_Version_init, before universe_init
 void stubRoutines_init1();
-jint universe_init();  // dependent on codeCache_init and stubRoutines_init
-void interpreter_init();  // before any methods loaded
-void invocationCounter_init();  // before any methods loaded
+jint universe_init();          // depends on codeCache_init and stubRoutines_init
+void interpreter_init();       // before any methods loaded
+void invocationCounter_init(); // before any methods loaded
 void marksweep_init();
 void accessFlags_init();
 void templateTable_init();
 void InterfaceSupport_init();
-void universe2_init();  // dependent on codeCache_init and stubRoutines_init
+void universe2_init();  // dependent on codeCache_init and stubRoutines_init, loads primordial classes
 void referenceProcessor_init();
 void jni_handles_init();
 void vmStructs_init();
@@ -64,7 +67,7 @@ void vtableStubs_init();
 void InlineCacheBuffer_init();
 void compilerOracle_init();
 void compilationPolicy_init();
-
+void compileBroker_init();
 
 // Initialization after compiler initialization
 bool universe_post_init();  // must happen after compiler_init
@@ -94,8 +97,10 @@ jint init_globals() {
   classLoader_init();
   codeCache_init();
   VM_Version_init();
+  os_init_globals();
   stubRoutines_init1();
-  jint status = universe_init();  // dependent on codeCache_init and stubRoutines_init
+  jint status = universe_init();  // dependent on codeCache_init and
+                                  // stubRoutines_init1 and metaspace_init.
   if (status != JNI_OK)
     return status;
 
@@ -106,38 +111,30 @@ jint init_globals() {
   templateTable_init();
   InterfaceSupport_init();
   SharedRuntime::generate_stubs();
-  universe2_init();  // dependent on codeCache_init and stubRoutines_init
+  universe2_init();  // dependent on codeCache_init and stubRoutines_init1
   referenceProcessor_init();
   jni_handles_init();
-#ifndef VM_STRUCTS_KERNEL
+#if INCLUDE_VM_STRUCTS
   vmStructs_init();
-#endif // VM_STRUCTS_KERNEL
+#endif // INCLUDE_VM_STRUCTS
 
   vtableStubs_init();
   InlineCacheBuffer_init();
   compilerOracle_init();
   compilationPolicy_init();
+  compileBroker_init();
   VMRegImpl::set_regName();
 
   if (!universe_post_init()) {
     return JNI_ERR;
   }
-  javaClasses_init();  // must happen after vtable initialization
+  javaClasses_init();   // must happen after vtable initialization
   stubRoutines_init2(); // note: StubRoutines need 2-phase init
-
-  // Although we'd like to, we can't easily do a heap verify
-  // here because the main thread isn't yet a JavaThread, so
-  // its TLAB may not be made parseable from the usual interfaces.
-  if (VerifyBeforeGC && !UseTLAB &&
-      Universe::heap()->total_collections() >= VerifyGCStartAt) {
-    Universe::heap()->prepare_for_verify();
-    Universe::verify();   // make sure we're starting with a clean slate
-  }
 
   // All the flags that get adjusted by VM_Version_init and os::init_2
   // have been set so dump the flags now.
   if (PrintFlagsFinal) {
-    CommandLineFlags::printFlags();
+    CommandLineFlags::printFlags(tty, false);
   }
 
   return JNI_OK;
@@ -152,6 +149,10 @@ void exit_globals() {
     if (PrintSafepointStatistics) {
       // Print the collected safepoint statistics.
       SafepointSynchronize::print_stat_on_exit();
+    }
+    if (PrintStringTableStatistics) {
+      SymbolTable::dump(tty);
+      StringTable::dump(tty);
     }
     ostream_exit();
   }

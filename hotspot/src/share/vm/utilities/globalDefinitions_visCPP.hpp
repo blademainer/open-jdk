@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -130,6 +130,9 @@ inline jdouble jdouble_cast(jlong   x)           { return *(jdouble*)&x; }
 //----------------------------------------------------------------------------------------------------
 // Non-standard stdlib-like stuff:
 inline int strcasecmp(const char *s1, const char *s2) { return _stricmp(s1,s2); }
+inline int strncasecmp(const char *s1, const char *s2, size_t n) {
+  return _strnicmp(s1,s2,n);
+}
 
 
 //----------------------------------------------------------------------------------------------------
@@ -186,6 +189,10 @@ const jlong max_jlong = CONST64(0x7fffffffffffffff);
 #pragma warning( disable : 4201 ) // nonstandard extension used : nameless struct/union (needed in windows.h)
 #pragma warning( disable : 4511 ) // copy constructor could not be generated
 #pragma warning( disable : 4291 ) // no matching operator delete found; memory will not be freed if initialization thows an exception
+#ifdef CHECK_UNHANDLED_OOPS
+#pragma warning( disable : 4521 ) // class has multiple copy ctors of a single type
+#pragma warning( disable : 4522 ) // class has multiple assignment operators of a single type
+#endif // CHECK_UNHANDLED_OOPS
 #if _MSC_VER >= 1400
 #pragma warning( disable : 4996 ) // unsafe string functions. Same as define _CRT_SECURE_NO_WARNINGS/_CRT_SECURE_NO_DEPRICATE
 #endif
@@ -206,6 +213,26 @@ inline int vsnprintf(char* buf, size_t count, const char* fmt, va_list argptr) {
 
 // Formatting.
 #define FORMAT64_MODIFIER "I64"
+
+// Visual Studio doesn't provide inttypes.h so provide appropriate definitions here.
+// The 32 bits ones might need I32 but seem to work ok without it.
+#define PRId32       "d"
+#define PRIu32       "u"
+#define PRIx32       "x"
+
+#define PRId64       "I64d"
+#define PRIu64       "I64u"
+#define PRIx64       "I64x"
+
+#ifdef _LP64
+#define PRIdPTR       "I64d"
+#define PRIuPTR       "I64u"
+#define PRIxPTR       "I64x"
+#else
+#define PRIdPTR       "d"
+#define PRIuPTR       "u"
+#define PRIxPTR       "x"
+#endif
 
 #define offset_of(klass,field) offsetof(klass,field)
 

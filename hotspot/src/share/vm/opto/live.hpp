@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,10 +33,14 @@
 #include "opto/regmask.hpp"
 
 class Block;
-class LRG_List;
 class PhaseCFG;
 class VectorSet;
 class IndexSet;
+
+//------------------------------LRG_List---------------------------------------
+// Map Node indices to Live RanGe indices.
+// Array lookup in the optimized case.
+typedef GrowableArray<uint> LRG_List;
 
 //------------------------------PhaseLive--------------------------------------
 // Compute live-in/live-out
@@ -56,7 +60,7 @@ class PhaseLive : public Phase {
   Block_List *_worklist;        // Worklist for iterative solution
 
   const PhaseCFG &_cfg;         // Basic blocks
-  LRG_List &_names;             // Mapping from Nodes to live ranges
+  const LRG_List &_names;       // Mapping from Nodes to live ranges
   uint _maxlrg;                 // Largest live-range number
   Arena *_arena;
 
@@ -67,7 +71,7 @@ class PhaseLive : public Phase {
   void add_liveout( Block *p, IndexSet *lo, VectorSet &first_pass );
 
 public:
-  PhaseLive( const PhaseCFG &cfg, LRG_List &names, Arena *arena );
+  PhaseLive(const PhaseCFG &cfg, const LRG_List &names, Arena *arena);
   ~PhaseLive() {}
   // Compute liveness info
   void compute(uint maxlrg);

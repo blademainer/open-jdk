@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,6 +29,8 @@
 
 import com.sun.beans.TypeResolver;
 
+import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedType;
 import java.lang.reflect.Field;
 import java.lang.reflect.GenericDeclaration;
 import java.lang.reflect.Method;
@@ -113,6 +115,8 @@ public class TestTypeResolver {
         // by private implementations of the various Type interfaces
         if (expect.equals(t) && t.equals(expect))
             System.out.println(", as expected");
+        else if ((expect.equals(t) || t.equals(expect)) && expect.toString().equals(t.toString()))
+            System.out.println(", as workaround of the 8023301 bug");
         else {
             System.out.println(" BUT SHOULD BE " + expect);
             failedCases.add(c);
@@ -170,6 +174,47 @@ public class TestTypeResolver {
         public int hashCode() {
             return hash(name) ^ hash(gd) ^ Arrays.hashCode(bounds);
         }
+
+        public boolean isAnnotationPresent(Class<? extends Annotation> annotationClass) {
+            return false; // not used
+        }
+
+        public <T extends Annotation> T getAnnotation(Class<T> annotationClass) {
+            return null; // not used
+        }
+
+        public <T extends Annotation> T[] getAnnotations(Class<T> annotationClass) {
+            return null; // not used
+        }
+
+        public Annotation[] getAnnotations() {
+            return null; // not used
+        }
+
+        public <T extends Annotation> T getDeclaredAnnotation(Class<T> annotationClass) {
+            return null; // not used
+        }
+
+        public <T extends Annotation> T[] getDeclaredAnnotations(Class<T> annotationClass) {
+            return null; // not used
+        }
+
+        public Annotation[] getDeclaredAnnotations() {
+            return null; // not used
+        }
+
+        public AnnotatedType[] getAnnotatedBounds() {
+            return null; // not used
+        }
+
+        public <T extends Annotation> T[] getAnnotationsByType(Class<T> annotationClass) {
+            return null; // not used
+        }
+
+        public <T extends Annotation> T[] getDeclaredAnnotationsByType(Class<T> annotationClass) {
+            return null; // not used
+        }
+
     }
 
     private static class ClassTypeVariable extends TypeVariableImpl<Class<?>> {

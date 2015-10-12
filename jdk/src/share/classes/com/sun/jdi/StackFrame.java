@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,8 +58,9 @@ import java.util.Map;
  * @author James McIlree
  * @since  1.3
  */
-public interface StackFrame extends Mirror, Locatable
-{
+@jdk.Exported
+public interface StackFrame extends Mirror, Locatable {
+
     /**
      * Returns the {@link Location} of the current instruction in the frame.
      * The method for which this frame was created can also be accessed

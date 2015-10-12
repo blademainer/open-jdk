@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1995, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,8 @@
 # Makefile to run various jdk tests
 #
 
+GETMIXEDPATH=echo
+
 # Get OS/ARCH specifics
 OSNAME = $(shell uname -s)
 ifeq ($(OSNAME), SunOS)
@@ -44,7 +46,30 @@ ifeq ($(OSNAME), Linux)
     ARCH = i586
   endif
 endif
-ifeq ($(OSNAME), Windows_NT)
+ifeq ($(OSNAME), Darwin)
+  PLATFORM = bsd
+  SLASH_JAVA = /java
+  ARCH = $(shell uname -m)
+  ifeq ($(ARCH), i386)
+    ARCH = i586
+  endif
+endif
+ifeq ($(findstring BSD,$(OSNAME)), BSD)
+  PLATFORM = bsd
+  SLASH_JAVA = /java
+  ARCH = $(shell uname -m)
+  ifeq ($(ARCH), i386)
+    ARCH = i586
+  endif
+endif
+ifeq ($(PLATFORM),)
+  # detect wether we're running in MKS or cygwin
+  ifeq ($(OSNAME), Windows_NT) # MKS
+    GETMIXEDPATH=dosname -s
+  endif
+  ifeq ($(findstring CYGWIN,$(OSNAME)), CYGWIN)
+    GETMIXEDPATH=cygpath -m -s
+  endif
   PLATFORM = windows
   SLASH_JAVA = J:
   ifeq ($(word 1, $(PROCESSOR_IDENTIFIER)),ia64)
@@ -137,7 +162,9 @@ clean:
 # jtreg tests
 
 # Expect JT_HOME to be set for jtreg tests. (home for jtreg)
-JT_HOME = $(SLASH_JAVA)/re/jtreg/4.0/promoted/latest/binaries/jtreg
+ifndef JT_HOME
+  JT_HOME = $(SLASH_JAVA)/re/jtreg/4.0/promoted/latest/binaries/jtreg
+endif
 ifdef JPRT_JTREG_HOME
   JT_HOME = $(JPRT_JTREG_HOME)
 endif
@@ -164,9 +191,9 @@ jtreg_tests: prep $(JT_HOME) $(PRODUCT_HOME) $(JTREG)
 	$(JTREG) -a -v:fail,error               \
           $(JTREG_KEY_OPTION)                   \
           $(EXTRA_JTREG_OPTIONS)                \
-          -r:$(ABS_TEST_OUTPUT_DIR)/JTreport    \
-          -w:$(ABS_TEST_OUTPUT_DIR)/JTwork      \
-          -jdk:$(PRODUCT_HOME)                  \
+          -r:$(shell $(GETMIXEDPATH) "$(ABS_TEST_OUTPUT_DIR)")/JTreport    \
+          -w:$(shell $(GETMIXEDPATH) "$(ABS_TEST_OUTPUT_DIR)")/JTwork      \
+          -jdk:$(shell $(GETMIXEDPATH) "$(PRODUCT_HOME)")                  \
           $(JAVA_OPTIONS:%=-vmoption:%)         \
           $(JTREG_TESTDIRS)                     \
 	  || $(BUNDLE_UP_FAILED)
@@ -183,9 +210,7 @@ clienttest: prep $(PRODUCT_HOME)
 	$(PRODUCT_HOME)/bin/java $(JAVA_OPTIONS) -help
 	$(PRODUCT_HOME)/bin/java $(JAVA_OPTIONS) -X
 	$(RM) $(PRODUCT_HOME)/jre/lib/*/client/classes.jsa
-	$(RM) $(PRODUCT_HOME)/jre/lib/*/client/classes_g.jsa
 	$(RM) $(PRODUCT_HOME)/jre/bin/client/classes.jsa
-	$(RM) $(PRODUCT_HOME)/jre/bin/client/classes_g.jsa
 	$(PRODUCT_HOME)/bin/java $(JAVA_OPTIONS) -Xshare:dump
 
 PHONY_LIST += clienttest
@@ -200,6 +225,33 @@ servertest: prep $(PRODUCT_HOME)
 	$(PRODUCT_HOME)/bin/java $(JAVA_OPTIONS) -X
 
 PHONY_LIST += servertest
+
+################################################################
+
+# internalvmtests (run internal unit tests inside the VM)
+
+internalvmtests: prep $(PRODUCT_HOME)
+	$(PRODUCT_HOME)/bin/java $(JAVA_OPTIONS) -XX:+ExecuteInternalVMTests -version
+
+PHONY_LIST += internalvmtests
+
+################################################################
+
+# wbapitest (make sure the whitebox testing api classes work
+
+wbapitest: prep $(JT_HOME) $(PRODUCT_HOME) $(JTREG)
+	$(JTREG) -a -v:fail,error               \
+          $(JTREG_KEY_OPTION)                   \
+          $(EXTRA_JTREG_OPTIONS)                \
+          -r:$(shell $(GETMIXEDPATH) "$(ABS_TEST_OUTPUT_DIR)")/JTreport    \
+          -w:$(shell $(GETMIXEDPATH) "$(ABS_TEST_OUTPUT_DIR)")/JTwork      \
+          -jdk:$(shell $(GETMIXEDPATH) "$(PRODUCT_HOME)")                  \
+          $(JAVA_OPTIONS:%=-vmoption:%)         \
+          $(shell $(GETMIXEDPATH) "$(TEST_ROOT)")/sanity                   \
+	  || $(BUNDLE_UP_FAILED)
+	$(BUNDLE_UP)
+
+PHONY_LIST += wbapitest
 
 ################################################################
 

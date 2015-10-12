@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,12 +30,20 @@
  */
 
 /*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
+/*
  * This script adds "Selected Text Color" menu item to "Tools" menu.
  * When selected, this menu changes the "selected text" color.
  */
 if (this.application) {
     application.addTool("Selected Text Color...",
-        function() {          
+        function() {
             var color = application.editor.selectedTextColor;
             color = colorDialog("Selected Text Color", color);
             application.editor.selectedTextColor = color;

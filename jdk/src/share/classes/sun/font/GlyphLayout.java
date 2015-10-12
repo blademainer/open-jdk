@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -233,7 +233,7 @@ public final class GlyphLayout {
                     invdtx = dtx.createInverse();
                 }
                 catch (NoninvertibleTransformException e) {
-                    throw new InternalError();
+                    throw new InternalError(e);
                 }
             }
 
@@ -464,8 +464,14 @@ public final class GlyphLayout {
                     break;
                 }
                 catch (IndexOutOfBoundsException e) {
-                    _gvdata.grow();
+                    if (_gvdata._count >=0) {
+                        _gvdata.grow();
+                    }
                 }
+            }
+            // Break out of the outer for loop if layout fails.
+            if (_gvdata._count < 0) {
+                break;
             }
         }
 
@@ -473,7 +479,19 @@ public final class GlyphLayout {
         //            _gvdata.adjustPositions(txinfo.invdtx);
         //        }
 
-        StandardGlyphVector gv = _gvdata.createGlyphVector(font, frc, result);
+        // If layout fails (negative glyph count) create an un-laid out GV instead.
+        // ie default positions. This will be a lot better than the alternative of
+        // a complete blank layout.
+        StandardGlyphVector gv;
+        if (_gvdata._count < 0) {
+            gv = new StandardGlyphVector(font, text, offset, count, frc);
+            if (FontUtilities.debugFonts()) {
+               FontUtilities.getLogger().warning("OpenType layout failed on font: " +
+                                                 font);
+            }
+        } else {
+            gv = _gvdata.createGlyphVector(font, frc, result);
+        }
         //        System.err.println("Layout returns: " + gv);
         return gv;
     }

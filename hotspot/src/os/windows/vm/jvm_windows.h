@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,6 +21,9 @@
  * questions.
  *
  */
+
+#ifndef OS_WINDOWS_VM_JVM_WINDOWS_H
+#define OS_WINDOWS_VM_JVM_WINDOWS_H
 
 #ifndef _JAVASOFT_JVM_MD_H_
 #define _JAVASOFT_JVM_MD_H_
@@ -54,11 +57,9 @@ typedef struct _MODULEINFO {
 #include <Psapi.h>
 #endif
 
-
-
 #include <Tlhelp32.h>
 
-// #include "jni.h"
+typedef int socklen_t;
 
 #define JNI_ONLOAD_SYMBOLS      {"_JNI_OnLoad@8", "JNI_OnLoad"}
 #define JNI_ONUNLOAD_SYMBOLS    {"_JNI_OnUnload@8", "JNI_OnUnload"}
@@ -105,10 +106,7 @@ JVM_GetThreadInterruptEvent();
  * File I/O
  */
 
-// #include <sys/types.h>
-// #include <sys/stat.h>
-// #include <fcntl.h>
-// #include <errno.h>
+#include <sys/stat.h>
 
 /* O Flags */
 
@@ -129,3 +127,5 @@ JVM_GetThreadInterruptEvent();
 #define SHUTDOWN2_SIGNAL SIGTERM
 
 #endif /* !_JAVASOFT_JVM_MD_H_ */
+
+#endif // OS_WINDOWS_VM_JVM_WINDOWS_H

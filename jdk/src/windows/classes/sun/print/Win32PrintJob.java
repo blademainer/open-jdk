@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -338,6 +338,10 @@ public class Win32PrintJob implements CancelablePrintJob {
         } catch (IOException e) {
             notifyEvent(PrintJobEvent.JOB_FAILED);
             throw new PrintException("can't get print data: " + e.toString());
+        }
+
+        if (data == null) {
+            throw new PrintException("Null print data.");
         }
 
         if (flavor == null || (!service.isDocFlavorSupported(flavor))) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,11 +27,8 @@
  * @summary RMI blocks in HttpAwareServerSocket.accept() if you telnet to it
  * @author Adrian Colley
  *
- * @library ../../../../../java/rmi/testlibrary/
- * @build TestIface
- * @build TestImpl
- * @build TestImpl_Stub
- * @build BlockAcceptTest
+ * @library ../../../../../java/rmi/testlibrary
+ * @build TestIface TestImpl TestImpl_Stub
  * @run main/othervm/policy=security.policy/timeout=60 BlockAcceptTest
  */
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,11 +24,12 @@
 
 #include "precompiled.hpp"
 #include "classfile/vmSymbols.hpp"
+#include "interpreter/bytecode.hpp"
 #include "interpreter/interpreter.hpp"
 #include "memory/allocation.inline.hpp"
 #include "memory/resourceArea.hpp"
 #include "memory/universe.inline.hpp"
-#include "oops/methodDataOop.hpp"
+#include "oops/methodData.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiThreadState.hpp"
 #include "runtime/handles.inline.hpp"
@@ -110,7 +111,7 @@ void vframeArrayElement::fill_in(compiledVFrame* vf) {
       case T_OBJECT:
         assert(!value->obj_is_scalar_replaced(), "object should be reallocated already");
         // preserve object type
-        _locals->add( new StackValue((intptr_t) (value->get_obj()()), T_OBJECT ));
+        _locals->add( new StackValue(cast_from_oop<intptr_t>((value->get_obj()())), T_OBJECT ));
         break;
       case T_CONFLICT:
         // A dead local.  Will be initialized to null/zero.
@@ -135,7 +136,7 @@ void vframeArrayElement::fill_in(compiledVFrame* vf) {
       case T_OBJECT:
         assert(!value->obj_is_scalar_replaced(), "object should be reallocated already");
         // preserve object type
-        _expressions->add( new StackValue((intptr_t) (value->get_obj()()), T_OBJECT ));
+        _expressions->add( new StackValue(cast_from_oop<intptr_t>((value->get_obj()())), T_OBJECT ));
         break;
       case T_CONFLICT:
         // A dead stack element.  Will be initialized to null/zero.
@@ -159,6 +160,7 @@ void vframeArrayElement::unpack_on_stack(int caller_actual_parameters,
                                          int callee_locals,
                                          frame* caller,
                                          bool is_top_frame,
+                                         bool is_bottom_frame,
                                          int exec_mode) {
   JavaThread* thread = (JavaThread*) Thread::current();
 
@@ -232,8 +234,6 @@ void vframeArrayElement::unpack_on_stack(int caller_actual_parameters,
       // Force early return from top frame after deoptimization
 #ifndef CC_INTERP
       pc = Interpreter::remove_activation_early_entry(state->earlyret_tos());
-#else
-     // TBD: Need to implement ForceEarlyReturn for CC_INTERP (ia64)
 #endif
     } else {
       // Possibly override the previous pc computation of the top (youngest) frame
@@ -276,7 +276,8 @@ void vframeArrayElement::unpack_on_stack(int caller_actual_parameters,
                                  callee_locals,
                                  caller,
                                  iframe(),
-                                 is_top_frame);
+                                 is_top_frame,
+                                 is_bottom_frame);
 
   // Update the pc in the frame object and overwrite the temporary pc
   // we placed in the skeletal frame now that we finally know the
@@ -298,7 +299,7 @@ void vframeArrayElement::unpack_on_stack(int caller_actual_parameters,
   }
   iframe()->interpreter_frame_set_bcx((intptr_t)bcp); // cannot use bcp because frame is not initialized yet
   if (ProfileInterpreter) {
-    methodDataOop mdo = method()->method_data();
+    MethodData* mdo = method()->method_data();
     if (mdo != NULL) {
       int bci = iframe()->interpreter_frame_bci();
       if (use_next_mdp) ++bci;
@@ -421,6 +422,7 @@ int vframeArrayElement::on_stack_size(int caller_actual_parameters,
                                       int callee_parameters,
                                       int callee_locals,
                                       bool is_top_frame,
+                                      bool is_bottom_frame,
                                       int popframe_extra_stack_expression_els) const {
   assert(method()->max_locals() == locals()->size(), "just checking");
   int locks = monitors() == NULL ? 0 : monitors()->number_of_monitors();
@@ -432,7 +434,8 @@ int vframeArrayElement::on_stack_size(int caller_actual_parameters,
                                       caller_actual_parameters,
                                       callee_parameters,
                                       callee_locals,
-                                      is_top_frame);
+                                      is_top_frame,
+                                      is_bottom_frame);
 }
 
 
@@ -443,7 +446,7 @@ vframeArray* vframeArray::allocate(JavaThread* thread, int frame_size, GrowableA
   // Allocate the vframeArray
   vframeArray * result = (vframeArray*) AllocateHeap(sizeof(vframeArray) + // fixed part
                                                      sizeof(vframeArrayElement) * (chunk->length() - 1), // variable part
-                                                     "vframeArray::allocate");
+                                                     mtCompiler);
   result->_frames = chunk->length();
   result->_owner_thread = thread;
   result->_sender = sender;
@@ -510,7 +513,8 @@ void vframeArray::unpack_to_stack(frame &unpack_frame, int exec_mode, int caller
   //  in the above picture.
 
   // Find the skeletal interpreter frames to unpack into
-  RegisterMap map(JavaThread::current(), false);
+  JavaThread* THREAD = JavaThread::current();
+  RegisterMap map(THREAD, false);
   // Get the youngest frame we will unpack (last to be unpacked)
   frame me = unpack_frame.sender(&map);
   int index;
@@ -520,29 +524,38 @@ void vframeArray::unpack_to_stack(frame &unpack_frame, int exec_mode, int caller
     me = me.sender(&map);
   }
 
-  frame caller_frame = me;
-
   // Do the unpacking of interpreter frames; the frame at index 0 represents the top activation, so it has no callee
-
   // Unpack the frames from the oldest (frames() -1) to the youngest (0)
-
+  frame* caller_frame = &me;
   for (index = frames() - 1; index >= 0 ; index--) {
-    int callee_parameters = index == 0 ? 0 : element(index-1)->method()->size_of_parameters();
-    int callee_locals     = index == 0 ? 0 : element(index-1)->method()->max_locals();
-    element(index)->unpack_on_stack(caller_actual_parameters,
-                                    callee_parameters,
-                                    callee_locals,
-                                    &caller_frame,
-                                    index == 0,
-                                    exec_mode);
-    if (index == frames() - 1) {
-      Deoptimization::unwind_callee_save_values(element(index)->iframe(), this);
+    vframeArrayElement* elem = element(index);  // caller
+    int callee_parameters, callee_locals;
+    if (index == 0) {
+      callee_parameters = callee_locals = 0;
+    } else {
+      methodHandle caller = elem->method();
+      methodHandle callee = element(index - 1)->method();
+      Bytecode_invoke inv(caller, elem->bci());
+      // invokedynamic instructions don't have a class but obviously don't have a MemberName appendix.
+      // NOTE:  Use machinery here that avoids resolving of any kind.
+      const bool has_member_arg =
+          !inv.is_invokedynamic() && MethodHandles::has_member_arg(inv.klass(), inv.name());
+      callee_parameters = callee->size_of_parameters() + (has_member_arg ? 1 : 0);
+      callee_locals     = callee->max_locals();
     }
-    caller_frame = *element(index)->iframe();
+    elem->unpack_on_stack(caller_actual_parameters,
+                          callee_parameters,
+                          callee_locals,
+                          caller_frame,
+                          index == 0,
+                          index == frames() - 1,
+                          exec_mode);
+    if (index == frames() - 1) {
+      Deoptimization::unwind_callee_save_values(elem->iframe(), this);
+    }
+    caller_frame = elem->iframe();
     caller_actual_parameters = callee_parameters;
   }
-
-
   deallocate_monitor_chunks();
 }
 

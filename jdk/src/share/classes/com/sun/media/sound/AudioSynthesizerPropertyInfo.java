@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,12 +29,12 @@ package com.sun.media.sound;
  *
  * @author Karl Helgason
  */
-public class AudioSynthesizerPropertyInfo {
+public final class AudioSynthesizerPropertyInfo {
 
     /**
      * Constructs a <code>AudioSynthesizerPropertyInfo</code> object with a given
      * name and value. The <code>description</code> and <code>choices</code>
-     * are intialized by <code>null</code> values.
+     * are initialized by <code>null</code> values.
      *
      * @param name the name of the property
      * @param value the current value or class used for values.

@@ -53,10 +53,10 @@ struct ValueRecord
 
     le_int16   getFieldValue(ValueFormat valueFormat, ValueRecordField field) const;
     le_int16   getFieldValue(le_int16 index, ValueFormat valueFormat, ValueRecordField field) const;
-    void    adjustPosition(ValueFormat valueFormat, const char *base, GlyphIterator &glyphIterator,
-                const LEFontInstance *fontInstance) const;
-    void    adjustPosition(le_int16 index, ValueFormat valueFormat, const char *base, GlyphIterator &glyphIterator,
-                const LEFontInstance *fontInstance) const;
+    void    adjustPosition(ValueFormat valueFormat, const LETableReference &base, GlyphIterator &glyphIterator,
+                const LEFontInstance *fontInstance, LEErrorCode &success) const;
+    void    adjustPosition(le_int16 index, ValueFormat valueFormat, const LETableReference &base, GlyphIterator &glyphIterator,
+                const LEFontInstance *fontInstance, LEErrorCode &success) const;
 
     static le_int16    getSize(ValueFormat valueFormat);
 
@@ -64,6 +64,7 @@ private:
     static le_int16    getFieldCount(ValueFormat valueFormat);
     static le_int16    getFieldIndex(ValueFormat valueFormat, ValueRecordField field);
 };
+LE_VAR_ARRAY(ValueRecord, values)
 
 enum ValueRecordFields
 {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,7 +58,7 @@ import org.omg.PortableInterceptor.SYSTEM_EXCEPTION;
 import org.omg.PortableInterceptor.TRANSPORT_RETRY;
 import org.omg.PortableInterceptor.USER_EXCEPTION;
 import org.omg.PortableInterceptor.PolicyFactory;
-import org.omg.PortableInterceptor.ObjectReferenceTemplate ;
+import org.omg.PortableInterceptor.ObjectReferenceTemplate;
 
 import com.sun.corba.se.pept.encoding.OutputObject;
 
@@ -77,7 +77,6 @@ import com.sun.corba.se.impl.logging.InterceptorsSystemException;
 import com.sun.corba.se.impl.logging.ORBUtilSystemException;
 import com.sun.corba.se.impl.logging.OMGSystemException;
 import com.sun.corba.se.impl.corba.RequestImpl;
-import com.sun.corba.se.impl.orbutil.ORBClassLoader;
 import com.sun.corba.se.impl.orbutil.ORBConstants;
 import com.sun.corba.se.impl.orbutil.ORBUtility;
 import com.sun.corba.se.impl.orbutil.StackImpl;
@@ -112,10 +111,10 @@ public class PIHandlerImpl implements PIHandler
         }
     }
 
-    private ORB orb ;
-    InterceptorsSystemException wrapper ;
-    ORBUtilSystemException orbutilWrapper ;
-    OMGSystemException omgWrapper ;
+    private ORB orb;
+    InterceptorsSystemException wrapper;
+    ORBUtilSystemException orbutilWrapper;
+    OMGSystemException omgWrapper;
 
     // A unique id used in ServerRequestInfo.
     // This does not correspond to the GIOP request id.
@@ -177,6 +176,21 @@ public class PIHandlerImpl implements PIHandler
                 return new RequestInfoStack();
             }
         };
+
+    public void close() {
+        orb = null;
+        wrapper = null;
+        orbutilWrapper = null;
+        omgWrapper = null;
+        codecFactory = null;
+        arguments = null;
+        interceptorList = null;
+        interceptorInvoker = null;
+        current = null;
+        policyFactoryTable = null;
+        threadLocalClientRequestInfoStack = null;
+        threadLocalServerRequestInfoStack = null;
+    }
 
     // Class to contain all ThreadLocal data for ClientRequestInfo
     // maintenance.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,7 +44,7 @@ class SysClassPath;
 
 // Element describing System and User (-Dkey=value flags) defined property.
 
-class SystemProperty: public CHeapObj {
+class SystemProperty: public CHeapObj<mtInternal> {
  private:
   char*           _key;
   char*           _value;
@@ -63,7 +63,7 @@ class SystemProperty: public CHeapObj {
       if (_value != NULL) {
         FreeHeap(_value);
       }
-      _value = AllocateHeap(strlen(value)+1);
+      _value = AllocateHeap(strlen(value)+1, mtInternal);
       if (_value != NULL) {
         strcpy(_value, value);
       }
@@ -80,7 +80,7 @@ class SystemProperty: public CHeapObj {
       if (_value != NULL) {
         len += strlen(_value);
       }
-      sp = AllocateHeap(len+2);
+      sp = AllocateHeap(len+2, mtInternal);
       if (sp != NULL) {
         if (_value != NULL) {
           strcpy(sp, _value);
@@ -100,13 +100,13 @@ class SystemProperty: public CHeapObj {
     if (key == NULL) {
       _key = NULL;
     } else {
-      _key = AllocateHeap(strlen(key)+1);
+      _key = AllocateHeap(strlen(key)+1, mtInternal);
       strcpy(_key, key);
     }
     if (value == NULL) {
       _value = NULL;
     } else {
-      _value = AllocateHeap(strlen(value)+1);
+      _value = AllocateHeap(strlen(value)+1, mtInternal);
       strcpy(_value, value);
     }
     _next = NULL;
@@ -116,13 +116,23 @@ class SystemProperty: public CHeapObj {
 
 
 // For use by -agentlib, -agentpath and -Xrun
-class AgentLibrary : public CHeapObj {
+class AgentLibrary : public CHeapObj<mtInternal> {
   friend class AgentLibraryList;
+public:
+  // Is this library valid or not. Don't rely on os_lib == NULL as statically
+  // linked lib could have handle of RTLD_DEFAULT which == 0 on some platforms
+  enum AgentState {
+    agent_invalid = 0,
+    agent_valid   = 1
+  };
+
  private:
   char*           _name;
   char*           _options;
   void*           _os_lib;
   bool            _is_absolute_path;
+  bool            _is_static_lib;
+  AgentState      _state;
   AgentLibrary*   _next;
 
  public:
@@ -133,20 +143,27 @@ class AgentLibrary : public CHeapObj {
   void* os_lib() const                      { return _os_lib; }
   void set_os_lib(void* os_lib)             { _os_lib = os_lib; }
   AgentLibrary* next() const                { return _next; }
+  bool is_static_lib() const                { return _is_static_lib; }
+  void set_static_lib(bool is_static_lib)   { _is_static_lib = is_static_lib; }
+  bool valid()                              { return (_state == agent_valid); }
+  void set_valid()                          { _state = agent_valid; }
+  void set_invalid()                        { _state = agent_invalid; }
 
   // Constructor
   AgentLibrary(const char* name, const char* options, bool is_absolute_path, void* os_lib) {
-    _name = AllocateHeap(strlen(name)+1);
+    _name = AllocateHeap(strlen(name)+1, mtInternal);
     strcpy(_name, name);
     if (options == NULL) {
       _options = NULL;
     } else {
-      _options = AllocateHeap(strlen(options)+1);
+      _options = AllocateHeap(strlen(options)+1, mtInternal);
       strcpy(_options, options);
     }
     _is_absolute_path = is_absolute_path;
     _os_lib = os_lib;
     _next = NULL;
+    _state = agent_invalid;
+    _is_static_lib = false;
   }
 };
 
@@ -262,8 +279,10 @@ class Arguments : AllStatic {
 
   // Option flags
   static bool   _has_profile;
-  static bool   _has_alloc_profile;
   static const char*  _gc_log_filename;
+  // Value of the conservative maximum heap alignment needed
+  static size_t  _conservative_max_heap_alignment;
+
   static uintx  _min_heap_size;
 
   // -Xrun arguments
@@ -277,6 +296,8 @@ class Arguments : AllStatic {
     { _agentList.add(new AgentLibrary(name, options, absolute_path, NULL)); }
 
   // Late-binding agents not started via arguments
+  static void add_loaded_agent(AgentLibrary *agentLib)
+    { _agentList.add(agentLib); }
   static void add_loaded_agent(const char* name, char* options, bool absolute_path, void* os_lib)
     { _agentList.add(new AgentLibrary(name, options, absolute_path, os_lib)); }
 
@@ -309,8 +330,14 @@ class Arguments : AllStatic {
   // Garbage-First (UseG1GC)
   static void set_g1_gc_flags();
   // GC ergonomics
+  static void set_conservative_max_heap_alignment();
+  static void set_use_compressed_oops();
+  static void set_use_compressed_klass_ptrs();
   static void set_ergonomics_flags();
   static void set_shared_spaces_flags();
+  // limits the given memory size by the maximum amount of memory this process is
+  // currently allowed to allocate or reserve.
+  static julong limit_by_allocatable_memory(julong size);
   // Setup heap size
   static void set_heap_size();
   // Based on automatic selection criteria, should the
@@ -333,15 +360,15 @@ class Arguments : AllStatic {
 
   // Argument parsing
   static void do_pd_flag_adjustments();
-  static bool parse_argument(const char* arg, FlagValueOrigin origin);
-  static bool process_argument(const char* arg, jboolean ignore_unrecognized, FlagValueOrigin origin);
+  static bool parse_argument(const char* arg, Flag::Flags origin);
+  static bool process_argument(const char* arg, jboolean ignore_unrecognized, Flag::Flags origin);
   static void process_java_launcher_argument(const char*, void*);
   static void process_java_compiler_argument(char* arg);
   static jint parse_options_environment_variable(const char* name, SysClassPath* scp_p, bool* scp_assembly_required_p);
   static jint parse_java_tool_options_environment_variable(SysClassPath* scp_p, bool* scp_assembly_required_p);
   static jint parse_java_options_environment_variable(SysClassPath* scp_p, bool* scp_assembly_required_p);
   static jint parse_vm_init_args(const JavaVMInitArgs* args);
-  static jint parse_each_vm_init_arg(const JavaVMInitArgs* args, SysClassPath* scp_p, bool* scp_assembly_required_p, FlagValueOrigin origin);
+  static jint parse_each_vm_init_arg(const JavaVMInitArgs* args, SysClassPath* scp_p, bool* scp_assembly_required_p, Flag::Flags origin);
   static jint finalize_vm_init_args(SysClassPath* scp_p, bool scp_assembly_required);
   static bool is_bad_option(const JavaVMOption* option, jboolean ignore,
     const char* option_type);
@@ -407,16 +434,26 @@ class Arguments : AllStatic {
   static char*  SharedArchivePath;
 
  public:
-  // Parses the arguments
+  // Parses the arguments, first phase
   static jint parse(const JavaVMInitArgs* args);
+  // Apply ergonomics
+  static jint apply_ergo();
+  // Adjusts the arguments after the OS have adjusted the arguments
+  static jint adjust_after_os();
   // Check for consistency in the selection of the garbage collector.
   static bool check_gc_consistency();
+  static void check_deprecated_gcs();
+  static void check_deprecated_gc_flags();
   // Check consistecy or otherwise of VM argument settings
   static bool check_vm_args_consistency();
   // Check stack pages settings
   static bool check_stack_pages();
   // Used by os_solaris
   static bool process_settings_file(const char* file_name, bool should_exist, jboolean ignore_unrecognized);
+
+  static size_t conservative_max_heap_alignment() { return _conservative_max_heap_alignment; }
+  // Return the maximum size a heap with compressed oops can take
+  static size_t max_heap_for_compressed_oops();
 
   // return a char* array containing all options
   static char** jvm_flags_array()          { return _jvm_flags_array; }
@@ -454,9 +491,8 @@ class Arguments : AllStatic {
   // -Xloggc:<file>, if not specified will be NULL
   static const char* gc_log_filename()      { return _gc_log_filename; }
 
-  // -Xprof/-Xaprof
+  // -Xprof
   static bool has_profile()                 { return _has_profile; }
-  static bool has_alloc_profile()           { return _has_alloc_profile; }
 
   // -Xms, -Xmx
   static uintx min_heap_size()              { return _min_heap_size; }
@@ -537,11 +573,6 @@ class Arguments : AllStatic {
 
   // Utility: copies src into buf, replacing "%%" with "%" and "%p" with pid.
   static bool copy_expand_pid(const char* src, size_t srclen, char* buf, size_t buflen);
-
-#ifdef KERNEL
-  // For java kernel vm, return property string for kernel properties.
-  static char *get_kernel_properties();
-#endif // KERNEL
 };
 
 #endif // SHARE_VM_RUNTIME_ARGUMENTS_HPP

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,9 @@ package sun.nio.fs;
 
 import java.util.*;
 import java.nio.file.*;
+import java.nio.charset.Charset;
+import java.security.*;
+import sun.security.action.*;
 
 /**
  * Utility methods
@@ -34,6 +37,33 @@ import java.nio.file.*;
 
 class Util {
     private Util() { }
+
+    private static final Charset jnuEncoding = Charset.forName(
+        AccessController.doPrivileged(new GetPropertyAction("sun.jnu.encoding")));
+
+    /**
+     * Returns {@code Charset} corresponding to the sun.jnu.encoding property
+     */
+    static Charset jnuEncoding() {
+        return jnuEncoding;
+    }
+
+    /**
+     * Encodes the given String into a sequence of bytes using the {@code Charset}
+     * specified by the sun.jnu.encoding property.
+     */
+    static byte[] toBytes(String s) {
+        return s.getBytes(jnuEncoding);
+    }
+
+    /**
+     * Constructs a new String by decoding the specified array of bytes using the
+     * {@code Charset} specified by the sun.jnu.encoding property.
+     */
+    static String toString(byte[] bytes) {
+        return new String(bytes, jnuEncoding);
+    }
+
 
     /**
      * Splits a string around the given character. The array returned by this
@@ -62,6 +92,7 @@ class Util {
     /**
      * Returns a Set containing the given elements.
      */
+    @SafeVarargs
     static <E> Set<E> newSet(E... elements) {
         HashSet<E> set = new HashSet<>();
         for (E e: elements) {
@@ -74,6 +105,7 @@ class Util {
      * Returns a Set containing all the elements of the given Set plus
      * the given elements.
      */
+    @SafeVarargs
     static <E> Set<E> newSet(Set<E> other, E... elements) {
         HashSet<E> set = new HashSet<>(other);
         for (E e: elements) {

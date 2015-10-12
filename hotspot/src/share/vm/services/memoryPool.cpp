@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 #include "precompiled.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "classfile/vmSymbols.hpp"
+#include "memory/metaspace.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/javaCalls.hpp"
@@ -32,6 +33,8 @@
 #include "services/management.hpp"
 #include "services/memoryManager.hpp"
 #include "services/memoryPool.hpp"
+#include "utilities/macros.hpp"
+#include "utilities/globalDefinitions.hpp"
 
 MemoryPool::MemoryPool(const char* name,
                        PoolType type,
@@ -42,7 +45,7 @@ MemoryPool::MemoryPool(const char* name,
   _name = name;
   _initial_size = init_size;
   _max_size = max_size;
-  _memory_pool_obj = NULL;
+  (void)const_cast<instanceOop&>(_memory_pool_obj = NULL);
   _available_for_allocation = true;
   _num_managers = 0;
   _type = type;
@@ -77,7 +80,7 @@ instanceOop MemoryPool::get_memory_pool_instance(TRAPS) {
   if (pool_obj == NULL) {
     // It's ok for more than one thread to execute the code up to the locked region.
     // Extra pool instances will just be gc'ed.
-    klassOop k = Management::sun_management_ManagementFactory_klass(CHECK_NULL);
+    Klass* k = Management::sun_management_ManagementFactory_klass(CHECK_NULL);
     instanceKlassHandle ik(THREAD, k);
 
     Handle pool_name = java_lang_String::create_from_str(_name, CHECK_NULL);
@@ -208,7 +211,7 @@ MemoryUsage SurvivorContiguousSpacePool::get_memory_usage() {
   return MemoryUsage(initial_size(), used, committed, maxSize);
 }
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 CompactibleFreeListSpacePool::CompactibleFreeListSpacePool(CompactibleFreeListSpace* space,
                                                            const char* name,
                                                            PoolType type,
@@ -225,7 +228,7 @@ MemoryUsage CompactibleFreeListSpacePool::get_memory_usage() {
 
   return MemoryUsage(initial_size(), used, committed, maxSize);
 }
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
 GenerationPool::GenerationPool(Generation* gen,
                                const char* name,
@@ -254,4 +257,33 @@ MemoryUsage CodeHeapPool::get_memory_usage() {
   size_t maxSize   = (available_for_allocation() ? max_size() : 0);
 
   return MemoryUsage(initial_size(), used, committed, maxSize);
+}
+
+MetaspacePool::MetaspacePool() :
+  MemoryPool("Metaspace", NonHeap, 0, calculate_max_size(), true, false) { }
+
+MemoryUsage MetaspacePool::get_memory_usage() {
+  size_t committed = MetaspaceAux::committed_bytes();
+  return MemoryUsage(initial_size(), used_in_bytes(), committed, max_size());
+}
+
+size_t MetaspacePool::used_in_bytes() {
+  return MetaspaceAux::allocated_used_bytes();
+}
+
+size_t MetaspacePool::calculate_max_size() const {
+  return FLAG_IS_CMDLINE(MaxMetaspaceSize) ? MaxMetaspaceSize :
+                                             MemoryUsage::undefined_size();
+}
+
+CompressedKlassSpacePool::CompressedKlassSpacePool() :
+  MemoryPool("Compressed Class Space", NonHeap, 0, CompressedClassSpaceSize, true, false) { }
+
+size_t CompressedKlassSpacePool::used_in_bytes() {
+  return MetaspaceAux::allocated_used_bytes(Metaspace::ClassType);
+}
+
+MemoryUsage CompressedKlassSpacePool::get_memory_usage() {
+  size_t committed = MetaspaceAux::committed_bytes(Metaspace::ClassType);
+  return MemoryUsage(initial_size(), used_in_bytes(), committed, max_size());
 }

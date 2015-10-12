@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -62,7 +62,7 @@ public class PerfCounter {
 
     private PerfCounter(String name, int type) {
         this.name = name;
-        ByteBuffer bb = perf.createLong(name, U_None, type, 0L);
+        ByteBuffer bb = perf.createLong(name, type, U_None, 0L);
         bb.order(ByteOrder.nativeOrder());
         this.lb = bb.asLongBuffer();
     }

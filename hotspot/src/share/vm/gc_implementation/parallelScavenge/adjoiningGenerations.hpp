@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,7 @@
 #include "gc_implementation/parallelScavenge/adjoiningVirtualSpaces.hpp"
 #include "gc_implementation/parallelScavenge/asPSOldGen.hpp"
 #include "gc_implementation/parallelScavenge/asPSYoungGen.hpp"
-#include "gc_implementation/parallelScavenge/psPermGen.hpp"
+#include "gc_implementation/parallelScavenge/generationSizer.hpp"
 
 
 // Contains two generations that both use an AdjoiningVirtualSpaces.
@@ -40,7 +40,7 @@
 // must be shrunk.  Adjusting the boundary between the generations
 // is called for in this class.
 
-class AdjoiningGenerations : public CHeapObj {
+class AdjoiningGenerations : public CHeapObj<mtGC> {
   friend class VMStructs;
  private:
   // The young generation and old generation, respectively
@@ -57,14 +57,7 @@ class AdjoiningGenerations : public CHeapObj {
   bool request_young_gen_expansion(size_t desired_change_in_bytes);
 
  public:
-  AdjoiningGenerations(ReservedSpace rs,
-                       size_t init_low_byte_size,
-                       size_t min_low_byte_size,
-                       size_t max_low_byte_size,
-                       size_t init_high_byte_size,
-                       size_t min_high_byte_size,
-                       size_t max_high_bytes_size,
-                       size_t alignment);
+  AdjoiningGenerations(ReservedSpace rs, GenerationSizer* policy, size_t alignment);
 
   // Accessors
   PSYoungGen* young_gen() { return _young_gen; }

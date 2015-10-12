@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,7 @@ import java.beans.XMLDecoder;
  * is evaluated in the context of the decoder itself.
  * Typically this outer context is used to retrieve the owner of the decoder,
  * which can be set before reading the archive.
- * <p>The following atributes are supported:
+ * <p>The following attributes are supported:
  * <dl>
  * <dt>version
  * <dd>the Java version (not supported)
@@ -54,7 +54,7 @@ final class JavaElementHandler extends ElementHandler {
 
     /**
      * Parses attributes of the element.
-     * The following atributes are supported:
+     * The following attributes are supported:
      * <dl>
      * <dt>version
      * <dd>the Java version (not supported)

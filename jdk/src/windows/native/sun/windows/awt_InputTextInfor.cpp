@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -277,7 +277,7 @@ int AwtInputTextInfor::GetClauseInfor(int*& lpBndClauseW, jstring*& lpReadingCla
        have to merge. Or if the current composing string size is 0, we don't have to merge either.
 
        So in clusion, the three conditions not not merge are:
-       1. no commited string
+       1. no committed string
        2. m_pResultTextInfor points to NULL
        3. the current string size is 0;
 

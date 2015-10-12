@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -169,7 +169,7 @@ class FreetypeFontScaler extends FontScaler {
 
     public synchronized void dispose() {
         if (nativeScaler != 0L) {
-            disposeNativeScaler(nativeScaler);
+            disposeNativeScaler(font.get(), nativeScaler);
             nativeScaler = 0L;
         }
     }
@@ -190,7 +190,7 @@ class FreetypeFontScaler extends FontScaler {
 
     synchronized int getGlyphCode(char charCode) throws FontScalerException {
         if (nativeScaler != 0L) {
-            return getGlyphCodeNative(nativeScaler, charCode);
+            return getGlyphCodeNative(font.get(), nativeScaler, charCode);
         }
         return FontScaler.getNullScaler().getGlyphCode(charCode);
     }
@@ -245,9 +245,9 @@ class FreetypeFontScaler extends FontScaler {
 
     private native long getLayoutTableCacheNative(long pScaler);
 
-    private native void disposeNativeScaler(long pScaler);
+    private native void disposeNativeScaler(Font2D font2D, long pScaler);
 
-    private native int getGlyphCodeNative(long pScaler, char charCode);
+    private native int getGlyphCodeNative(Font2D font, long pScaler, char charCode);
     private native int getNumGlyphsNative(long pScaler);
     private native int getMissingGlyphCodeNative(long pScaler);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@
 
 class PSMarkSweepDecorator;
 
-class PSOldGen : public CHeapObj {
+class PSOldGen : public CHeapObj<mtGC> {
   friend class VMStructs;
   friend class PSPromotionManager; // Uses the cas_allocate methods
   friend class ParallelScavengeHeap;
@@ -60,9 +60,8 @@ class PSOldGen : public CHeapObj {
   // Used when initializing the _name field.
   static inline const char* select_name();
 
-  HeapWord* allocate_noexpand(size_t word_size, bool is_tlab) {
+  HeapWord* allocate_noexpand(size_t word_size) {
     // We assume the heap lock is held here.
-    assert(!is_tlab, "Does not support TLAB allocation");
     assert_locked_or_safepoint(Heap_lock);
     HeapWord* res = object_space()->allocate(word_size);
     if (res != NULL) {
@@ -89,7 +88,7 @@ class PSOldGen : public CHeapObj {
     return (res == NULL) ? expand_and_cas_allocate(word_size) : res;
   }
 
-  HeapWord* expand_and_allocate(size_t word_size, bool is_tlab);
+  HeapWord* expand_and_allocate(size_t word_size);
   HeapWord* expand_and_cas_allocate(size_t word_size);
   void expand(size_t bytes);
   bool expand_by(size_t bytes);
@@ -108,10 +107,11 @@ class PSOldGen : public CHeapObj {
   PSOldGen(size_t initial_size, size_t min_size, size_t max_size,
            const char* perf_data_name, int level);
 
-  void initialize(ReservedSpace rs, size_t alignment,
+  virtual void initialize(ReservedSpace rs, size_t alignment,
                   const char* perf_data_name, int level);
   void initialize_virtual_space(ReservedSpace rs, size_t alignment);
-  void initialize_work(const char* perf_data_name, int level);
+  virtual void initialize_work(const char* perf_data_name, int level);
+  virtual void initialize_performance_counters(const char* perf_data_name, int level);
 
   MemRegion reserved() const                { return _reserved; }
   virtual size_t max_gen_size()             { return _max_gen_size; }
@@ -164,10 +164,10 @@ class PSOldGen : public CHeapObj {
 
   // Allocation. We report all successful allocations to the size policy
   // Note that the perm gen does not use this method, and should not!
-  HeapWord* allocate(size_t word_size, bool is_tlab);
+  HeapWord* allocate(size_t word_size);
 
   // Iteration.
-  void oop_iterate(OopClosure* cl) { object_space()->oop_iterate(cl); }
+  void oop_iterate_no_header(OopClosure* cl) { object_space()->oop_iterate_no_header(cl); }
   void object_iterate(ObjectClosure* cl) { object_space()->object_iterate(cl); }
 
   // Debugging - do not use for time critical operations
@@ -175,7 +175,7 @@ class PSOldGen : public CHeapObj {
   virtual void print_on(outputStream* st) const;
   void print_used_change(size_t prev_used) const;
 
-  void verify(bool allow_dirty);
+  void verify();
   void verify_object_start_array();
 
   // These should not used

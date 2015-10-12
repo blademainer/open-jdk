@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -621,7 +621,7 @@ public class RemoteClass implements sun.rmi.rmic.RMIConstants {
 
     /**
      * Sort array of class declarations alphabetically by their mangled
-     * fully-qualfied class name.  This is used to feed a method's exceptions
+     * fully-qualified class name.  This is used to feed a method's exceptions
      * in a canonical order into the digest stream for the interface hash
      * computation.
      */

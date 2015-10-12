@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -115,8 +115,10 @@ public final class XContentWindow extends XWindow {
             if (in != null) {
                 newBounds.setLocation(-in.left, -in.top);
             }
-            if (insLog.isLoggable(PlatformLogger.FINE)) insLog.fine("Setting content bounds {0}, old bounds {1}",
-                                                                    newBounds, getBounds());
+            if (insLog.isLoggable(PlatformLogger.Level.FINE)) {
+                insLog.fine("Setting content bounds {0}, old bounds {1}",
+                            newBounds, getBounds());
+            }
             // Fix for 5023533:
             // Change in the size of the content window means, well, change of the size
             // Change in the location of the content window means change in insets
@@ -140,7 +142,7 @@ public final class XContentWindow extends XWindow {
     }
 
 
-    public void handleExposeEvent(Component target, int x, int y, int w, int h) {
+    public void postPaintEvent(Component target, int x, int y, int w, int h) {
         // TODO: ?
         // get rid of 'istanceof' by subclassing:
         // XContentWindow -> XFrameContentWindow
@@ -158,13 +160,13 @@ public final class XContentWindow extends XWindow {
             iconifiedExposeEvents.add(new SavedExposeEvent(target, x, y, w, h));
         } else {
             // Normal case: [it is not a frame or] the frame is not iconified.
-            super.handleExposeEvent(target, x, y, w, h);
+            super.postPaintEvent(target, x, y, w, h);
         }
     }
 
     void purgeIconifiedExposeEvents() {
         for (SavedExposeEvent evt : iconifiedExposeEvents) {
-            super.handleExposeEvent(evt.target, evt.x, evt.y, evt.w, evt.h);
+            super.postPaintEvent(evt.target, evt.x, evt.y, evt.w, evt.h);
         }
         iconifiedExposeEvents.clear();
     }

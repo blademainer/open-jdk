@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -50,6 +50,7 @@ import sun.security.provider.certpath.X509CertificatePair;
 import sun.security.util.Cache;
 import sun.security.util.Debug;
 import sun.security.x509.X500Name;
+import sun.security.action.GetBooleanAction;
 import sun.security.action.GetPropertyAction;
 
 /**
@@ -103,7 +104,7 @@ import sun.security.action.GetPropertyAction;
  * @author      Steve Hanna
  * @author      Andreas Sterbenz
  */
-public class LDAPCertStore extends CertStoreSpi {
+public final class LDAPCertStore extends CertStoreSpi {
 
     private static final Debug debug = Debug.getInstance("certpath");
 
@@ -135,6 +136,14 @@ public class LDAPCertStore extends CertStoreSpi {
     private final static String PROP_LIFETIME =
                             "sun.security.certpath.ldap.cache.lifetime";
 
+    /*
+     * Internal system property, that when set to "true", disables the
+     * JNDI application resource files lookup to prevent recursion issues
+     * when validating signed JARs with LDAP URLs in certificates.
+     */
+    private final static String PROP_DISABLE_APP_RESOURCE_FILES =
+        "sun.security.certpath.ldap.disable.app.resource.files";
+
     static {
         String s = AccessController.doPrivileged(
                                 new GetPropertyAction(PROP_LIFETIME));
@@ -160,7 +169,7 @@ public class LDAPCertStore extends CertStoreSpi {
      */
     private boolean prefetchCRLs = false;
 
-    private final Cache valueCache;
+    private final Cache<String, byte[][]> valueCache;
 
     private int cacheHits = 0;
     private int cacheMisses = 0;
@@ -207,10 +216,11 @@ public class LDAPCertStore extends CertStoreSpi {
      * Returns an LDAP CertStore. This method consults a cache of
      * CertStores (shared per JVM) using the LDAP server/port as a key.
      */
-    private static final Cache certStoreCache = Cache.newSoftMemoryCache(185);
+    private static final Cache<LDAPCertStoreParameters, CertStore>
+        certStoreCache = Cache.newSoftMemoryCache(185);
     static synchronized CertStore getInstance(LDAPCertStoreParameters params)
         throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
-        CertStore lcs = (CertStore) certStoreCache.get(params);
+        CertStore lcs = certStoreCache.get(params);
         if (lcs == null) {
             lcs = CertStore.getInstance("LDAP", params);
             certStoreCache.put(params, lcs);
@@ -232,10 +242,21 @@ public class LDAPCertStore extends CertStoreSpi {
     private void createInitialDirContext(String server, int port)
             throws InvalidAlgorithmParameterException {
         String url = "ldap://" + server + ":" + port;
-        Hashtable<String,Object> env = new Hashtable<String,Object>();
+        Hashtable<String,Object> env = new Hashtable<>();
         env.put(Context.INITIAL_CONTEXT_FACTORY,
                 "com.sun.jndi.ldap.LdapCtxFactory");
         env.put(Context.PROVIDER_URL, url);
+
+        // If property is set to true, disable application resource file lookup.
+        boolean disableAppResourceFiles = AccessController.doPrivileged(
+            new GetBooleanAction(PROP_DISABLE_APP_RESOURCE_FILES));
+        if (disableAppResourceFiles) {
+            if (debug != null) {
+                debug.println("LDAPCertStore disabling app resource files");
+            }
+            env.put("com.sun.naming.disable.app.resource.files", "true");
+        }
+
         try {
             ctx = new InitialDirContext(env);
             /*
@@ -283,7 +304,7 @@ public class LDAPCertStore extends CertStoreSpi {
 
         LDAPRequest(String name) {
             this.name = name;
-            requestedAttributes = new ArrayList<String>(5);
+            requestedAttributes = new ArrayList<>(5);
         }
 
         String getName() {
@@ -311,7 +332,7 @@ public class LDAPCertStore extends CertStoreSpi {
                         + cacheMisses);
             }
             String cacheKey = name + "|" + attrId;
-            byte[][] values = (byte[][])valueCache.get(cacheKey);
+            byte[][] values = valueCache.get(cacheKey);
             if (values != null) {
                 cacheHits++;
                 return values;
@@ -347,7 +368,7 @@ public class LDAPCertStore extends CertStoreSpi {
                     System.out.println("LDAP requests: " + requests);
                 }
             }
-            valueMap = new HashMap<String, byte[][]>(8);
+            valueMap = new HashMap<>(8);
             String[] attrIds = requestedAttributes.toArray(STRING0);
             Attributes attrs;
             try {
@@ -429,10 +450,10 @@ public class LDAPCertStore extends CertStoreSpi {
 
         int n = encodedCert.length;
         if (n == 0) {
-            return Collections.<X509Certificate>emptySet();
+            return Collections.emptySet();
         }
 
-        List<X509Certificate> certs = new ArrayList<X509Certificate>(n);
+        List<X509Certificate> certs = new ArrayList<>(n);
         /* decode certs and check if they satisfy selector */
         for (int i = 0; i < n; i++) {
             ByteArrayInputStream bais = new ByteArrayInputStream(encodedCert[i]);
@@ -477,11 +498,10 @@ public class LDAPCertStore extends CertStoreSpi {
 
         int n = encodedCertPair.length;
         if (n == 0) {
-            return Collections.<X509CertificatePair>emptySet();
+            return Collections.emptySet();
         }
 
-        List<X509CertificatePair> certPairs =
-                                new ArrayList<X509CertificatePair>(n);
+        List<X509CertificatePair> certPairs = new ArrayList<>(n);
         /* decode each cert pair and add it to the Collection */
         for (int i = 0; i < n; i++) {
             try {
@@ -528,8 +548,7 @@ public class LDAPCertStore extends CertStoreSpi {
                                 getCertPairs(request, CROSS_CERT);
 
         // Find Certificates that match and put them in a list
-        ArrayList<X509Certificate> matchingCerts =
-                                        new ArrayList<X509Certificate>();
+        ArrayList<X509Certificate> matchingCerts = new ArrayList<>();
         for (X509CertificatePair certPair : certPairs) {
             X509Certificate cert;
             if (forward != null) {
@@ -587,7 +606,7 @@ public class LDAPCertStore extends CertStoreSpi {
         int basicConstraints = xsel.getBasicConstraints();
         String subject = xsel.getSubjectAsString();
         String issuer = xsel.getIssuerAsString();
-        HashSet<X509Certificate> certs = new HashSet<X509Certificate>();
+        HashSet<X509Certificate> certs = new HashSet<>();
         if (debug != null) {
             debug.println("LDAPCertStore.engineGetCertificates() basicConstraints: "
                 + basicConstraints);
@@ -706,10 +725,10 @@ public class LDAPCertStore extends CertStoreSpi {
 
         int n = encodedCRL.length;
         if (n == 0) {
-            return Collections.<X509CRL>emptySet();
+            return Collections.emptySet();
         }
 
-        List<X509CRL> crls = new ArrayList<X509CRL>(n);
+        List<X509CRL> crls = new ArrayList<>(n);
         /* decode each crl and check if it matches selector */
         for (int i = 0; i < n; i++) {
             try {
@@ -765,13 +784,13 @@ public class LDAPCertStore extends CertStoreSpi {
             throw new CertStoreException("need X509CRLSelector to find CRLs");
         }
         X509CRLSelector xsel = (X509CRLSelector) selector;
-        HashSet<X509CRL> crls = new HashSet<X509CRL>();
+        HashSet<X509CRL> crls = new HashSet<>();
 
         // Look in directory entry for issuer of cert we're checking.
         Collection<Object> issuerNames;
         X509Certificate certChecking = xsel.getCertificateChecking();
         if (certChecking != null) {
-            issuerNames = new HashSet<Object>();
+            issuerNames = new HashSet<>();
             X500Principal issuer = certChecking.getIssuerX500Principal();
             issuerNames.add(issuer.getName(X500Principal.RFC2253));
         } else {
@@ -796,7 +815,7 @@ public class LDAPCertStore extends CertStoreSpi {
                 issuerName = (String)nameObject;
             }
             // If all we want is CA certs, try to get the (probably shorter) ARL
-            Collection<X509CRL> entryCRLs = Collections.<X509CRL>emptySet();
+            Collection<X509CRL> entryCRLs = Collections.emptySet();
             if (certChecking == null || certChecking.getBasicConstraints() != -1) {
                 LDAPRequest request = new LDAPRequest(issuerName);
                 request.addRequestedAttribute(CROSS_CERT);
@@ -879,7 +898,8 @@ public class LDAPCertStore extends CertStoreSpi {
             if (hashCode == 0) {
                 int result = 17;
                 result = 37*result + getPort();
-                result = 37*result + getServerName().toLowerCase().hashCode();
+                result = 37*result +
+                    getServerName().toLowerCase(Locale.ENGLISH).hashCode();
                 hashCode = result;
             }
             return hashCode;
@@ -1027,9 +1047,9 @@ public class LDAPCertStore extends CertStoreSpi {
             throws IOException {
             this.selector = selector == null ? new X509CRLSelector() : selector;
             this.certIssuers = certIssuers;
-            issuerNames = new HashSet<Object>();
+            issuerNames = new HashSet<>();
             issuerNames.add(ldapDN);
-            issuers = new HashSet<X500Principal>();
+            issuers = new HashSet<>();
             issuers.add(new X500Name(ldapDN).asX500Principal());
         }
         // we only override the get (accessor methods) since the set methods

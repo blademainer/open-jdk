@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,6 +39,7 @@ class PhaseCFG;
 //------------------------------PhaseRegAlloc------------------------------------
 // Abstract register allocator
 class PhaseRegAlloc : public Phase {
+  friend class VMStructs;
   static void (*_alloc_statistics[MAX_REG_ALLOCATORS])();
   static int _num_allocators;
 
@@ -112,7 +113,7 @@ public:
   OptoReg::Name offset2reg( int stk_offset ) const;
 
   // Get the register encoding associated with the Node
-  int get_encode( const Node *n ) const {
+  int get_encode(const Node *n) const {
     assert( n->_idx < _node_regs_max_index, "Exceeded _node_regs array");
     OptoReg::Name first = _node_regs[n->_idx].first();
     OptoReg::Name second = _node_regs[n->_idx].second();
@@ -120,15 +121,6 @@ public:
     assert(OptoReg::is_reg(first), "out of range");
     return Matcher::_regEncode[first];
   }
-
-  // Platform dependent hook for actions prior to allocation
-  void  pd_preallocate_hook();
-
-#ifdef ASSERT
-  // Platform dependent hook for verification after allocation.  Will
-  // only get called when compiling with asserts.
-  void  pd_postallocate_verify_hook();
-#endif
 
 #ifndef PRODUCT
   static int _total_framesize;

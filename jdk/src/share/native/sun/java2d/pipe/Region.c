@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,7 @@
 #include "jni_util.h"
 
 #include "Region.h"
+#include "sizecalc.h"
 
 static jfieldID endIndexID;
 static jfieldID bandsID;
@@ -259,9 +260,13 @@ RegionToYXBandedRectangles(JNIEnv *env,
             /* return; REMIND: What to do here? */
         }
         Region_StartIteration(env, &clipInfo);
+        if ((*env)->ExceptionCheck(env)) {
+            return 0;
+        }
+
         numrects = Region_CountIterationRects(&clipInfo);
-        if (numrects > initialBufferSize) {
-            *pRect = (RECT_T *) malloc(numrects * sizeof(RECT_T));
+        if ((unsigned long)numrects > initialBufferSize) {
+            *pRect = (RECT_T *) SAFE_SIZE_ARRAY_ALLOC(malloc, numrects, sizeof(RECT_T));
             if (*pRect == NULL) {
                 Region_EndIteration(env, &clipInfo);
                 JNU_ThrowOutOfMemoryError(env,

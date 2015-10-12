@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,8 +43,8 @@ import java.lang.reflect.InvocationTargetException;
  * <p/>
  * Methods of these class are thread safe, although most Swing methods
  * are not. Please see
- * <A HREF="http://java.sun.com/docs/books/tutorial/uiswing/misc/threads.html">How
- * to Use Threads</A> for more information.
+ * <A HREF="http://docs.oracle.com/javase/tutorial/uiswing/concurrency/index.html">Concurrency
+ * in Swing</A> for more information.
  *
  * @author Alexander Potochkin
  * @since 1.6

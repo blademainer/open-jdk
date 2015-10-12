@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -99,7 +99,7 @@ public class AuthResources_pt_BR extends java.util.ListResourceBundle {
         /***    EVERYTHING BELOW IS DEPRECATED  ***/
 
         // com.sun.security.auth.PolicyFile
-        {".error.parsing.", ": erro de parse "},
+        {".error.parsing.", ": erro de parsing "},
         {"COLON", ": "},
         {".error.adding.Permission.", ": erro ao adicionar a Permiss\u00E3o "},
         {"SPACE", " "},

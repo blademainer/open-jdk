@@ -458,7 +458,7 @@ void LEGlyphStorage::setPosition(le_int32 glyphIndex, float x, float y, LEErrorC
       success = LE_INDEX_OUT_OF_BOUNDS_ERROR;
       return;
     }
-
+    _LETRACE("set%-4d\t(%.2f, %.2f)", glyphIndex, x, y);
     fPositions[glyphIndex * 2]     = x;
     fPositions[glyphIndex * 2 + 1] = y;
 }
@@ -584,7 +584,7 @@ le_int32 LEGlyphStorage::applyInsertions()
 {
     le_int32 growAmount = fInsertionList->getGrowAmount();
 
-    if (growAmount == 0) {
+    if (growAmount <= 0) {
         return fGlyphCount;
     }
 
@@ -613,7 +613,9 @@ le_int32 LEGlyphStorage::applyInsertions()
         fAuxData = (le_uint32 *)newAuxData;
     }
 
-    fSrcIndex  = fGlyphCount - 1;
+    if (fGlyphCount > 0) {
+       fSrcIndex  = fGlyphCount - 1;
+    }
     fDestIndex = newGlyphCount - 1;
 
 #if 0
@@ -653,6 +655,10 @@ le_bool LEGlyphStorage::applyInsertion(le_int32 atPosition, le_int32 count, LEGl
     }
 #endif
 
+    if (atPosition < 0 || fSrcIndex < 0 || fDestIndex < 0) {
+        return FALSE;
+    }
+
     if (fAuxData != NULL) {
         le_int32 src = fSrcIndex, dest = fDestIndex;
 
@@ -665,7 +671,7 @@ le_bool LEGlyphStorage::applyInsertion(le_int32 atPosition, le_int32 count, LEGl
         }
     }
 
-    while (fSrcIndex > atPosition) {
+    while (fSrcIndex > atPosition && fSrcIndex >= 0 && fDestIndex >= 0) {
         fGlyphs[fDestIndex]      = fGlyphs[fSrcIndex];
         fCharIndices[fDestIndex] = fCharIndices[fSrcIndex];
 
@@ -673,7 +679,7 @@ le_bool LEGlyphStorage::applyInsertion(le_int32 atPosition, le_int32 count, LEGl
         fSrcIndex  -= 1;
     }
 
-    for (le_int32 i = count - 1; i >= 0; i -= 1) {
+    for (le_int32 i = count - 1; i >= 0 && fDestIndex >= 0; i -= 1) {
         fGlyphs[fDestIndex]      = newGlyphs[i];
         fCharIndices[fDestIndex] = fCharIndices[atPosition];
 
@@ -688,4 +694,3 @@ le_bool LEGlyphStorage::applyInsertion(le_int32 atPosition, le_int32 count, LEGl
 }
 
 U_NAMESPACE_END
-

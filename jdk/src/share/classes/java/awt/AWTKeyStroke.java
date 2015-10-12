@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 package java.awt;
 
 import java.awt.event.KeyEvent;
+import sun.awt.AppContext;
 import java.awt.event.InputEvent;
 import java.util.Collections;
 import java.util.HashMap;
@@ -66,16 +67,32 @@ import java.lang.reflect.Field;
 public class AWTKeyStroke implements Serializable {
     static final long serialVersionUID = -6430539691155161871L;
 
-    private static Map cache;
-    private static AWTKeyStroke cacheKey;
-    private static Constructor ctor = getCtor(AWTKeyStroke.class);
-    private static Map modifierKeywords;
+    private static Map<String, Integer> modifierKeywords;
     /**
      * Associates VK_XXX (as a String) with code (as Integer). This is
      * done to avoid the overhead of the reflective call to find the
      * constant.
      */
     private static VKCollection vks;
+
+    //A key for the collection of AWTKeyStrokes within AppContext.
+    private static Object APP_CONTEXT_CACHE_KEY = new Object();
+    //A key withing the cache
+    private static AWTKeyStroke APP_CONTEXT_KEYSTROKE_KEY = new AWTKeyStroke();
+
+    /*
+     * Reads keystroke class from AppContext and if null, puts there the
+     * AWTKeyStroke class.
+     * Must be called under locked AWTKeyStro
+     */
+    private static Class<AWTKeyStroke> getAWTKeyStrokeClass() {
+        Class<AWTKeyStroke> clazz = (Class)AppContext.getAppContext().get(AWTKeyStroke.class);
+        if (clazz == null) {
+            clazz = AWTKeyStroke.class;
+            AppContext.getAppContext().put(AWTKeyStroke.class, AWTKeyStroke.class);
+        }
+        return clazz;
+    }
 
     private char keyChar = KeyEvent.CHAR_UNDEFINED;
     private int keyCode = KeyEvent.VK_UNDEFINED;
@@ -164,9 +181,12 @@ public class AWTKeyStroke implements Serializable {
         if (subclass == null) {
             throw new IllegalArgumentException("subclass cannot be null");
         }
-        if (AWTKeyStroke.ctor.getDeclaringClass().equals(subclass)) {
-            // Already registered
-            return;
+        synchronized (AWTKeyStroke.class) {
+            Class<AWTKeyStroke> keyStrokeClass = (Class)AppContext.getAppContext().get(AWTKeyStroke.class);
+            if (keyStrokeClass != null && keyStrokeClass.equals(subclass)){
+                // Already registered
+                return;
+            }
         }
         if (!AWTKeyStroke.class.isAssignableFrom(subclass)) {
             throw new ClassCastException("subclass is not derived from AWTKeyStroke");
@@ -197,9 +217,9 @@ public class AWTKeyStroke implements Serializable {
         }
 
         synchronized (AWTKeyStroke.class) {
-            AWTKeyStroke.ctor = ctor;
-            cache = null;
-            cacheKey = null;
+            AppContext.getAppContext().put(AWTKeyStroke.class, subclass);
+            AppContext.getAppContext().remove(APP_CONTEXT_CACHE_KEY);
+            AppContext.getAppContext().remove(APP_CONTEXT_KEYSTROKE_KEY);
         }
     }
 
@@ -209,8 +229,8 @@ public class AWTKeyStroke implements Serializable {
      */
     private static Constructor getCtor(final Class clazz)
     {
-        Object ctor = AccessController.doPrivileged(new PrivilegedAction() {
-            public Object run() {
+        Constructor ctor = AccessController.doPrivileged(new PrivilegedAction<Constructor>() {
+            public Constructor run() {
                 try {
                     Constructor ctor = clazz.getDeclaredConstructor((Class[]) null);
                     if (ctor != null) {
@@ -229,13 +249,19 @@ public class AWTKeyStroke implements Serializable {
     private static synchronized AWTKeyStroke getCachedStroke
         (char keyChar, int keyCode, int modifiers, boolean onKeyRelease)
     {
+        Map<AWTKeyStroke, AWTKeyStroke> cache = (Map)AppContext.getAppContext().get(APP_CONTEXT_CACHE_KEY);
+        AWTKeyStroke cacheKey = (AWTKeyStroke)AppContext.getAppContext().get(APP_CONTEXT_KEYSTROKE_KEY);
+
         if (cache == null) {
-            cache = new HashMap();
+            cache = new HashMap<>();
+            AppContext.getAppContext().put(APP_CONTEXT_CACHE_KEY, cache);
         }
 
         if (cacheKey == null) {
             try {
-                cacheKey = (AWTKeyStroke)ctor.newInstance((Object[]) null);
+                Class<AWTKeyStroke> clazz = getAWTKeyStrokeClass();
+                cacheKey = (AWTKeyStroke)getCtor(clazz).newInstance((Object[]) null);
+                AppContext.getAppContext().put(APP_CONTEXT_KEYSTROKE_KEY, cacheKey);
             } catch (InstantiationException e) {
                 assert(false);
             } catch (IllegalAccessException e) {
@@ -253,9 +279,8 @@ public class AWTKeyStroke implements Serializable {
         if (stroke == null) {
             stroke = cacheKey;
             cache.put(stroke, stroke);
-            cacheKey = null;
+            AppContext.getAppContext().remove(APP_CONTEXT_KEYSTROKE_KEY);
         }
-
         return stroke;
     }
 
@@ -460,11 +485,11 @@ public class AWTKeyStroke implements Serializable {
      * If typed, pressed or released is not specified, pressed is assumed. Here
      * are some examples:
      * <pre>
-     *     "INSERT" => getAWTKeyStroke(KeyEvent.VK_INSERT, 0);
-     *     "control DELETE" => getAWTKeyStroke(KeyEvent.VK_DELETE, InputEvent.CTRL_MASK);
-     *     "alt shift X" => getAWTKeyStroke(KeyEvent.VK_X, InputEvent.ALT_MASK | InputEvent.SHIFT_MASK);
-     *     "alt shift released X" => getAWTKeyStroke(KeyEvent.VK_X, InputEvent.ALT_MASK | InputEvent.SHIFT_MASK, true);
-     *     "typed a" => getAWTKeyStroke('a');
+     *     "INSERT" =&gt; getAWTKeyStroke(KeyEvent.VK_INSERT, 0);
+     *     "control DELETE" =&gt; getAWTKeyStroke(KeyEvent.VK_DELETE, InputEvent.CTRL_MASK);
+     *     "alt shift X" =&gt; getAWTKeyStroke(KeyEvent.VK_X, InputEvent.ALT_MASK | InputEvent.SHIFT_MASK);
+     *     "alt shift released X" =&gt; getAWTKeyStroke(KeyEvent.VK_X, InputEvent.ALT_MASK | InputEvent.SHIFT_MASK, true);
+     *     "typed a" =&gt; getAWTKeyStroke('a');
      * </pre>
      *
      * @param s a String formatted as described above
@@ -488,7 +513,7 @@ public class AWTKeyStroke implements Serializable {
 
         synchronized (AWTKeyStroke.class) {
             if (modifierKeywords == null) {
-                Map uninitializedMap = new HashMap(8, 1.0f);
+                Map<String, Integer> uninitializedMap = new HashMap<>(8, 1.0f);
                 uninitializedMap.put("shift",
                                      Integer.valueOf(InputEvent.SHIFT_DOWN_MASK
                                                      |InputEvent.SHIFT_MASK));
@@ -777,12 +802,11 @@ public class AWTKeyStroke implements Serializable {
      */
     protected Object readResolve() throws java.io.ObjectStreamException {
         synchronized (AWTKeyStroke.class) {
-            Class newClass = getClass();
-            if (!newClass.equals(ctor.getDeclaringClass())) {
-                registerSubclass(newClass);
+            if (getClass().equals(getAWTKeyStrokeClass())) {
+                return  getCachedStroke(keyChar, keyCode, modifiers, onKeyRelease);
             }
-            return getCachedStroke(keyChar, keyCode, modifiers, onKeyRelease);
         }
+        return this;
     }
 
     private static int mapOldModifiers(int modifiers) {
@@ -837,12 +861,12 @@ public class AWTKeyStroke implements Serializable {
 }
 
 class VKCollection {
-    Map code2name;
-    Map name2code;
+    Map<Integer, String> code2name;
+    Map<String, Integer> name2code;
 
     public VKCollection() {
-        code2name = new HashMap();
-        name2code = new HashMap();
+        code2name = new HashMap<>();
+        name2code = new HashMap<>();
     }
 
     public synchronized void put(String name, Integer code) {

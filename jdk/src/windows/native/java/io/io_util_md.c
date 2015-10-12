@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,6 +29,7 @@
 #include "io_util.h"
 #include "io_util_md.h"
 #include <stdio.h>
+#include <windows.h>
 
 #include <wchar.h>
 #include <io.h>
@@ -40,21 +41,8 @@
 #include <limits.h>
 #include <wincon.h>
 
-extern jboolean onNT = JNI_FALSE;
 
 static DWORD MAX_INPUT_EVENTS = 2000;
-
-void
-initializeWindowsVersion() {
-    OSVERSIONINFO ver;
-    ver.dwOSVersionInfoSize = sizeof(ver);
-    GetVersionEx(&ver);
-    if (ver.dwPlatformId == VER_PLATFORM_WIN32_NT) {
-        onNT = JNI_TRUE;
-    } else {
-        onNT = JNI_FALSE;
-    }
-}
 
 /* If this returns NULL then an exception is pending */
 WCHAR*
@@ -222,7 +210,7 @@ pathToNTPath(JNIEnv *env, jstring path, jboolean throwFNFE) {
     return pathbuf;
 }
 
-jlong
+FD
 winFileHandleOpen(JNIEnv *env, jstring path, int flags)
 {
     const DWORD access =
@@ -247,34 +235,22 @@ winFileHandleOpen(JNIEnv *env, jstring path, int flags)
     const DWORD flagsAndAttributes = maybeWriteThrough | maybeDeleteOnClose;
     HANDLE h = NULL;
 
-    if (onNT) {
-        WCHAR *pathbuf = pathToNTPath(env, path, JNI_TRUE);
-        if (pathbuf == NULL) {
-            /* Exception already pending */
-            return -1;
-        }
-        h = CreateFileW(
-            pathbuf,            /* Wide char path name */
-            access,             /* Read and/or write permission */
-            sharing,            /* File sharing flags */
-            NULL,               /* Security attributes */
-            disposition,        /* creation disposition */
-            flagsAndAttributes, /* flags and attributes */
-            NULL);
-        free(pathbuf);
-    } else {
-        WITH_PLATFORM_STRING(env, path, _ps) {
-            h = CreateFile(_ps, access, sharing, NULL, disposition,
-                           flagsAndAttributes, NULL);
-        } END_PLATFORM_STRING(env, _ps);
+    WCHAR *pathbuf = pathToNTPath(env, path, JNI_TRUE);
+    if (pathbuf == NULL) {
+        /* Exception already pending */
+        return -1;
     }
+    h = CreateFileW(
+        pathbuf,            /* Wide char path name */
+        access,             /* Read and/or write permission */
+        sharing,            /* File sharing flags */
+        NULL,               /* Security attributes */
+        disposition,        /* creation disposition */
+        flagsAndAttributes, /* flags and attributes */
+        NULL);
+    free(pathbuf);
+
     if (h == INVALID_HANDLE_VALUE) {
-        int error = GetLastError();
-        if (error == ERROR_TOO_MANY_OPEN_FILES) {
-            JNU_ThrowByName(env, JNU_JAVAIOPKG "IOException",
-                            "Too many open files");
-            return -1;
-        }
         throwFileNotFoundException(env, path);
         return -1;
     }
@@ -284,7 +260,7 @@ winFileHandleOpen(JNIEnv *env, jstring path, int flags)
 void
 fileOpen(JNIEnv *env, jobject this, jstring path, jfieldID fid, int flags)
 {
-    jlong h = winFileHandleOpen(env, path, flags);
+    FD h = winFileHandleOpen(env, path, flags);
     if (h >= 0) {
         SET_FD(this, h, fid);
     }
@@ -294,12 +270,12 @@ fileOpen(JNIEnv *env, jobject this, jstring path, jfieldID fid, int flags)
    old C style int fd as is used in HPI layer */
 
 static int
-handleNonSeekAvailable(jlong, long *);
+handleNonSeekAvailable(FD, long *);
 static int
-handleStdinAvailable(jlong, long *);
+handleStdinAvailable(FD, long *);
 
 int
-handleAvailable(jlong fd, jlong *pbytes) {
+handleAvailable(FD fd, jlong *pbytes) {
     HANDLE h = (HANDLE)fd;
     DWORD type = 0;
 
@@ -337,7 +313,7 @@ handleAvailable(jlong fd, jlong *pbytes) {
 }
 
 static int
-handleNonSeekAvailable(jlong fd, long *pbytes) {
+handleNonSeekAvailable(FD fd, long *pbytes) {
     /* This is used for available on non-seekable devices
      * (like both named and anonymous pipes, such as pipes
      *  connected to an exec'd process).
@@ -366,7 +342,7 @@ handleNonSeekAvailable(jlong fd, long *pbytes) {
 }
 
 static int
-handleStdinAvailable(jlong fd, long *pbytes) {
+handleStdinAvailable(FD fd, long *pbytes) {
     HANDLE han;
     DWORD numEventsRead = 0;    /* Number of events read from buffer */
     DWORD numEvents = 0;        /* Number of events in buffer */
@@ -432,8 +408,8 @@ handleStdinAvailable(jlong fd, long *pbytes) {
  * denied".
  */
 
-JNIEXPORT int
-handleSync(jlong fd) {
+int
+handleSync(FD fd) {
     /*
      * From the documentation:
      *
@@ -463,7 +439,7 @@ handleSync(jlong fd) {
 
 
 int
-handleSetLength(jlong fd, jlong length) {
+handleSetLength(FD fd, jlong length) {
     HANDLE h = (HANDLE)fd;
     long high = (long)(length >> 32);
     DWORD ret;
@@ -478,8 +454,8 @@ handleSetLength(jlong fd, jlong length) {
 }
 
 JNIEXPORT
-size_t
-handleRead(jlong fd, void *buf, jint len)
+jint
+handleRead(FD fd, void *buf, jint len)
 {
     DWORD read = 0;
     BOOL result = 0;
@@ -499,10 +475,10 @@ handleRead(jlong fd, void *buf, jint len)
         }
         return -1;
     }
-    return read;
+    return (jint)read;
 }
 
-static size_t writeInternal(jlong fd, const void *buf, jint len, jboolean append)
+static jint writeInternal(FD fd, const void *buf, jint len, jboolean append)
 {
     BOOL result = 0;
     DWORD written = 0;
@@ -527,16 +503,14 @@ static size_t writeInternal(jlong fd, const void *buf, jint len, jboolean append
     if ((h == INVALID_HANDLE_VALUE) || (result == 0)) {
         return -1;
     }
-    return (size_t)written;
+    return (jint)written;
 }
 
-JNIEXPORT
-size_t handleWrite(jlong fd, const void *buf, jint len) {
+jint handleWrite(FD fd, const void *buf, jint len) {
     return writeInternal(fd, buf, len, JNI_FALSE);
 }
 
-JNIEXPORT
-size_t handleAppend(jlong fd, const void *buf, jint len) {
+jint handleAppend(FD fd, const void *buf, jint len) {
     return writeInternal(fd, buf, len, JNI_TRUE);
 }
 
@@ -565,7 +539,7 @@ handleClose(JNIEnv *env, jobject this, jfieldID fid)
 }
 
 jlong
-handleLseek(jlong fd, jlong offset, jint whence)
+handleLseek(FD fd, jlong offset, jint whence)
 {
     LARGE_INTEGER pos, distance;
     DWORD lowPos = 0;
@@ -588,4 +562,78 @@ handleLseek(jlong fd, jlong offset, jint whence)
         return -1;
     }
     return long_to_jlong(pos.QuadPart);
+}
+
+size_t
+getLastErrorString(char *utf8_jvmErrorMsg, size_t cbErrorMsg)
+{
+    size_t n = 0;
+    if (cbErrorMsg > 0) {
+        BOOLEAN noError = FALSE;
+        WCHAR *utf16_osErrorMsg = (WCHAR *)malloc(cbErrorMsg*sizeof(WCHAR));
+        if (utf16_osErrorMsg == NULL) {
+            // OOM accident
+            strncpy(utf8_jvmErrorMsg, "Out of memory", cbErrorMsg);
+            // truncate if too long
+            utf8_jvmErrorMsg[cbErrorMsg - 1] = '\0';
+            n = strlen(utf8_jvmErrorMsg);
+        } else {
+            DWORD errval = GetLastError();
+            if (errval != 0) {
+                // WIN32 error
+                n = (size_t)FormatMessageW(
+                    FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS,
+                    NULL,
+                    errval,
+                    0,
+                    utf16_osErrorMsg,
+                    (DWORD)cbErrorMsg,
+                    NULL);
+                if (n > 3) {
+                    // Drop final '.', CR, LF
+                    if (utf16_osErrorMsg[n - 1] == L'\n') --n;
+                    if (utf16_osErrorMsg[n - 1] == L'\r') --n;
+                    if (utf16_osErrorMsg[n - 1] == L'.') --n;
+                    utf16_osErrorMsg[n] = L'\0';
+                }
+            } else if (errno != 0) {
+                // C runtime error that has no corresponding WIN32 error code
+                const WCHAR *rtError = _wcserror(errno);
+                if (rtError != NULL) {
+                    wcsncpy(utf16_osErrorMsg, rtError, cbErrorMsg);
+                    // truncate if too long
+                    utf16_osErrorMsg[cbErrorMsg - 1] = L'\0';
+                    n = wcslen(utf16_osErrorMsg);
+                }
+            } else
+                noError = TRUE; //OS has no error to report
+
+            if (!noError) {
+                if (n > 0) {
+                    n = WideCharToMultiByte(
+                        CP_UTF8,
+                        0,
+                        utf16_osErrorMsg,
+                        n,
+                        utf8_jvmErrorMsg,
+                        cbErrorMsg,
+                        NULL,
+                        NULL);
+
+                    // no way to die
+                    if (n > 0)
+                        utf8_jvmErrorMsg[min(cbErrorMsg - 1, n)] = '\0';
+                }
+
+                if (n <= 0) {
+                    strncpy(utf8_jvmErrorMsg, "Secondary error while OS message extraction", cbErrorMsg);
+                    // truncate if too long
+                    utf8_jvmErrorMsg[cbErrorMsg - 1] = '\0';
+                    n = strlen(utf8_jvmErrorMsg);
+                }
+            }
+            free(utf16_osErrorMsg);
+        }
+    }
+    return n;
 }

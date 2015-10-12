@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,10 +29,7 @@
  * @author Peter Jones
  *
  * @library ../../../testlibrary
- * @build TestLibrary
- * @build Property
- * @build ServiceConfiguration
- * @build TestProvider
+ * @build TestLibrary ServiceConfiguration TestProvider
  * @run main/othervm/policy=security.policy Property
  */
 

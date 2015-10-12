@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ fi
 if [ "${TESTJAVA}" = "" ] ; then
   JAVAC_CMD=`which javac`
   TESTJAVA=`dirname $JAVAC_CMD`/..
+  COMPILEJAVA="${TESTJAVA}"
 fi
 
 # set platform-dependent variables
@@ -47,8 +48,8 @@ case "$OS" in
 esac
 
 KT="$TESTJAVA${FS}bin${FS}keytool -storepass changeit \
-    -keypass changeit -keystore certreplace.jks"
-JAVAC=$TESTJAVA${FS}bin${FS}javac
+    -keypass changeit -keystore certreplace.jks -keyalg rsa"
+JAVAC=$COMPILEJAVA${FS}bin${FS}javac
 JAVA=$TESTJAVA${FS}bin${FS}java
 
 rm -rf certreplace.jks 2> /dev/null
@@ -81,5 +82,5 @@ $KT -delete -alias user
 
 # 5. Build and run test
 
-$JAVAC -d . ${TESTSRC}${FS}CertReplace.java
-$JAVA CertReplace certreplace.jks certreplace.certs
+$JAVAC ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} -d . ${TESTSRC}${FS}CertReplace.java
+$JAVA ${TESTVMOPTS} CertReplace certreplace.jks certreplace.certs

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,10 +25,12 @@
 #include "precompiled.hpp"
 #include "classfile/classLoader.hpp"
 #include "classfile/symbolTable.hpp"
+#include "classfile/altHashing.hpp"
 #include "memory/filemap.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/java.hpp"
 #include "runtime/os.hpp"
+#include "services/memTracker.hpp"
 #include "utilities/defaultStream.hpp"
 
 # include <sys/stat.h>
@@ -53,6 +55,7 @@ static void fail(const char *msg, va_list ap) {
               " shared archive file.\n");
   jio_vfprintf(defaultStream::error_stream(), msg, ap);
   jio_fprintf(defaultStream::error_stream(), "\n");
+  // Do not change the text of the below message because some tests check for it.
   vm_exit_during_initialization("Unable to use shared archive.", NULL);
 }
 
@@ -81,26 +84,50 @@ void FileMapInfo::fail_continue(const char *msg, ...) {
   close();
 }
 
-
 // Fill in the fileMapInfo structure with data about this VM instance.
+
+// This method copies the vm version info into header_version.  If the version is too
+// long then a truncated version, which has a hash code appended to it, is copied.
+//
+// Using a template enables this method to verify that header_version is an array of
+// length JVM_IDENT_MAX.  This ensures that the code that writes to the CDS file and
+// the code that reads the CDS file will both use the same size buffer.  Hence, will
+// use identical truncation.  This is necessary for matching of truncated versions.
+template <int N> static void get_header_version(char (&header_version) [N]) {
+  assert(N == JVM_IDENT_MAX, "Bad header_version size");
+
+  const char *vm_version = VM_Version::internal_vm_info_string();
+  const int version_len = (int)strlen(vm_version);
+
+  if (version_len < (JVM_IDENT_MAX-1)) {
+    strcpy(header_version, vm_version);
+
+  } else {
+    // Get the hash value.  Use a static seed because the hash needs to return the same
+    // value over multiple jvm invocations.
+    unsigned int hash = AltHashing::murmur3_32(8191, (const jbyte*)vm_version, version_len);
+
+    // Truncate the ident, saving room for the 8 hex character hash value.
+    strncpy(header_version, vm_version, JVM_IDENT_MAX-9);
+
+    // Append the hash code as eight hex digits.
+    sprintf(&header_version[JVM_IDENT_MAX-9], "%08x", hash);
+    header_version[JVM_IDENT_MAX-1] = 0;  // Null terminate.
+  }
+}
 
 void FileMapInfo::populate_header(size_t alignment) {
   _header._magic = 0xf00baba2;
   _header._version = _current_version;
   _header._alignment = alignment;
+  _header._obj_alignment = ObjectAlignmentInBytes;
 
   // The following fields are for sanity checks for whether this archive
   // will function correctly with this JVM and the bootclasspath it's
   // invoked with.
 
   // JVM version string ... changes on each build.
-  const char *vm_version = VM_Version::internal_vm_info_string();
-  if (strlen(vm_version) < (JVM_IDENT_MAX-1)) {
-    strcpy(_header._jvm_ident, vm_version);
-  } else {
-    fail_stop("JVM Ident field for shared archive is too long"
-              " - truncated to <%s>", _header._jvm_ident);
-  }
+  get_header_version(_header._jvm_ident);
 
   // Build checks on classpath and jar files
   _header._num_jars = 0;
@@ -184,7 +211,12 @@ void FileMapInfo::open_for_write() {
     tty->print_cr("   %s", _full_path);
   }
 
-  // Remove the existing file in case another process has it open.
+#ifdef _WINDOWS  // On Windows, need WRITE permission to remove the file.
+  chmod(_full_path, _S_IREAD | _S_IWRITE);
+#endif
+
+  // Use remove() to delete the existing file because, on Unix, this will
+  // allow processes that have it open continued access to the file.
   remove(_full_path);
   int fd = open(_full_path, O_RDWR | O_CREAT | O_TRUNC | O_BINARY, 0444);
   if (fd < 0) {
@@ -205,11 +237,12 @@ void FileMapInfo::write_header() {
 
 // Dump shared spaces to file.
 
-void FileMapInfo::write_space(int i, CompactibleSpace* space, bool read_only) {
+void FileMapInfo::write_space(int i, Metaspace* space, bool read_only) {
   align_file_position();
+  size_t used = space->used_bytes_slow(Metaspace::NonClassType);
+  size_t capacity = space->capacity_bytes_slow(Metaspace::NonClassType);
   struct FileMapInfo::FileMapHeader::space_info* si = &_header._space[i];
-  write_region(i, (char*)space->bottom(), space->used(),
-               space->capacity(), read_only, false);
+  write_region(i, (char*)space->bottom(), used, capacity, read_only, false);
 }
 
 
@@ -223,8 +256,8 @@ void FileMapInfo::write_region(int region, char* base, size_t size,
   if (_file_open) {
     guarantee(si->_file_offset == _file_offset, "file offset mismatch.");
     if (PrintSharedSpaces) {
-      tty->print_cr("Shared file region %d: 0x%x bytes, addr 0x%x,"
-                    " file offset 0x%x", region, size, base, _file_offset);
+      tty->print_cr("Shared file region %d: 0x%6x bytes, addr " INTPTR_FORMAT
+                    " file offset 0x%6x", region, size, base, _file_offset);
     }
   } else {
     si->_file_offset = _file_offset;
@@ -297,26 +330,6 @@ void FileMapInfo::close() {
 }
 
 
-// Memory map a shared space from the archive file.
-
-bool FileMapInfo::map_space(int i, ReservedSpace rs, ContiguousSpace* space) {
-  struct FileMapInfo::FileMapHeader::space_info* si = &_header._space[i];
-  if (space != NULL) {
-    if (si->_base != (char*)space->bottom() ||
-        si->_capacity != space->capacity()) {
-      fail_continue("Shared space base address does not match.");
-      return false;
-    }
-  }
-  bool result = (map_region(i, rs) != NULL);
-  if (space != NULL && result) {
-    space->set_top((HeapWord*)(si->_base + si->_used));
-    space->set_saved_mark();
-  }
-  return result;
-}
-
-
 // JVM/TI RedefineClasses() support:
 // Remap the shared readonly space to shared readwrite, private.
 bool FileMapInfo::remap_shared_readonly_as_readwrite() {
@@ -346,47 +359,49 @@ bool FileMapInfo::remap_shared_readonly_as_readwrite() {
   return true;
 }
 
+// Map the whole region at once, assumed to be allocated contiguously.
+ReservedSpace FileMapInfo::reserve_shared_memory() {
+  struct FileMapInfo::FileMapHeader::space_info* si = &_header._space[0];
+  char* requested_addr = si->_base;
 
-// Memory map a region in the address space.
+  size_t size = FileMapInfo::shared_spaces_size();
 
-char* FileMapInfo::map_region(int i, ReservedSpace rs) {
-  struct FileMapInfo::FileMapHeader::space_info* si = &_header._space[i];
-  size_t used = si->_used;
-  size_t size = align_size_up(used, os::vm_allocation_granularity());
+  // Reserve the space first, then map otherwise map will go right over some
+  // other reserved memory (like the code cache).
+  ReservedSpace rs(size, os::vm_allocation_granularity(), false, requested_addr);
+  if (!rs.is_reserved()) {
+    fail_continue(err_msg("Unable to reserve shared space at required address " INTPTR_FORMAT, requested_addr));
+    return rs;
+  }
+  // the reserved virtual memory is for mapping class data sharing archive
+  MemTracker::record_virtual_memory_type((address)rs.base(), mtClassShared);
 
-  ReservedSpace mapped_rs = rs.first_part(size, true, true);
-  ReservedSpace unmapped_rs = rs.last_part(size);
-  mapped_rs.release();
-
-  return map_region(i, true);
+  return rs;
 }
 
-
 // Memory map a region in the address space.
+static const char* shared_region_name[] = { "ReadOnly", "ReadWrite", "MiscData", "MiscCode"};
 
-char* FileMapInfo::map_region(int i, bool address_must_match) {
+char* FileMapInfo::map_region(int i) {
   struct FileMapInfo::FileMapHeader::space_info* si = &_header._space[i];
   size_t used = si->_used;
-  size_t size = align_size_up(used, os::vm_allocation_granularity());
-  char *requested_addr = 0;
-  if (address_must_match) {
-    requested_addr = si->_base;
-  }
+  size_t alignment = os::vm_allocation_granularity();
+  size_t size = align_size_up(used, alignment);
+  char *requested_addr = si->_base;
+
+  // map the contents of the CDS archive in this memory
   char *base = os::map_memory(_fd, _full_path, si->_file_offset,
                               requested_addr, size, si->_read_only,
                               si->_allow_exec);
-  if (base == NULL) {
-    fail_continue("Unable to map shared space.");
+  if (base == NULL || base != si->_base) {
+    fail_continue(err_msg("Unable to map %s shared space at required address.", shared_region_name[i]));
     return NULL;
   }
-  if (address_must_match) {
-    if (base != si->_base) {
-      fail_continue("Unable to map shared space at required address.");
-      return NULL;
-    }
-  } else {
-    si->_base = base;          // save mapped address for unmapping.
-  }
+#ifdef _WINDOWS
+  // This call is Windows-only because the memory_type gets recorded for the other platforms
+  // in method FileMapInfo::reserve_shared_memory(), which is not called on Windows.
+  MemTracker::record_virtual_memory_type((address)base, mtClassShared);
+#endif
   return base;
 }
 
@@ -417,8 +432,6 @@ FileMapInfo* FileMapInfo::_current_info = NULL;
 // information (version, boot classpath, etc.).  If initialization
 // fails, shared spaces are disabled and the file is closed. [See
 // fail_continue.]
-
-
 bool FileMapInfo::initialize() {
   assert(UseSharedSpaces, "UseSharedSpaces expected.");
 
@@ -453,10 +466,17 @@ bool FileMapInfo::validate() {
     fail_continue("The shared archive file has a bad magic number.");
     return false;
   }
-  if (strncmp(_header._jvm_ident, VM_Version::internal_vm_info_string(),
-              JVM_IDENT_MAX-1) != 0) {
+  char header_version[JVM_IDENT_MAX];
+  get_header_version(header_version);
+  if (strncmp(_header._jvm_ident, header_version, JVM_IDENT_MAX-1) != 0) {
     fail_continue("The shared archive file was created by a different"
                   " version or build of HotSpot.");
+    return false;
+  }
+  if (_header._obj_alignment != ObjectAlignmentInBytes) {
+    fail_continue("The shared archive file's ObjectAlignmentInBytes of %d"
+                  " does not equal the current ObjectAlignmentInBytes of %d.",
+                  _header._obj_alignment, ObjectAlignmentInBytes);
     return false;
   }
 
@@ -518,7 +538,7 @@ bool FileMapInfo::validate() {
 // Return:
 // True if the p is within the mapped shared space, otherwise, false.
 bool FileMapInfo::is_in_shared_space(const void* p) {
-  for (int i = 0; i < CompactingPermGenGen::n_regions; i++) {
+  for (int i = 0; i < MetaspaceShared::n_regions; i++) {
     if (p >= _header._space[i]._base &&
         p < _header._space[i]._base + _header._space[i]._used) {
       return true;
@@ -526,4 +546,30 @@ bool FileMapInfo::is_in_shared_space(const void* p) {
   }
 
   return false;
+}
+
+void FileMapInfo::print_shared_spaces() {
+  gclog_or_tty->print_cr("Shared Spaces:");
+  for (int i = 0; i < MetaspaceShared::n_regions; i++) {
+    struct FileMapInfo::FileMapHeader::space_info* si = &_header._space[i];
+    gclog_or_tty->print("  %s " INTPTR_FORMAT "-" INTPTR_FORMAT,
+                        shared_region_name[i],
+                        si->_base, si->_base + si->_used);
+  }
+}
+
+// Unmap mapped regions of shared space.
+void FileMapInfo::stop_sharing_and_unmap(const char* msg) {
+  FileMapInfo *map_info = FileMapInfo::current_info();
+  if (map_info) {
+    map_info->fail_continue(msg);
+    for (int i = 0; i < MetaspaceShared::n_regions; i++) {
+      if (map_info->_header._space[i]._base != NULL) {
+        map_info->unmap_region(i);
+        map_info->_header._space[i]._base = NULL;
+      }
+    }
+  } else if (DumpSharedSpaces) {
+    fail_stop(msg, NULL);
+  }
 }

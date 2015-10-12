@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,26 +24,28 @@
 
 #include "precompiled.hpp"
 #include "memory/allocation.inline.hpp"
+#include "oops/constantPool.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/handles.inline.hpp"
+#include "runtime/thread.inline.hpp"
 #ifdef TARGET_OS_FAMILY_linux
 # include "os_linux.inline.hpp"
-# include "thread_linux.inline.hpp"
 #endif
 #ifdef TARGET_OS_FAMILY_solaris
 # include "os_solaris.inline.hpp"
-# include "thread_solaris.inline.hpp"
 #endif
 #ifdef TARGET_OS_FAMILY_windows
 # include "os_windows.inline.hpp"
-# include "thread_windows.inline.hpp"
+#endif
+#ifdef TARGET_OS_FAMILY_bsd
+# include "os_bsd.inline.hpp"
 #endif
 
 #ifdef ASSERT
 oop* HandleArea::allocate_handle(oop obj) {
   assert(_handle_mark_nesting > 1, "memory leak: allocating handle outside HandleMark");
   assert(_no_handle_mark_nesting == 0, "allocating handle inside NoHandleMark");
-  assert(SharedSkipVerify || obj->is_oop(), "sanity check");
+  assert(obj->is_oop(), err_msg("not an oop: " INTPTR_FORMAT, (intptr_t*) obj));
   return real_allocate_handle(obj);
 }
 
@@ -66,8 +68,10 @@ static uintx chunk_oops_do(OopClosure* f, Chunk* chunk, char* chunk_top) {
   // during GC phase 3, a handle may be a forward pointer that
   // is not yet valid, so loosen the assertion
   while (bottom < top) {
-//    assert((*bottom)->is_oop(), "handle should point to oop");
-      assert(Universe::heap()->is_in(*bottom), "handle should be valid heap address");
+    // This test can be moved up but for now check every oop.
+
+    assert((*bottom)->is_oop(), "handle should point to oop");
+
     f->do_oop(bottom++);
   }
   return handles_visited;
@@ -107,7 +111,7 @@ void HandleMark::initialize(Thread* thread) {
   _chunk = _area->_chunk;
   _hwm   = _area->_hwm;
   _max   = _area->_max;
-  NOT_PRODUCT(_size_in_bytes = _area->_size_in_bytes;)
+  _size_in_bytes = _area->_size_in_bytes;
   debug_only(_area->_handle_mark_nesting++);
   assert(_area->_handle_mark_nesting > 0, "must stack allocate HandleMarks");
   debug_only(Atomic::inc(&_nof_handlemarks);)
@@ -144,18 +148,25 @@ HandleMark::~HandleMark() {
       // Note: _nof_handlemarks is only set in debug mode
       warning("%d: Allocated in HandleMark : %d", _nof_handlemarks, handles);
     }
+
+    tty->print_cr("Handles %d", handles);
   }
 #endif
 
   // Delete later chunks
   if( _chunk->next() ) {
+    // reset arena size before delete chunks. Otherwise, the total
+    // arena size could exceed total chunk size
+    assert(area->size_in_bytes() > size_in_bytes(), "Sanity check");
+    area->set_size_in_bytes(size_in_bytes());
     _chunk->next_chop();
+  } else {
+    assert(area->size_in_bytes() == size_in_bytes(), "Sanity check");
   }
   // Roll back arena to saved top markers
   area->_chunk = _chunk;
   area->_hwm = _hwm;
   area->_max = _max;
-  NOT_PRODUCT(area->set_size_in_bytes(_size_in_bytes);)
 #ifdef ASSERT
   // clear out first chunk (to detect allocation bugs)
   if (ZapVMHandleArea) {
@@ -166,6 +177,22 @@ HandleMark::~HandleMark() {
 
   // Unlink this from the thread
   _thread->set_last_handle_mark(previous_handle_mark());
+}
+
+void* HandleMark::operator new(size_t size) throw() {
+  return AllocateHeap(size, mtThread);
+}
+
+void* HandleMark::operator new [] (size_t size) throw() {
+  return AllocateHeap(size, mtThread);
+}
+
+void HandleMark::operator delete(void* p) {
+  FreeHeap(p, mtThread);
+}
+
+void HandleMark::operator delete[](void* p) {
+  FreeHeap(p, mtThread);
 }
 
 #ifdef ASSERT

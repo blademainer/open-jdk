@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -64,6 +64,9 @@ static jdwpTransportEnv single_env = (jdwpTransportEnv)&interface;
 
 #define HEADER_SIZE     11
 #define MAX_DATA_SIZE 1000
+
+static jint recv_fully(int, char *, int);
+static jint send_fully(int, char *, int);
 
 /*
  * Record the last error for this thread.
@@ -155,7 +158,7 @@ handshake(int fd, jlong timeout) {
         }
         buf = b;
         buf += received;
-        n = dbgsysRecv(fd, buf, helloLen-received, 0);
+        n = recv_fully(fd, buf, helloLen-received);
         if (n == 0) {
             setLastError(0, "handshake failed - connection prematurally closed");
             return JDWPTRANSPORT_ERROR_IO_ERROR;
@@ -180,7 +183,7 @@ handshake(int fd, jlong timeout) {
         return JDWPTRANSPORT_ERROR_IO_ERROR;
     }
 
-    if (dbgsysSend(fd, (char*)hello, helloLen, 0) != helloLen) {
+    if (send_fully(fd, (char*)hello, helloLen) != helloLen) {
         RETURN_IO_ERROR("send failed during handshake");
     }
     return JDWPTRANSPORT_ERROR_NONE;
@@ -301,7 +304,7 @@ socketTransport_startListening(jdwpTransportEnv* env, const char* address,
 
     {
         char buf[20];
-        int len = sizeof(sa);
+        socklen_t len = sizeof(sa);
         jint portNum;
         err = dbgsysGetSocketName(serverSocketFD,
                                (struct sockaddr *)&sa, &len);
@@ -321,7 +324,8 @@ socketTransport_startListening(jdwpTransportEnv* env, const char* address,
 static jdwpTransportError JNICALL
 socketTransport_accept(jdwpTransportEnv* env, jlong acceptTimeout, jlong handshakeTimeout)
 {
-    int socketLen, err;
+    socklen_t socketLen;
+    int err;
     struct sockaddr_in socket;
     jlong startTime = (jlong)0;
 
@@ -505,7 +509,7 @@ socketTransport_close(jdwpTransportEnv* env)
     if (dbgsysSocketClose(fd) < 0) {
         /*
          * close failed - it's pointless to restore socketFD here because
-         * any subsequent close will likely fail aswell.
+         * any subsequent close will likely fail as well.
          */
         RETURN_IO_ERROR("close failed");
     }
@@ -555,19 +559,19 @@ socketTransport_writePacket(jdwpTransportEnv* env, const jdwpPacket *packet)
     /* Do one send for short packets, two for longer ones */
     if (data_len <= MAX_DATA_SIZE) {
         memcpy(header + HEADER_SIZE, data, data_len);
-        if (dbgsysSend(socketFD, (char *)&header, HEADER_SIZE + data_len, 0) !=
+        if (send_fully(socketFD, (char *)&header, HEADER_SIZE + data_len) !=
             HEADER_SIZE + data_len) {
             RETURN_IO_ERROR("send failed");
         }
     } else {
         memcpy(header + HEADER_SIZE, data, MAX_DATA_SIZE);
-        if (dbgsysSend(socketFD, (char *)&header, HEADER_SIZE + MAX_DATA_SIZE, 0) !=
+        if (send_fully(socketFD, (char *)&header, HEADER_SIZE + MAX_DATA_SIZE) !=
             HEADER_SIZE + MAX_DATA_SIZE) {
             RETURN_IO_ERROR("send failed");
         }
         /* Send the remaining data bytes right out of the data area. */
-        if (dbgsysSend(socketFD, (char *)data + MAX_DATA_SIZE,
-                       data_len - MAX_DATA_SIZE, 0) != data_len - MAX_DATA_SIZE) {
+        if (send_fully(socketFD, (char *)data + MAX_DATA_SIZE,
+                       data_len - MAX_DATA_SIZE) != data_len - MAX_DATA_SIZE) {
             RETURN_IO_ERROR("send failed");
         }
     }
@@ -581,6 +585,22 @@ recv_fully(int f, char *buf, int len)
     int nbytes = 0;
     while (nbytes < len) {
         int res = dbgsysRecv(f, buf + nbytes, len - nbytes, 0);
+        if (res < 0) {
+            return res;
+        } else if (res == 0) {
+            break; /* eof, return nbytes which is less than len */
+        }
+        nbytes += res;
+    }
+    return nbytes;
+}
+
+jint
+send_fully(int f, char *buf, int len)
+{
+    int nbytes = 0;
+    while (nbytes < len) {
+        int res = dbgsysSend(f, buf + nbytes, len - nbytes, 0);
         if (res < 0) {
             return res;
         } else if (res == 0) {

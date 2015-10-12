@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -229,7 +229,7 @@ int JvmtiThreadState::count_frames() {
   // tty->print_cr("CSD: counting frames on %s ...",
   //               JvmtiTrace::safe_get_thread_name(get_thread()));
   while (jvf != NULL) {
-    methodOop method = jvf->method();
+    Method* method = jvf->method();
     // tty->print_cr("CSD: frame - method %s.%s - loc %d",
     //               method->klass_name()->as_C_string(),
     //               method->name()->as_C_string(),
@@ -319,6 +319,15 @@ void JvmtiThreadState::process_pending_step_for_popframe() {
   // clearing the flag indicates we are done with the PopFrame() dance
   clr_pending_step_for_popframe();
 
+  // If exception was thrown in this frame, need to reset jvmti thread state.
+  // Single stepping may not get enabled correctly by the agent since
+  // exception state is passed in MethodExit event which may be sent at some
+  // time in the future. JDWP agent ignores MethodExit events if caused by
+  // an exception.
+  //
+  if (is_exception_detected()) {
+    clear_exception_detected();
+  }
   // If step is pending for popframe then it may not be
   // a repeat step. The new_bci and method_id is same as current_bci
   // and current method_id after pop and step for recursive calls.
@@ -385,6 +394,15 @@ void JvmtiThreadState::process_pending_step_for_earlyret() {
   // the ForceEarlyReturn() dance
   clr_pending_step_for_earlyret();
 
+  // If exception was thrown in this frame, need to reset jvmti thread state.
+  // Single stepping may not get enabled correctly by the agent since
+  // exception state is passed in MethodExit event which may be sent at some
+  // time in the future. JDWP agent ignores MethodExit events if caused by
+  // an exception.
+  //
+  if (is_exception_detected()) {
+    clear_exception_detected();
+  }
   // If step is pending for earlyret then it may not be a repeat step.
   // The new_bci and method_id is same as current_bci and current
   // method_id after earlyret and step for recursive calls.

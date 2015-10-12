@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,14 +30,15 @@
 #include "c1/c1_LIRGenerator.hpp"
 #include "c1/c1_ValueStack.hpp"
 #include "ci/ciArrayKlass.hpp"
-#include "ci/ciCPCache.hpp"
 #include "ci/ciInstance.hpp"
+#include "ci/ciObjArray.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
 #include "utilities/bitMap.inline.hpp"
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/g1/heapRegion.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
 #ifdef ASSERT
 #define __ gen()->lir(__FILE__, __LINE__)->
@@ -402,6 +403,10 @@ void LIRGenerator::walk(Value instr) {
 CodeEmitInfo* LIRGenerator::state_for(Instruction* x, ValueStack* state, bool ignore_xhandler) {
   assert(state != NULL, "state must be defined");
 
+#ifndef PRODUCT
+  state->verify();
+#endif
+
   ValueStack* s = state;
   for_each_state(s) {
     if (s->kind() == ValueStack::EmptyExceptionState) {
@@ -429,7 +434,7 @@ CodeEmitInfo* LIRGenerator::state_for(Instruction* x, ValueStack* state, bool ig
         // all locals are dead on exit from the synthetic unlocker
         liveness.clear();
       } else {
-        assert(x->as_MonitorEnter(), "only other case is MonitorEnter");
+        assert(x->as_MonitorEnter() || x->as_ProfileInvoke(), "only other cases are MonitorEnter and ProfileInvoke");
       }
     }
     if (!liveness.is_valid()) {
@@ -452,7 +457,7 @@ CodeEmitInfo* LIRGenerator::state_for(Instruction* x, ValueStack* state, bool ig
     }
   }
 
-  return new CodeEmitInfo(state, ignore_xhandler ? NULL : x->exception_handlers());
+  return new CodeEmitInfo(state, ignore_xhandler ? NULL : x->exception_handlers(), x->check_flag(Instruction::DeoptimizeOnException));
 }
 
 
@@ -461,13 +466,13 @@ CodeEmitInfo* LIRGenerator::state_for(Instruction* x) {
 }
 
 
-void LIRGenerator::jobject2reg_with_patching(LIR_Opr r, ciObject* obj, CodeEmitInfo* info) {
+void LIRGenerator::klass2reg_with_patching(LIR_Opr r, ciMetadata* obj, CodeEmitInfo* info) {
   if (!obj->is_loaded() || PatchALot) {
     assert(info != NULL, "info must be set if class is not loaded");
-    __ oop2reg_patch(NULL, r, info);
+    __ klass2reg_patch(NULL, r, info);
   } else {
     // no patching needed
-    __ oop2reg(obj->constant_encoding(), r);
+    __ metadata2reg(obj->constant_encoding(), r);
   }
 }
 
@@ -657,7 +662,7 @@ void LIRGenerator::monitor_exit(LIR_Opr object, LIR_Opr lock, LIR_Opr new_hdr, L
 
 
 void LIRGenerator::new_instance(LIR_Opr dst, ciInstanceKlass* klass, LIR_Opr scratch1, LIR_Opr scratch2, LIR_Opr scratch3, LIR_Opr scratch4, LIR_Opr klass_reg, CodeEmitInfo* info) {
-  jobject2reg_with_patching(klass_reg, klass, info);
+  klass2reg_with_patching(klass_reg, klass, info);
   // If klass is not loaded we do not know if the klass has finalizers:
   if (UseFastNewInstance && klass->is_loaded()
       && !Klass::layout_helper_needs_slow_path(klass->layout_helper())) {
@@ -703,25 +708,6 @@ static ciArrayKlass* as_array_klass(ciType* type) {
     return (ciArrayKlass*)type;
   } else {
     return NULL;
-  }
-}
-
-static Value maxvalue(IfOp* ifop) {
-  switch (ifop->cond()) {
-    case If::eql: return NULL;
-    case If::neq: return NULL;
-    case If::lss: // x <  y ? x : y
-    case If::leq: // x <= y ? x : y
-      if (ifop->x() == ifop->tval() &&
-          ifop->y() == ifop->fval()) return ifop->y();
-      return NULL;
-
-    case If::gtr: // x >  y ? y : x
-    case If::geq: // x >= y ? y : x
-      if (ifop->x() == ifop->tval() &&
-          ifop->y() == ifop->fval()) return ifop->y();
-      return NULL;
-
   }
 }
 
@@ -920,7 +906,8 @@ LIR_Opr LIRGenerator::round_item(LIR_Opr opr) {
 
 
 LIR_Opr LIRGenerator::force_to_spill(LIR_Opr value, BasicType t) {
-  assert(type2size[t] == type2size[value->type()], "size mismatch");
+  assert(type2size[t] == type2size[value->type()],
+         err_msg_res("size mismatch: t=%s, value->type()=%s", type2name(t), type2name(value->type())));
   if (!value->is_register()) {
     // force into a register
     LIR_Opr r = new_register(value->type());
@@ -954,8 +941,8 @@ void LIRGenerator::profile_branch(If* if_instr, If::Condition cond) {
       not_taken_count_offset = t;
     }
 
-    LIR_Opr md_reg = new_register(T_OBJECT);
-    __ oop2reg(md->constant_encoding(), md_reg);
+    LIR_Opr md_reg = new_register(T_METADATA);
+    __ metadata2reg(md->constant_encoding(), md_reg);
 
     LIR_Opr data_offset_reg = new_pointer_register();
     __ cmove(lir_cond(cond),
@@ -1188,11 +1175,11 @@ void LIRGenerator::do_Return(Return* x) {
   if (compilation()->env()->dtrace_method_probes()) {
     BasicTypeList signature;
     signature.append(LP64_ONLY(T_LONG) NOT_LP64(T_INT));    // thread
-    signature.append(T_OBJECT); // methodOop
+    signature.append(T_METADATA); // Method*
     LIR_OprList* args = new LIR_OprList();
     args->append(getThreadPointer());
-    LIR_Opr meth = new_register(T_OBJECT);
-    __ oop2reg(method()->constant_encoding(), meth);
+    LIR_Opr meth = new_register(T_METADATA);
+    __ metadata2reg(method()->constant_encoding(), meth);
     args->append(meth);
     call_runtime(&signature, args, CAST_FROM_FN_PTR(address, SharedRuntime::dtrace_method_exit), voidType, NULL);
   }
@@ -1242,12 +1229,43 @@ void LIRGenerator::do_Reference_get(Intrinsic* x) {
               NULL   /* info */);
 }
 
+// Example: clazz.isInstance(object)
+void LIRGenerator::do_isInstance(Intrinsic* x) {
+  assert(x->number_of_arguments() == 2, "wrong type");
+
+  // TODO could try to substitute this node with an equivalent InstanceOf
+  // if clazz is known to be a constant Class. This will pick up newly found
+  // constants after HIR construction. I'll leave this to a future change.
+
+  // as a first cut, make a simple leaf call to runtime to stay platform independent.
+  // could follow the aastore example in a future change.
+
+  LIRItem clazz(x->argument_at(0), this);
+  LIRItem object(x->argument_at(1), this);
+  clazz.load_item();
+  object.load_item();
+  LIR_Opr result = rlock_result(x);
+
+  // need to perform null check on clazz
+  if (x->needs_null_check()) {
+    CodeEmitInfo* info = state_for(x);
+    __ null_check(clazz.result(), info);
+  }
+
+  LIR_Opr call_result = call_runtime(clazz.value(), object.value(),
+                                     CAST_FROM_FN_PTR(address, Runtime1::is_instance_of),
+                                     x->type(),
+                                     NULL); // NULL CodeEmitInfo results in a leaf call
+  __ move(call_result, result);
+}
+
 // Example: object.getClass ()
 void LIRGenerator::do_getClass(Intrinsic* x) {
   assert(x->number_of_arguments() == 1, "wrong type");
 
   LIRItem rcvr(x->argument_at(0), this);
   rcvr.load_item();
+  LIR_Opr temp = new_register(T_METADATA);
   LIR_Opr result = rlock_result(x);
 
   // need to perform the null check on the rcvr
@@ -1255,9 +1273,11 @@ void LIRGenerator::do_getClass(Intrinsic* x) {
   if (x->needs_null_check()) {
     info = state_for(x);
   }
-  __ move(new LIR_Address(rcvr.result(), oopDesc::klass_offset_in_bytes(), T_OBJECT), result, info);
-  __ move_wide(new LIR_Address(result, Klass::java_mirror_offset_in_bytes() +
-                               klassOopDesc::klass_part_offset_in_bytes(), T_OBJECT), result);
+
+  // FIXME T_ADDRESS should actually be T_METADATA but it can't because the
+  // meaning of these two is mixed up (see JDK-8026837).
+  __ move(new LIR_Address(rcvr.result(), oopDesc::klass_offset_in_bytes(), T_ADDRESS), temp, info);
+  __ move_wide(new LIR_Address(temp, in_bytes(Klass::java_mirror_offset()), T_OBJECT), result);
 }
 
 
@@ -1387,12 +1407,12 @@ void LIRGenerator::pre_barrier(LIR_Opr addr_opr, LIR_Opr pre_val,
                                bool do_load, bool patch, CodeEmitInfo* info) {
   // Do the pre-write barrier, if any.
   switch (_bs->kind()) {
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
     case BarrierSet::G1SATBCT:
     case BarrierSet::G1SATBCTLogging:
       G1SATBCardTableModRef_pre_barrier(addr_opr, pre_val, do_load, patch, info);
       break;
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
     case BarrierSet::CardTableModRef:
     case BarrierSet::CardTableExtension:
       // No pre barriers
@@ -1409,12 +1429,12 @@ void LIRGenerator::pre_barrier(LIR_Opr addr_opr, LIR_Opr pre_val,
 
 void LIRGenerator::post_barrier(LIR_OprDesc* addr, LIR_OprDesc* new_val) {
   switch (_bs->kind()) {
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
     case BarrierSet::G1SATBCT:
     case BarrierSet::G1SATBCTLogging:
       G1SATBCardTableModRef_post_barrier(addr,  new_val);
       break;
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
     case BarrierSet::CardTableModRef:
     case BarrierSet::CardTableExtension:
       CardTableModRef_post_barrier(addr,  new_val);
@@ -1429,7 +1449,7 @@ void LIRGenerator::post_barrier(LIR_OprDesc* addr, LIR_OprDesc* new_val) {
 }
 
 ////////////////////////////////////////////////////////////////////////
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 
 void LIRGenerator::G1SATBCardTableModRef_pre_barrier(LIR_Opr addr_opr, LIR_Opr pre_val,
                                                      bool do_load, bool patch, CodeEmitInfo* info) {
@@ -1545,7 +1565,7 @@ void LIRGenerator::G1SATBCardTableModRef_post_barrier(LIR_OprDesc* addr, LIR_Opr
   __ branch_destination(slow->continuation());
 }
 
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 ////////////////////////////////////////////////////////////////////////
 
 void LIRGenerator::CardTableModRef_post_barrier(LIR_OprDesc* addr, LIR_OprDesc* new_val) {
@@ -1761,11 +1781,18 @@ void LIRGenerator::do_LoadField(LoadField* x) {
   }
 #endif
 
+  bool stress_deopt = StressLoopInvariantCodeMotion && info && info->deoptimize_on_exception();
   if (x->needs_null_check() &&
       (needs_patching ||
-       MacroAssembler::needs_explicit_null_check(x->offset()))) {
+       MacroAssembler::needs_explicit_null_check(x->offset()) ||
+       stress_deopt)) {
+    LIR_Opr obj = object.result();
+    if (stress_deopt) {
+      obj = new_register(T_OBJECT);
+      __ move(LIR_OprFact::oopConst(NULL), obj);
+    }
     // emit an explicit null check because the offset is too large
-    __ null_check(object.result(), new CodeEmitInfo(info));
+    __ null_check(obj, new CodeEmitInfo(info));
   }
 
   LIR_Opr reg = rlock_result(x, field_type);
@@ -1842,6 +1869,11 @@ void LIRGenerator::do_ArrayLength(ArrayLength* x) {
     } else {
       info = state_for(nc);
     }
+    if (StressLoopInvariantCodeMotion && info->deoptimize_on_exception()) {
+      LIR_Opr obj = new_register(T_OBJECT);
+      __ move(LIR_OprFact::oopConst(NULL), obj);
+      __ null_check(obj, new CodeEmitInfo(info));
+    }
   }
   __ load(new LIR_Address(array.result(), arrayOopDesc::length_offset_in_bytes(), T_INT), reg, info, lir_patch_none);
 }
@@ -1852,14 +1884,11 @@ void LIRGenerator::do_LoadIndexed(LoadIndexed* x) {
   LIRItem array(x->array(), this);
   LIRItem index(x->index(), this);
   LIRItem length(this);
-  bool needs_range_check = true;
+  bool needs_range_check = x->compute_needs_range_check();
 
-  if (use_length) {
-    needs_range_check = x->compute_needs_range_check();
-    if (needs_range_check) {
-      length.set_instruction(x->length());
-      length.load_item();
-    }
+  if (use_length && needs_range_check) {
+    length.set_instruction(x->length());
+    length.load_item();
   }
 
   array.load_item();
@@ -1879,13 +1908,20 @@ void LIRGenerator::do_LoadIndexed(LoadIndexed* x) {
     } else {
       null_check_info = range_check_info;
     }
+    if (StressLoopInvariantCodeMotion && null_check_info->deoptimize_on_exception()) {
+      LIR_Opr obj = new_register(T_OBJECT);
+      __ move(LIR_OprFact::oopConst(NULL), obj);
+      __ null_check(obj, new CodeEmitInfo(null_check_info));
+    }
   }
 
   // emit array address setup early so it schedules better
   LIR_Address* array_addr = emit_array_address(array.result(), index.result(), x->elt_type(), false);
 
   if (GenerateRangeChecks && needs_range_check) {
-    if (use_length) {
+    if (StressLoopInvariantCodeMotion && range_check_info->deoptimize_on_exception()) {
+      __ branch(lir_cond_always, T_ILLEGAL, new RangeCheckStub(range_check_info, index.result()));
+    } else if (use_length) {
       // TODO: use a (modified) version of array_range_check that does not require a
       //       constant length to be loaded to a register
       __ cmp(lir_cond_belowEqual, length.result(), index.result());
@@ -1908,6 +1944,14 @@ void LIRGenerator::do_NullCheck(NullCheck* x) {
     CodeEmitInfo* info = state_for(x);
     __ null_check(value.result(), info);
   }
+}
+
+
+void LIRGenerator::do_TypeCast(TypeCast* x) {
+  LIRItem value(x->obj(), this);
+  value.load_item();
+  // the result is the same as from the node we are casting
+  set_result(x, value.result());
 }
 
 
@@ -2139,11 +2183,11 @@ void LIRGenerator::do_UnsafeGetObject(UnsafeGetObject* x) {
   off.load_item();
   src.load_item();
 
-  LIR_Opr reg = rlock_result(x, x->basic_type());
+  LIR_Opr value = rlock_result(x, x->basic_type());
 
-  get_Object_unsafe(reg, src.result(), off.result(), type, x->is_volatile());
+  get_Object_unsafe(value, src.result(), off.result(), type, x->is_volatile());
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   // We might be reading the value of the referent field of a
   // Reference object in order to attach it back to the live
   // object graph. If G1 is enabled then we need to record
@@ -2154,19 +2198,16 @@ void LIRGenerator::do_UnsafeGetObject(UnsafeGetObject* x) {
   // if (offset == java_lang_ref_Reference::referent_offset) {
   //   if (src != NULL) {
   //     if (klass(src)->reference_type() != REF_NONE) {
-  //       pre_barrier(..., reg, ...);
+  //       pre_barrier(..., value, ...);
   //     }
   //   }
   // }
-  //
-  // The first non-constant check of either the offset or
-  // the src operand will be done here; the remainder
-  // will take place in the generated code stub.
 
   if (UseG1GC && type == T_OBJECT) {
-    bool gen_code_stub = true;       // Assume we need to generate the slow code stub.
-    bool gen_offset_check = true;       // Assume the code stub has to generate the offset guard.
-    bool gen_source_check = true;       // Assume the code stub has to check the src object for null.
+    bool gen_pre_barrier = true;     // Assume we need to generate pre_barrier.
+    bool gen_offset_check = true;    // Assume we need to generate the offset guard.
+    bool gen_source_check = true;    // Assume we need to check the src object for null.
+    bool gen_type_check = true;      // Assume we need to check the reference_type.
 
     if (off.is_constant()) {
       jlong off_con = (off.type()->is_int() ?
@@ -2178,7 +2219,7 @@ void LIRGenerator::do_UnsafeGetObject(UnsafeGetObject* x) {
         // The constant offset is something other than referent_offset.
         // We can skip generating/checking the remaining guards and
         // skip generation of the code stub.
-        gen_code_stub = false;
+        gen_pre_barrier = false;
       } else {
         // The constant offset is the same as referent_offset -
         // we do not need to generate a runtime offset check.
@@ -2187,19 +2228,20 @@ void LIRGenerator::do_UnsafeGetObject(UnsafeGetObject* x) {
     }
 
     // We don't need to generate stub if the source object is an array
-    if (gen_code_stub && src.type()->is_array()) {
-      gen_code_stub = false;
+    if (gen_pre_barrier && src.type()->is_array()) {
+      gen_pre_barrier = false;
     }
 
-    if (gen_code_stub) {
+    if (gen_pre_barrier) {
       // We still need to continue with the checks.
       if (src.is_constant()) {
         ciObject* src_con = src.get_jobject_constant();
+        guarantee(src_con != NULL, "no source constant");
 
         if (src_con->is_null_object()) {
           // The constant src object is null - We can skip
           // generating the code stub.
-          gen_code_stub = false;
+          gen_pre_barrier = false;
         } else {
           // Non-null constant source object. We still have to generate
           // the slow stub - but we don't need to generate the runtime
@@ -2208,20 +2250,28 @@ void LIRGenerator::do_UnsafeGetObject(UnsafeGetObject* x) {
         }
       }
     }
+    if (gen_pre_barrier && !PatchALot) {
+      // Can the klass of object be statically determined to be
+      // a sub-class of Reference?
+      ciType* type = src.value()->declared_type();
+      if ((type != NULL) && type->is_loaded()) {
+        if (type->is_subtype_of(compilation()->env()->Reference_klass())) {
+          gen_type_check = false;
+        } else if (type->is_klass() &&
+                   !compilation()->env()->Object_klass()->is_subtype_of(type->as_klass())) {
+          // Not Reference and not Object klass.
+          gen_pre_barrier = false;
+        }
+      }
+    }
 
-    if (gen_code_stub) {
-      // Temoraries.
-      LIR_Opr src_klass = new_register(T_OBJECT);
-
-      // Get the thread pointer for the pre-barrier
-      LIR_Opr thread = getThreadPointer();
-
-      CodeStub* stub;
+    if (gen_pre_barrier) {
+      LabelObj* Lcont = new LabelObj();
 
       // We can have generate one runtime check here. Let's start with
       // the offset check.
       if (gen_offset_check) {
-        // if (offset == referent_offset) -> slow code stub
+        // if (offset != referent_offset) -> continue
         // If offset is an int then we can do the comparison with the
         // referent_offset constant; otherwise we need to move
         // referent_offset into a temporary register and generate
@@ -2236,46 +2286,39 @@ void LIRGenerator::do_UnsafeGetObject(UnsafeGetObject* x) {
           referent_off = new_register(T_LONG);
           __ move(LIR_OprFact::longConst(java_lang_ref_Reference::referent_offset), referent_off);
         }
-
-        __ cmp(lir_cond_equal, off.result(), referent_off);
-
-        // Optionally generate "src == null" check.
-        stub = new G1UnsafeGetObjSATBBarrierStub(reg, src.result(),
-                                                    src_klass, thread,
-                                                    gen_source_check);
-
-        __ branch(lir_cond_equal, as_BasicType(off.type()), stub);
-      } else {
-        if (gen_source_check) {
-          // offset is a const and equals referent offset
-          // if (source != null) -> slow code stub
-          __ cmp(lir_cond_notEqual, src.result(), LIR_OprFact::oopConst(NULL));
-
-          // Since we are generating the "if src == null" guard here,
-          // there is no need to generate the "src == null" check again.
-          stub = new G1UnsafeGetObjSATBBarrierStub(reg, src.result(),
-                                                    src_klass, thread,
-                                                    false);
-
-          __ branch(lir_cond_notEqual, T_OBJECT, stub);
-        } else {
-          // We have statically determined that offset == referent_offset
-          // && src != null so we unconditionally branch to code stub
-          // to perform the guards and record reg in the SATB log buffer.
-
-          stub = new G1UnsafeGetObjSATBBarrierStub(reg, src.result(),
-                                                    src_klass, thread,
-                                                    false);
-
-          __ branch(lir_cond_always, T_ILLEGAL, stub);
-        }
+        __ cmp(lir_cond_notEqual, off.result(), referent_off);
+        __ branch(lir_cond_notEqual, as_BasicType(off.type()), Lcont->label());
       }
-
-      // Continuation point
-      __ branch_destination(stub->continuation());
+      if (gen_source_check) {
+        // offset is a const and equals referent offset
+        // if (source == null) -> continue
+        __ cmp(lir_cond_equal, src.result(), LIR_OprFact::oopConst(NULL));
+        __ branch(lir_cond_equal, T_OBJECT, Lcont->label());
+      }
+      LIR_Opr src_klass = new_register(T_OBJECT);
+      if (gen_type_check) {
+        // We have determined that offset == referent_offset && src != null.
+        // if (src->_klass->_reference_type == REF_NONE) -> continue
+        __ move(new LIR_Address(src.result(), oopDesc::klass_offset_in_bytes(), T_ADDRESS), src_klass);
+        LIR_Address* reference_type_addr = new LIR_Address(src_klass, in_bytes(InstanceKlass::reference_type_offset()), T_BYTE);
+        LIR_Opr reference_type = new_register(T_INT);
+        __ move(reference_type_addr, reference_type);
+        __ cmp(lir_cond_equal, reference_type, LIR_OprFact::intConst(REF_NONE));
+        __ branch(lir_cond_equal, T_INT, Lcont->label());
+      }
+      {
+        // We have determined that src->_klass->_reference_type != REF_NONE
+        // so register the value in the referent field with the pre-barrier.
+        pre_barrier(LIR_OprFact::illegalOpr /* addr_opr */,
+                    value  /* pre_val */,
+                    false  /* do_load */,
+                    false  /* patch */,
+                    NULL   /* info */);
+      }
+      __ branch_destination(Lcont->label());
     }
   }
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   if (x->is_volatile() && os::is_MP()) __ membar_acquire();
 }
@@ -2351,7 +2394,7 @@ void LIRGenerator::do_SwitchRanges(SwitchRangeArray* x, LIR_Opr value, BlockBegi
     } else {
       LabelObj* L = new LabelObj();
       __ cmp(lir_cond_less, value, low_key);
-      __ branch(lir_cond_less, L->label());
+      __ branch(lir_cond_less, T_INT, L->label());
       __ cmp(lir_cond_lessEqual, value, high_key);
       __ branch(lir_cond_lessEqual, T_INT, dest);
       __ branch_destination(L->label());
@@ -2493,7 +2536,7 @@ void LIRGenerator::do_Goto(Goto* x) {
 
     // increment backedge counter if needed
     CodeEmitInfo* info = state_for(x, state);
-    increment_backedge_counter(info, info->stack()->bci());
+    increment_backedge_counter(info, x->profiled_bci());
     CodeEmitInfo* safepoint_info = state_for(x, state);
     __ safepoint(safepoint_poll_register(), safepoint_info);
   }
@@ -2517,8 +2560,8 @@ void LIRGenerator::do_Goto(Goto* x) {
       assert(data->is_JumpData(), "need JumpData for branches");
       offset = md->byte_offset_of_slot(data, JumpData::taken_offset());
     }
-    LIR_Opr md_reg = new_register(T_OBJECT);
-    __ oop2reg(md->constant_encoding(), md_reg);
+    LIR_Opr md_reg = new_register(T_METADATA);
+    __ metadata2reg(md->constant_encoding(), md_reg);
 
     increment_counter(new LIR_Address(md_reg, offset,
                                       NOT_LP64(T_INT) LP64_ONLY(T_LONG)), DataLayout::counter_increment);
@@ -2531,6 +2574,138 @@ void LIRGenerator::do_Goto(Goto* x) {
   __ jump(x->default_sux());
 }
 
+/**
+ * Emit profiling code if needed for arguments, parameters, return value types
+ *
+ * @param md                    MDO the code will update at runtime
+ * @param md_base_offset        common offset in the MDO for this profile and subsequent ones
+ * @param md_offset             offset in the MDO (on top of md_base_offset) for this profile
+ * @param profiled_k            current profile
+ * @param obj                   IR node for the object to be profiled
+ * @param mdp                   register to hold the pointer inside the MDO (md + md_base_offset).
+ *                              Set once we find an update to make and use for next ones.
+ * @param not_null              true if we know obj cannot be null
+ * @param signature_at_call_k   signature at call for obj
+ * @param callee_signature_k    signature of callee for obj
+ *                              at call and callee signatures differ at method handle call
+ * @return                      the only klass we know will ever be seen at this profile point
+ */
+ciKlass* LIRGenerator::profile_type(ciMethodData* md, int md_base_offset, int md_offset, intptr_t profiled_k,
+                                    Value obj, LIR_Opr& mdp, bool not_null, ciKlass* signature_at_call_k,
+                                    ciKlass* callee_signature_k) {
+  ciKlass* result = NULL;
+  bool do_null = !not_null && !TypeEntries::was_null_seen(profiled_k);
+  bool do_update = !TypeEntries::is_type_unknown(profiled_k);
+  // known not to be null or null bit already set and already set to
+  // unknown: nothing we can do to improve profiling
+  if (!do_null && !do_update) {
+    return result;
+  }
+
+  ciKlass* exact_klass = NULL;
+  Compilation* comp = Compilation::current();
+  if (do_update) {
+    // try to find exact type, using CHA if possible, so that loading
+    // the klass from the object can be avoided
+    ciType* type = obj->exact_type();
+    if (type == NULL) {
+      type = obj->declared_type();
+      type = comp->cha_exact_type(type);
+    }
+    assert(type == NULL || type->is_klass(), "type should be class");
+    exact_klass = (type != NULL && type->is_loaded()) ? (ciKlass*)type : NULL;
+
+    do_update = exact_klass == NULL || ciTypeEntries::valid_ciklass(profiled_k) != exact_klass;
+  }
+
+  if (!do_null && !do_update) {
+    return result;
+  }
+
+  ciKlass* exact_signature_k = NULL;
+  if (do_update) {
+    // Is the type from the signature exact (the only one possible)?
+    exact_signature_k = signature_at_call_k->exact_klass();
+    if (exact_signature_k == NULL) {
+      exact_signature_k = comp->cha_exact_type(signature_at_call_k);
+    } else {
+      result = exact_signature_k;
+      // Known statically. No need to emit any code: prevent
+      // LIR_Assembler::emit_profile_type() from emitting useless code
+      profiled_k = ciTypeEntries::with_status(result, profiled_k);
+    }
+    if (exact_signature_k != NULL && exact_klass != exact_signature_k) {
+      assert(exact_klass == NULL, "obj and signature disagree?");
+      // sometimes the type of the signature is better than the best type
+      // the compiler has
+      exact_klass = exact_signature_k;
+    }
+    if (callee_signature_k != NULL &&
+        callee_signature_k != signature_at_call_k) {
+      ciKlass* improved_klass = callee_signature_k->exact_klass();
+      if (improved_klass == NULL) {
+        improved_klass = comp->cha_exact_type(callee_signature_k);
+      }
+      if (improved_klass != NULL && exact_klass != improved_klass) {
+        assert(exact_klass == NULL, "obj and signature disagree?");
+        exact_klass = exact_signature_k;
+      }
+    }
+    do_update = exact_klass == NULL || ciTypeEntries::valid_ciklass(profiled_k) != exact_klass;
+  }
+
+  if (!do_null && !do_update) {
+    return result;
+  }
+
+  if (mdp == LIR_OprFact::illegalOpr) {
+    mdp = new_register(T_METADATA);
+    __ metadata2reg(md->constant_encoding(), mdp);
+    if (md_base_offset != 0) {
+      LIR_Address* base_type_address = new LIR_Address(mdp, md_base_offset, T_ADDRESS);
+      mdp = new_pointer_register();
+      __ leal(LIR_OprFact::address(base_type_address), mdp);
+    }
+  }
+  LIRItem value(obj, this);
+  value.load_item();
+  __ profile_type(new LIR_Address(mdp, md_offset, T_METADATA),
+                  value.result(), exact_klass, profiled_k, new_pointer_register(), not_null, exact_signature_k != NULL);
+  return result;
+}
+
+// profile parameters on entry to the root of the compilation
+void LIRGenerator::profile_parameters(Base* x) {
+  if (compilation()->profile_parameters()) {
+    CallingConvention* args = compilation()->frame_map()->incoming_arguments();
+    ciMethodData* md = scope()->method()->method_data_or_null();
+    assert(md != NULL, "Sanity");
+
+    if (md->parameters_type_data() != NULL) {
+      ciParametersTypeData* parameters_type_data = md->parameters_type_data();
+      ciTypeStackSlotEntries* parameters =  parameters_type_data->parameters();
+      LIR_Opr mdp = LIR_OprFact::illegalOpr;
+      for (int java_index = 0, i = 0, j = 0; j < parameters_type_data->number_of_parameters(); i++) {
+        LIR_Opr src = args->at(i);
+        assert(!src->is_illegal(), "check");
+        BasicType t = src->type();
+        if (t == T_OBJECT || t == T_ARRAY) {
+          intptr_t profiled_k = parameters->type(j);
+          Local* local = x->state()->local_at(java_index)->as_Local();
+          ciKlass* exact = profile_type(md, md->byte_offset_of_slot(parameters_type_data, ParametersTypeData::type_offset(0)),
+                                        in_bytes(ParametersTypeData::type_offset(j)) - in_bytes(ParametersTypeData::type_offset(0)),
+                                        profiled_k, local, mdp, false, local->declared_type()->as_klass(), NULL);
+          // If the profile is known statically set it once for all and do not emit any code
+          if (exact != NULL) {
+            md->set_parameter_type(j, exact);
+          }
+          j++;
+        }
+        java_index += type2size[t];
+      }
+    }
+  }
+}
 
 void LIRGenerator::do_Base(Base* x) {
   __ std_entry(LIR_OprFact::illegalOpr);
@@ -2572,11 +2747,11 @@ void LIRGenerator::do_Base(Base* x) {
   if (compilation()->env()->dtrace_method_probes()) {
     BasicTypeList signature;
     signature.append(LP64_ONLY(T_LONG) NOT_LP64(T_INT));    // thread
-    signature.append(T_OBJECT); // methodOop
+    signature.append(T_METADATA); // Method*
     LIR_OprList* args = new LIR_OprList();
     args->append(getThreadPointer());
-    LIR_Opr meth = new_register(T_OBJECT);
-    __ oop2reg(method()->constant_encoding(), meth);
+    LIR_Opr meth = new_register(T_METADATA);
+    __ metadata2reg(method()->constant_encoding(), meth);
     args->append(meth);
     call_runtime(&signature, args, CAST_FROM_FN_PTR(address, SharedRuntime::dtrace_method_entry), voidType, NULL);
   }
@@ -2597,7 +2772,7 @@ void LIRGenerator::do_Base(Base* x) {
       LIR_Opr lock = new_register(T_INT);
       __ load_stack_address_monitor(0, lock);
 
-      CodeEmitInfo* info = new CodeEmitInfo(scope()->start()->state()->copy(ValueStack::StateBefore, SynchronizationEntryBCI), NULL);
+      CodeEmitInfo* info = new CodeEmitInfo(scope()->start()->state()->copy(ValueStack::StateBefore, SynchronizationEntryBCI), NULL, x->check_flag(Instruction::DeoptimizeOnException));
       CodeStub* slow_path = new MonitorEnterStub(obj, lock, info);
 
       // receiver is guaranteed non-NULL so don't need CodeEmitInfo
@@ -2607,7 +2782,8 @@ void LIRGenerator::do_Base(Base* x) {
 
   // increment invocation counters if needed
   if (!method()->is_accessor()) { // Accessors do not have MDOs, so no counting.
-    CodeEmitInfo* info = new CodeEmitInfo(scope()->start()->state()->copy(ValueStack::StateBefore, SynchronizationEntryBCI), NULL);
+    profile_parameters(x);
+    CodeEmitInfo* info = new CodeEmitInfo(scope()->start()->state()->copy(ValueStack::StateBefore, SynchronizationEntryBCI), NULL, false);
     increment_invocation_counter(info);
   }
 
@@ -2627,8 +2803,9 @@ void LIRGenerator::do_OsrEntry(OsrEntry* x) {
 
 
 void LIRGenerator::invoke_load_arguments(Invoke* x, LIRItemList* args, const LIR_OprList* arg_list) {
-  int i = (x->has_receiver() || x->is_invokedynamic()) ? 1 : 0;
-  for (; i < args->length(); i++) {
+  assert(args->length() == arg_list->length(),
+         err_msg_res("args=%d, arg_list=%d", args->length(), arg_list->length()));
+  for (int i = x->has_receiver() ? 1 : 0; i < args->length(); i++) {
     LIRItem* param = args->at(i);
     LIR_Opr loc = arg_list->at(i);
     if (loc->is_register()) {
@@ -2668,15 +2845,9 @@ LIRItemList* LIRGenerator::invoke_visit_arguments(Invoke* x) {
     LIRItem* receiver = new LIRItem(x->receiver(), this);
     argument_items->append(receiver);
   }
-  if (x->is_invokedynamic()) {
-    // Insert a dummy for the synthetic MethodHandle argument.
-    argument_items->append(NULL);
-  }
-  int idx = x->has_receiver() ? 1 : 0;
   for (int i = 0; i < x->number_of_arguments(); i++) {
     LIRItem* param = new LIRItem(x->argument_at(i), this);
     argument_items->append(param);
-    idx += (param->type()->is_double_word() ? 2 : 1);
   }
   return argument_items;
 }
@@ -2721,9 +2892,6 @@ void LIRGenerator::do_Invoke(Invoke* x) {
 
   CodeEmitInfo* info = state_for(x, x->state());
 
-  // invokedynamics can deoptimize.
-  CodeEmitInfo* deopt_info = x->is_invokedynamic() ? state_for(x, x->state_before()) : NULL;
-
   invoke_load_arguments(x, args, arg_list);
 
   if (x->has_receiver()) {
@@ -2738,7 +2906,10 @@ void LIRGenerator::do_Invoke(Invoke* x) {
   // JSR 292
   // Preserve the SP over MethodHandle call sites.
   ciMethod* target = x->target();
-  if (target->is_method_handle_invoke()) {
+  bool is_method_handle_invoke = (// %%% FIXME: Are both of these relevant?
+                                  target->is_method_handle_intrinsic() ||
+                                  target->is_compiled_lambda_form());
+  if (is_method_handle_invoke) {
     info->set_is_method_handle_invoke(true);
     __ move(FrameMap::stack_pointer(), FrameMap::method_handle_invoke_SP_save_opr());
   }
@@ -2763,60 +2934,25 @@ void LIRGenerator::do_Invoke(Invoke* x) {
                           SharedRuntime::get_resolve_virtual_call_stub(),
                           arg_list, info);
       } else {
-        int entry_offset = instanceKlass::vtable_start_offset() + x->vtable_index() * vtableEntry::size();
+        int entry_offset = InstanceKlass::vtable_start_offset() + x->vtable_index() * vtableEntry::size();
         int vtable_offset = entry_offset * wordSize + vtableEntry::method_offset_in_bytes();
         __ call_virtual(target, receiver, result_register, vtable_offset, arg_list, info);
       }
       break;
     case Bytecodes::_invokedynamic: {
-      ciBytecodeStream bcs(x->scope()->method());
-      bcs.force_bci(x->state()->bci());
-      assert(bcs.cur_bc() == Bytecodes::_invokedynamic, "wrong stream");
-      ciCPCache* cpcache = bcs.get_cpcache();
-
-      // Get CallSite offset from constant pool cache pointer.
-      int index = bcs.get_method_index();
-      size_t call_site_offset = cpcache->get_f1_offset(index);
-
-      // If this invokedynamic call site hasn't been executed yet in
-      // the interpreter, the CallSite object in the constant pool
-      // cache is still null and we need to deoptimize.
-      if (cpcache->is_f1_null_at(index)) {
-        // Cannot re-use same xhandlers for multiple CodeEmitInfos, so
-        // clone all handlers.  This is handled transparently in other
-        // places by the CodeEmitInfo cloning logic but is handled
-        // specially here because a stub isn't being used.
-        x->set_exception_handlers(new XHandlers(x->exception_handlers()));
-
-        DeoptimizeStub* deopt_stub = new DeoptimizeStub(deopt_info);
-        __ jump(deopt_stub);
-      }
-
-      // Use the receiver register for the synthetic MethodHandle
-      // argument.
-      receiver = LIR_Assembler::receiverOpr();
-      LIR_Opr tmp = new_register(objectType);
-
-      // Load CallSite object from constant pool cache.
-      __ oop2reg(cpcache->constant_encoding(), tmp);
-      __ move_wide(new LIR_Address(tmp, call_site_offset, T_OBJECT), tmp);
-
-      // Load target MethodHandle from CallSite object.
-      __ load(new LIR_Address(tmp, java_lang_invoke_CallSite::target_offset_in_bytes(), T_OBJECT), receiver);
-
       __ call_dynamic(target, receiver, result_register,
-                      SharedRuntime::get_resolve_opt_virtual_call_stub(),
+                      SharedRuntime::get_resolve_static_call_stub(),
                       arg_list, info);
       break;
     }
     default:
-      ShouldNotReachHere();
+      fatal(err_msg("unexpected bytecode: %s", Bytecodes::name(x->code())));
       break;
   }
 
   // JSR 292
   // Restore the SP after MethodHandle call sites.
-  if (target->is_method_handle_invoke()) {
+  if (is_method_handle_invoke) {
     __ move(FrameMap::method_handle_invoke_SP_save_opr(), FrameMap::stack_pointer());
   }
 
@@ -2880,6 +3016,51 @@ void LIRGenerator::do_IfOp(IfOp* x) {
   __ cmove(lir_cond(x->cond()), t_val.result(), f_val.result(), reg, as_BasicType(x->x()->type()));
 }
 
+void LIRGenerator::do_RuntimeCall(address routine, int expected_arguments, Intrinsic* x) {
+    assert(x->number_of_arguments() == expected_arguments, "wrong type");
+    LIR_Opr reg = result_register_for(x->type());
+    __ call_runtime_leaf(routine, getThreadTemp(),
+                         reg, new LIR_OprList());
+    LIR_Opr result = rlock_result(x);
+    __ move(reg, result);
+}
+
+#ifdef TRACE_HAVE_INTRINSICS
+void LIRGenerator::do_ThreadIDIntrinsic(Intrinsic* x) {
+    LIR_Opr thread = getThreadPointer();
+    LIR_Opr osthread = new_pointer_register();
+    __ move(new LIR_Address(thread, in_bytes(JavaThread::osthread_offset()), osthread->type()), osthread);
+    size_t thread_id_size = OSThread::thread_id_size();
+    if (thread_id_size == (size_t) BytesPerLong) {
+      LIR_Opr id = new_register(T_LONG);
+      __ move(new LIR_Address(osthread, in_bytes(OSThread::thread_id_offset()), T_LONG), id);
+      __ convert(Bytecodes::_l2i, id, rlock_result(x));
+    } else if (thread_id_size == (size_t) BytesPerInt) {
+      __ move(new LIR_Address(osthread, in_bytes(OSThread::thread_id_offset()), T_INT), rlock_result(x));
+    } else {
+      ShouldNotReachHere();
+    }
+}
+
+void LIRGenerator::do_ClassIDIntrinsic(Intrinsic* x) {
+    CodeEmitInfo* info = state_for(x);
+    CodeEmitInfo* info2 = new CodeEmitInfo(info); // Clone for the second null check
+    BasicType klass_pointer_type = NOT_LP64(T_INT) LP64_ONLY(T_LONG);
+    assert(info != NULL, "must have info");
+    LIRItem arg(x->argument_at(1), this);
+    arg.load_item();
+    LIR_Opr klass = new_pointer_register();
+    __ move(new LIR_Address(arg.result(), java_lang_Class::klass_offset_in_bytes(), klass_pointer_type), klass, info);
+    LIR_Opr id = new_register(T_LONG);
+    ByteSize offset = TRACE_ID_OFFSET;
+    LIR_Address* trace_id_addr = new LIR_Address(klass, in_bytes(offset), T_LONG);
+    __ move(trace_id_addr, id);
+    __ logical_or(id, LIR_OprFact::longConst(0x01l), id);
+    __ store(id, trace_id_addr);
+    __ logical_and(id, LIR_OprFact::longConst(~0x3l), id);
+    __ move(id, rlock_result(x));
+}
+#endif
 
 void LIRGenerator::do_Intrinsic(Intrinsic* x) {
   switch (x->id()) {
@@ -2891,27 +3072,24 @@ void LIRGenerator::do_Intrinsic(Intrinsic* x) {
     break;
   }
 
-  case vmIntrinsics::_currentTimeMillis: {
-    assert(x->number_of_arguments() == 0, "wrong type");
-    LIR_Opr reg = result_register_for(x->type());
-    __ call_runtime_leaf(CAST_FROM_FN_PTR(address, os::javaTimeMillis), getThreadTemp(),
-                         reg, new LIR_OprList());
-    LIR_Opr result = rlock_result(x);
-    __ move(reg, result);
+#ifdef TRACE_HAVE_INTRINSICS
+  case vmIntrinsics::_threadID: do_ThreadIDIntrinsic(x); break;
+  case vmIntrinsics::_classID: do_ClassIDIntrinsic(x); break;
+  case vmIntrinsics::_counterTime:
+    do_RuntimeCall(CAST_FROM_FN_PTR(address, TRACE_TIME_METHOD), 0, x);
     break;
-  }
+#endif
 
-  case vmIntrinsics::_nanoTime: {
-    assert(x->number_of_arguments() == 0, "wrong type");
-    LIR_Opr reg = result_register_for(x->type());
-    __ call_runtime_leaf(CAST_FROM_FN_PTR(address, os::javaTimeNanos), getThreadTemp(),
-                         reg, new LIR_OprList());
-    LIR_Opr result = rlock_result(x);
-    __ move(reg, result);
+  case vmIntrinsics::_currentTimeMillis:
+    do_RuntimeCall(CAST_FROM_FN_PTR(address, os::javaTimeMillis), 0, x);
     break;
-  }
+
+  case vmIntrinsics::_nanoTime:
+    do_RuntimeCall(CAST_FROM_FN_PTR(address, os::javaTimeNanos), 0, x);
+    break;
 
   case vmIntrinsics::_Object_init:    do_RegisterFinalizer(x); break;
+  case vmIntrinsics::_isInstance:     do_isInstance(x);    break;
   case vmIntrinsics::_getClass:       do_getClass(x);      break;
   case vmIntrinsics::_currentThread:  do_currentThread(x); break;
 
@@ -2921,7 +3099,9 @@ void LIRGenerator::do_Intrinsic(Intrinsic* x) {
   case vmIntrinsics::_dsqrt:          // fall through
   case vmIntrinsics::_dtan:           // fall through
   case vmIntrinsics::_dsin :          // fall through
-  case vmIntrinsics::_dcos :          do_MathIntrinsic(x); break;
+  case vmIntrinsics::_dcos :          // fall through
+  case vmIntrinsics::_dexp :          // fall through
+  case vmIntrinsics::_dpow :          do_MathIntrinsic(x); break;
   case vmIntrinsics::_arraycopy:      do_ArrayCopy(x);     break;
 
   // java.nio.Buffer.checkIndex
@@ -2937,16 +3117,137 @@ void LIRGenerator::do_Intrinsic(Intrinsic* x) {
     do_CompareAndSwap(x, longType);
     break;
 
-    // sun.misc.AtomicLongCSImpl.attemptUpdate
-  case vmIntrinsics::_attemptUpdate:
-    do_AttemptUpdate(x);
+  case vmIntrinsics::_loadFence :
+    if (os::is_MP()) __ membar_acquire();
+    break;
+  case vmIntrinsics::_storeFence:
+    if (os::is_MP()) __ membar_release();
+    break;
+  case vmIntrinsics::_fullFence :
+    if (os::is_MP()) __ membar();
     break;
 
   case vmIntrinsics::_Reference_get:
     do_Reference_get(x);
     break;
 
+  case vmIntrinsics::_updateCRC32:
+  case vmIntrinsics::_updateBytesCRC32:
+  case vmIntrinsics::_updateByteBufferCRC32:
+    do_update_CRC32(x);
+    break;
+
   default: ShouldNotReachHere(); break;
+  }
+}
+
+void LIRGenerator::profile_arguments(ProfileCall* x) {
+  if (compilation()->profile_arguments()) {
+    int bci = x->bci_of_invoke();
+    ciMethodData* md = x->method()->method_data_or_null();
+    ciProfileData* data = md->bci_to_data(bci);
+    if ((data->is_CallTypeData() && data->as_CallTypeData()->has_arguments()) ||
+        (data->is_VirtualCallTypeData() && data->as_VirtualCallTypeData()->has_arguments())) {
+      ByteSize extra = data->is_CallTypeData() ? CallTypeData::args_data_offset() : VirtualCallTypeData::args_data_offset();
+      int base_offset = md->byte_offset_of_slot(data, extra);
+      LIR_Opr mdp = LIR_OprFact::illegalOpr;
+      ciTypeStackSlotEntries* args = data->is_CallTypeData() ? ((ciCallTypeData*)data)->args() : ((ciVirtualCallTypeData*)data)->args();
+
+      Bytecodes::Code bc = x->method()->java_code_at_bci(bci);
+      int start = 0;
+      int stop = data->is_CallTypeData() ? ((ciCallTypeData*)data)->number_of_arguments() : ((ciVirtualCallTypeData*)data)->number_of_arguments();
+      if (x->inlined() && x->callee()->is_static() && Bytecodes::has_receiver(bc)) {
+        // first argument is not profiled at call (method handle invoke)
+        assert(x->method()->raw_code_at_bci(bci) == Bytecodes::_invokehandle, "invokehandle expected");
+        start = 1;
+      }
+      ciSignature* callee_signature = x->callee()->signature();
+      // method handle call to virtual method
+      bool has_receiver = x->inlined() && !x->callee()->is_static() && !Bytecodes::has_receiver(bc);
+      ciSignatureStream callee_signature_stream(callee_signature, has_receiver ? x->callee()->holder() : NULL);
+
+      bool ignored_will_link;
+      ciSignature* signature_at_call = NULL;
+      x->method()->get_method_at_bci(bci, ignored_will_link, &signature_at_call);
+      ciSignatureStream signature_at_call_stream(signature_at_call);
+
+      // if called through method handle invoke, some arguments may have been popped
+      for (int i = 0; i < stop && i+start < x->nb_profiled_args(); i++) {
+        int off = in_bytes(TypeEntriesAtCall::argument_type_offset(i)) - in_bytes(TypeEntriesAtCall::args_data_offset());
+        ciKlass* exact = profile_type(md, base_offset, off,
+                                      args->type(i), x->profiled_arg_at(i+start), mdp,
+                                      !x->arg_needs_null_check(i+start),
+                                      signature_at_call_stream.next_klass(), callee_signature_stream.next_klass());
+        if (exact != NULL) {
+          md->set_argument_type(bci, i, exact);
+        }
+      }
+    } else {
+#ifdef ASSERT
+      Bytecodes::Code code = x->method()->raw_code_at_bci(x->bci_of_invoke());
+      int n = x->nb_profiled_args();
+      assert(MethodData::profile_parameters() && x->inlined() &&
+             ((code == Bytecodes::_invokedynamic && n <= 1) || (code == Bytecodes::_invokehandle && n <= 2)),
+             "only at JSR292 bytecodes");
+#endif
+    }
+  }
+}
+
+// profile parameters on entry to an inlined method
+void LIRGenerator::profile_parameters_at_call(ProfileCall* x) {
+  if (compilation()->profile_parameters() && x->inlined()) {
+    ciMethodData* md = x->callee()->method_data_or_null();
+    if (md != NULL) {
+      ciParametersTypeData* parameters_type_data = md->parameters_type_data();
+      if (parameters_type_data != NULL) {
+        ciTypeStackSlotEntries* parameters =  parameters_type_data->parameters();
+        LIR_Opr mdp = LIR_OprFact::illegalOpr;
+        bool has_receiver = !x->callee()->is_static();
+        ciSignature* sig = x->callee()->signature();
+        ciSignatureStream sig_stream(sig, has_receiver ? x->callee()->holder() : NULL);
+        int i = 0; // to iterate on the Instructions
+        Value arg = x->recv();
+        bool not_null = false;
+        int bci = x->bci_of_invoke();
+        Bytecodes::Code bc = x->method()->java_code_at_bci(bci);
+        // The first parameter is the receiver so that's what we start
+        // with if it exists. One exception is method handle call to
+        // virtual method: the receiver is in the args list
+        if (arg == NULL || !Bytecodes::has_receiver(bc)) {
+          i = 1;
+          arg = x->profiled_arg_at(0);
+          not_null = !x->arg_needs_null_check(0);
+        }
+        int k = 0; // to iterate on the profile data
+        for (;;) {
+          intptr_t profiled_k = parameters->type(k);
+          ciKlass* exact = profile_type(md, md->byte_offset_of_slot(parameters_type_data, ParametersTypeData::type_offset(0)),
+                                        in_bytes(ParametersTypeData::type_offset(k)) - in_bytes(ParametersTypeData::type_offset(0)),
+                                        profiled_k, arg, mdp, not_null, sig_stream.next_klass(), NULL);
+          // If the profile is known statically set it once for all and do not emit any code
+          if (exact != NULL) {
+            md->set_parameter_type(k, exact);
+          }
+          k++;
+          if (k >= parameters_type_data->number_of_parameters()) {
+#ifdef ASSERT
+            int extra = 0;
+            if (MethodData::profile_arguments() && TypeProfileParmsLimit != -1 &&
+                x->nb_profiled_args() >= TypeProfileParmsLimit &&
+                x->recv() != NULL && Bytecodes::has_receiver(bc)) {
+              extra += 1;
+            }
+            assert(i == x->nb_profiled_args() - extra || (TypeProfileParmsLimit != -1 && TypeProfileArgsLimit > TypeProfileParmsLimit), "unused parameters?");
+#endif
+            break;
+          }
+          arg = x->profiled_arg_at(i);
+          not_null = !x->arg_needs_null_check(i);
+          i++;
+        }
+      }
+    }
   }
 }
 
@@ -2956,13 +3257,45 @@ void LIRGenerator::do_ProfileCall(ProfileCall* x) {
   LIR_Opr mdo = new_register(T_OBJECT);
   // tmp is used to hold the counters on SPARC
   LIR_Opr tmp = new_pointer_register();
+
+  if (x->nb_profiled_args() > 0) {
+    profile_arguments(x);
+  }
+
+  // profile parameters on inlined method entry including receiver
+  if (x->recv() != NULL || x->nb_profiled_args() > 0) {
+    profile_parameters_at_call(x);
+  }
+
   if (x->recv() != NULL) {
     LIRItem value(x->recv(), this);
     value.load_item();
     recv = new_register(T_OBJECT);
     __ move(value.result(), recv);
   }
-  __ profile_call(x->method(), x->bci_of_invoke(), mdo, recv, tmp, x->known_holder());
+  __ profile_call(x->method(), x->bci_of_invoke(), x->callee(), mdo, recv, tmp, x->known_holder());
+}
+
+void LIRGenerator::do_ProfileReturnType(ProfileReturnType* x) {
+  int bci = x->bci_of_invoke();
+  ciMethodData* md = x->method()->method_data_or_null();
+  ciProfileData* data = md->bci_to_data(bci);
+  assert(data->is_CallTypeData() || data->is_VirtualCallTypeData(), "wrong profile data type");
+  ciReturnTypeEntry* ret = data->is_CallTypeData() ? ((ciCallTypeData*)data)->ret() : ((ciVirtualCallTypeData*)data)->ret();
+  LIR_Opr mdp = LIR_OprFact::illegalOpr;
+
+  bool ignored_will_link;
+  ciSignature* signature_at_call = NULL;
+  x->method()->get_method_at_bci(bci, ignored_will_link, &signature_at_call);
+
+  ciKlass* exact = profile_type(md, 0, md->byte_offset_of_slot(data, ret->type_offset()),
+                                ret->type(), x->ret(), mdp,
+                                !x->needs_null_check(),
+                                signature_at_call->return_type()->as_klass(),
+                                x->callee()->signature()->return_type()->as_klass());
+  if (exact != NULL) {
+    md->set_return_type(bci, exact);
+  }
 }
 
 void LIRGenerator::do_ProfileInvoke(ProfileInvoke* x) {
@@ -2970,8 +3303,8 @@ void LIRGenerator::do_ProfileInvoke(ProfileInvoke* x) {
   // accessors are also always mature.
   if (!x->inlinee()->is_accessor()) {
     CodeEmitInfo* info = state_for(x, x->state(), true);
-    // Increment invocation counter, don't notify the runtime, because we don't inline loops,
-    increment_event_counter_impl(info, x->inlinee(), 0, InvocationEntryBci, false, false);
+    // Notify the runtime very infrequently only to take care of counter overflows
+    increment_event_counter_impl(info, x->inlinee(), (1 << Tier23InlineeNotifyFreqLog) - 1, InvocationEntryBci, false, true);
   }
 }
 
@@ -2997,21 +3330,24 @@ void LIRGenerator::increment_event_counter_impl(CodeEmitInfo* info,
   assert(level > CompLevel_simple, "Shouldn't be here");
 
   int offset = -1;
-  LIR_Opr counter_holder = new_register(T_OBJECT);
-  LIR_Opr meth;
+  LIR_Opr counter_holder;
   if (level == CompLevel_limited_profile) {
-    offset = in_bytes(backedge ? methodOopDesc::backedge_counter_offset() :
-                                 methodOopDesc::invocation_counter_offset());
-    __ oop2reg(method->constant_encoding(), counter_holder);
-    meth = counter_holder;
+    MethodCounters* counters_adr = method->ensure_method_counters();
+    if (counters_adr == NULL) {
+      bailout("method counters allocation failed");
+      return;
+    }
+    counter_holder = new_pointer_register();
+    __ move(LIR_OprFact::intptrConst(counters_adr), counter_holder);
+    offset = in_bytes(backedge ? MethodCounters::backedge_counter_offset() :
+                                 MethodCounters::invocation_counter_offset());
   } else if (level == CompLevel_full_profile) {
-    offset = in_bytes(backedge ? methodDataOopDesc::backedge_counter_offset() :
-                                 methodDataOopDesc::invocation_counter_offset());
+    counter_holder = new_register(T_METADATA);
+    offset = in_bytes(backedge ? MethodData::backedge_counter_offset() :
+                                 MethodData::invocation_counter_offset());
     ciMethodData* md = method->method_data_or_null();
     assert(md != NULL, "Sanity");
-    __ oop2reg(md->constant_encoding(), counter_holder);
-    meth = new_register(T_OBJECT);
-    __ oop2reg(method->constant_encoding(), meth);
+    __ metadata2reg(md->constant_encoding(), counter_holder);
   } else {
     ShouldNotReachHere();
   }
@@ -3022,6 +3358,8 @@ void LIRGenerator::increment_event_counter_impl(CodeEmitInfo* info,
   __ store(result, counter);
   if (notify) {
     LIR_Opr mask = load_immediate(frequency << InvocationCounter::count_shift, T_INT);
+    LIR_Opr meth = new_register(T_METADATA);
+    __ metadata2reg(method->constant_encoding(), meth);
     __ logical_and(result, mask, result);
     __ cmp(lir_cond_equal, result, LIR_OprFact::intConst(0));
     // The bci for info can point to cmp for if's we want the if bci
@@ -3036,7 +3374,7 @@ void LIRGenerator::do_RuntimeCall(RuntimeCall* x) {
   BasicTypeList* signature = new BasicTypeList(x->number_of_arguments());
 
   if (x->pass_thread()) {
-    signature->append(T_ADDRESS);
+    signature->append(LP64_ONLY(T_LONG) NOT_LP64(T_INT));    // thread
     args->append(getThreadPointer());
   }
 
@@ -3055,6 +3393,94 @@ void LIRGenerator::do_RuntimeCall(RuntimeCall* x) {
     __ move(result, rlock_result(x));
   }
 }
+
+#ifdef ASSERT
+void LIRGenerator::do_Assert(Assert *x) {
+  ValueTag tag = x->x()->type()->tag();
+  If::Condition cond = x->cond();
+
+  LIRItem xitem(x->x(), this);
+  LIRItem yitem(x->y(), this);
+  LIRItem* xin = &xitem;
+  LIRItem* yin = &yitem;
+
+  assert(tag == intTag, "Only integer assertions are valid!");
+
+  xin->load_item();
+  yin->dont_load_item();
+
+  set_no_result(x);
+
+  LIR_Opr left = xin->result();
+  LIR_Opr right = yin->result();
+
+  __ lir_assert(lir_cond(x->cond()), left, right, x->message(), true);
+}
+#endif
+
+void LIRGenerator::do_RangeCheckPredicate(RangeCheckPredicate *x) {
+
+
+  Instruction *a = x->x();
+  Instruction *b = x->y();
+  if (!a || StressRangeCheckElimination) {
+    assert(!b || StressRangeCheckElimination, "B must also be null");
+
+    CodeEmitInfo *info = state_for(x, x->state());
+    CodeStub* stub = new PredicateFailedStub(info);
+
+    __ jump(stub);
+  } else if (a->type()->as_IntConstant() && b->type()->as_IntConstant()) {
+    int a_int = a->type()->as_IntConstant()->value();
+    int b_int = b->type()->as_IntConstant()->value();
+
+    bool ok = false;
+
+    switch(x->cond()) {
+      case Instruction::eql: ok = (a_int == b_int); break;
+      case Instruction::neq: ok = (a_int != b_int); break;
+      case Instruction::lss: ok = (a_int < b_int); break;
+      case Instruction::leq: ok = (a_int <= b_int); break;
+      case Instruction::gtr: ok = (a_int > b_int); break;
+      case Instruction::geq: ok = (a_int >= b_int); break;
+      case Instruction::aeq: ok = ((unsigned int)a_int >= (unsigned int)b_int); break;
+      case Instruction::beq: ok = ((unsigned int)a_int <= (unsigned int)b_int); break;
+      default: ShouldNotReachHere();
+    }
+
+    if (ok) {
+
+      CodeEmitInfo *info = state_for(x, x->state());
+      CodeStub* stub = new PredicateFailedStub(info);
+
+      __ jump(stub);
+    }
+  } else {
+
+    ValueTag tag = x->x()->type()->tag();
+    If::Condition cond = x->cond();
+    LIRItem xitem(x->x(), this);
+    LIRItem yitem(x->y(), this);
+    LIRItem* xin = &xitem;
+    LIRItem* yin = &yitem;
+
+    assert(tag == intTag, "Only integer deoptimizations are valid!");
+
+    xin->load_item();
+    yin->dont_load_item();
+    set_no_result(x);
+
+    LIR_Opr left = xin->result();
+    LIR_Opr right = yin->result();
+
+    CodeEmitInfo *info = state_for(x, x->state());
+    CodeStub* stub = new PredicateFailedStub(info);
+
+    __ cmp(lir_cond(cond), left, right);
+    __ branch(lir_cond(cond), right->type(), stub);
+  }
+}
+
 
 LIR_Opr LIRGenerator::call_runtime(Value arg1, address entry, ValueType* result_type, CodeEmitInfo* info) {
   LIRItemList args(1);
@@ -3165,4 +3591,20 @@ LIR_Opr LIRGenerator::call_runtime(BasicTypeArray* signature, LIRItemList* args,
     __ move(phys_reg, result);
   }
   return result;
+}
+
+void LIRGenerator::do_MemBar(MemBar* x) {
+  if (os::is_MP()) {
+    LIR_Code code = x->code();
+    switch(code) {
+      case lir_membar_acquire   : __ membar_acquire(); break;
+      case lir_membar_release   : __ membar_release(); break;
+      case lir_membar           : __ membar(); break;
+      case lir_membar_loadload  : __ membar_loadload(); break;
+      case lir_membar_storestore: __ membar_storestore(); break;
+      case lir_membar_loadstore : __ membar_loadstore(); break;
+      case lir_membar_storeload : __ membar_storeload(); break;
+      default                   : ShouldNotReachHere(); break;
+    }
+  }
 }

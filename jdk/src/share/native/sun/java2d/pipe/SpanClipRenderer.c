@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2000, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,7 +31,6 @@
 #include "jni_util.h"
 
 #include "sun_java2d_pipe_SpanClipRenderer.h"
-#include "sun_java2d_pipe_RegionIterator.h"
 
 jfieldID pBandsArrayID;
 jfieldID pEndIndexID;
@@ -45,21 +44,27 @@ Java_sun_java2d_pipe_SpanClipRenderer_initIDs
 {
     /* Region fields */
     pBandsArrayID = (*env)->GetFieldID(env, rc, "bands", "[I");
+    if (pBandsArrayID == NULL) {
+        return;
+    }
     pEndIndexID = (*env)->GetFieldID(env, rc, "endIndex", "I");
+    if (pEndIndexID == NULL) {
+        return;
+    }
 
     /* RegionIterator fields */
     pRegionID = (*env)->GetFieldID(env, ric, "region",
                                    "Lsun/java2d/pipe/Region;");
+    if (pRegionID == NULL) {
+        return;
+    }
     pCurIndexID = (*env)->GetFieldID(env, ric, "curIndex", "I");
+    if (pCurIndexID == NULL) {
+        return;
+    }
     pNumXbandsID = (*env)->GetFieldID(env, ric, "numXbands", "I");
-
-    if((pBandsArrayID == NULL)
-       || (pEndIndexID == NULL)
-       || (pRegionID == NULL)
-       || (pCurIndexID == NULL)
-       || (pNumXbandsID == NULL))
-    {
-        JNU_ThrowInternalError(env, "NULL field ID");
+    if (pNumXbandsID == NULL) {
+        return;
     }
 }
 
@@ -130,10 +135,14 @@ Java_sun_java2d_pipe_SpanClipRenderer_fillTile
 
     if ((*env)->GetArrayLength(env, boxArray) < 4) {
         JNU_ThrowArrayIndexOutOfBoundsException(env, "band array");
+        return;
     }
     alphalen = (*env)->GetArrayLength(env, alphaTile);
 
     box = (*env)->GetPrimitiveArrayCritical(env, boxArray, 0);
+    if (box == NULL) {
+        return;
+    }
 
     w = box[2] - box[0];
     h = box[3] - box[1];
@@ -141,9 +150,14 @@ Java_sun_java2d_pipe_SpanClipRenderer_fillTile
     if (alphalen < offset || (alphalen - offset) / tsize < h) {
         (*env)->ReleasePrimitiveArrayCritical(env, boxArray, box, 0);
         JNU_ThrowArrayIndexOutOfBoundsException(env, "alpha tile array");
+        return;
     }
 
     alpha = (*env)->GetPrimitiveArrayCritical(env, alphaTile, 0);
+    if (alpha == NULL) {
+        (*env)->ReleasePrimitiveArrayCritical(env, boxArray, box, 0);
+        return;
+    }
 
     fill(alpha, offset, tsize, 0, 0, w, h, (jbyte) 0xff);
 
@@ -183,6 +197,7 @@ Java_sun_java2d_pipe_SpanClipRenderer_eraseTile
 
     if ((*env)->GetArrayLength(env, boxArray) < 4) {
         JNU_ThrowArrayIndexOutOfBoundsException(env, "band array");
+        return;
     }
     alphalen = (*env)->GetArrayLength(env, alphaTile);
 
@@ -197,6 +212,9 @@ Java_sun_java2d_pipe_SpanClipRenderer_eraseTile
     }
 
     box = (*env)->GetPrimitiveArrayCritical(env, boxArray, 0);
+    if (box == NULL) {
+        return;
+    }
 
     lox = box[0];
     loy = box[1];
@@ -208,10 +226,20 @@ Java_sun_java2d_pipe_SpanClipRenderer_eraseTile
         (alphalen - offset - (hix-lox)) / tsize < (hiy - loy - 1)) {
         (*env)->ReleasePrimitiveArrayCritical(env, boxArray, box, 0);
         JNU_ThrowArrayIndexOutOfBoundsException(env, "alpha tile array");
+        return;
     }
 
     bands = (*env)->GetPrimitiveArrayCritical(env, bandsArray, 0);
+    if (bands == NULL) {
+        (*env)->ReleasePrimitiveArrayCritical(env, boxArray, box, 0);
+        return;
+    }
     alpha = (*env)->GetPrimitiveArrayCritical(env, alphaTile, 0);
+    if (alpha == NULL) {
+        (*env)->ReleasePrimitiveArrayCritical(env, bandsArray, bands, 0);
+        (*env)->ReleasePrimitiveArrayCritical(env, boxArray, box, 0);
+        return;
+    }
 
     curIndex = saveCurIndex;
     numXbands = saveNumXbands;

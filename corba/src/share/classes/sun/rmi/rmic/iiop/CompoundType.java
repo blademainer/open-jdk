@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,6 +32,7 @@
 
 package sun.rmi.rmic.iiop;
 
+import java.util.Arrays;
 import java.util.Vector;
 import sun.tools.java.Identifier;
 import sun.tools.java.ClassNotFound;
@@ -1849,6 +1850,10 @@ public abstract class CompoundType extends Type {
                 return true;
             }
             return false;
+        }
+
+        public int hashCode() {
+            return getName().hashCode() ^ Arrays.hashCode(arguments);
         }
 
         /**

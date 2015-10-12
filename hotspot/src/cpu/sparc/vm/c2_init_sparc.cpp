@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,5 +30,4 @@
 
 void Compile::pd_compiler2_init() {
   guarantee(CodeEntryAlignment >= InteriorEntryAlignment, "" );
-  guarantee( VM_Version::v9_instructions_work(), "Server compiler does not run on V8 systems" );
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,18 +33,20 @@ import java.awt.event.*;
 import java.awt.font.*;
 import java.awt.geom.*;
 import java.awt.print.PrinterGraphics;
-import java.text.Bidi;
+import java.text.CharacterIterator;
 import java.text.AttributedCharacterIterator;
 import java.text.AttributedString;
 
 import javax.swing.*;
-import javax.swing.plaf.*;
+import javax.swing.event.TreeModelEvent;
 import javax.swing.text.Highlighter;
 import javax.swing.text.JTextComponent;
 import javax.swing.text.DefaultHighlighter;
 import javax.swing.text.DefaultCaret;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumnModel;
+import javax.swing.tree.TreeModel;
+import javax.swing.tree.TreePath;
 
 import sun.swing.PrintColorUIResource;
 import sun.swing.ImageIconUIResource;
@@ -503,76 +505,90 @@ public class SwingUtilities2 {
                  * it to fit in the screen width. This distributes the spacing
                  * more evenly than directly laying out to the screen advances.
                  */
-                float screenWidth = (float)
-                   g2d.getFont().getStringBounds(text, DEFAULT_FRC).getWidth();
-                TextLayout layout = createTextLayout(c, text, g2d.getFont(),
-                                                   g2d.getFontRenderContext());
+                String trimmedText = trimTrailingSpaces(text);
+                if (!trimmedText.isEmpty()) {
+                    float screenWidth = (float) g2d.getFont().getStringBounds
+                            (trimmedText, DEFAULT_FRC).getWidth();
+                    TextLayout layout = createTextLayout(c, text, g2d.getFont(),
+                                                       g2d.getFontRenderContext());
 
-                layout = layout.getJustifiedLayout(screenWidth);
-                /* Use alternate print color if specified */
-                Color col = g2d.getColor();
-                if (col instanceof PrintColorUIResource) {
-                    g2d.setColor(((PrintColorUIResource)col).getPrintColor());
+                    layout = layout.getJustifiedLayout(screenWidth);
+                    /* Use alternate print color if specified */
+                    Color col = g2d.getColor();
+                    if (col instanceof PrintColorUIResource) {
+                        g2d.setColor(((PrintColorUIResource)col).getPrintColor());
+                    }
+
+                    layout.draw(g2d, x, y);
+
+                    g2d.setColor(col);
                 }
-
-                layout.draw(g2d, x, y);
-
-                g2d.setColor(col);
 
                 return;
             }
         }
 
         // If we get here we're not printing
-        AATextInfo info = drawTextAntialiased(c);
-        if (info != null && (g instanceof Graphics2D)) {
+        if (g instanceof Graphics2D) {
+            AATextInfo info = drawTextAntialiased(c);
             Graphics2D g2 = (Graphics2D)g;
-
-            Object oldContrast = null;
-            Object oldAAValue = g2.getRenderingHint(KEY_TEXT_ANTIALIASING);
-            if (info.aaHint != oldAAValue) {
-                g2.setRenderingHint(KEY_TEXT_ANTIALIASING, info.aaHint);
-            } else {
-                oldAAValue = null;
-            }
-            if (info.lcdContrastHint != null) {
-                oldContrast = g2.getRenderingHint(KEY_TEXT_LCD_CONTRAST);
-                if (info.lcdContrastHint.equals(oldContrast)) {
-                    oldContrast = null;
-                } else {
-                    g2.setRenderingHint(KEY_TEXT_LCD_CONTRAST,
-                                        info.lcdContrastHint);
-                }
-            }
 
             boolean needsTextLayout = ((c != null) &&
                 (c.getClientProperty(TextAttribute.NUMERIC_SHAPING) != null));
+
             if (needsTextLayout) {
                 synchronized(charsBufferLock) {
                     int length = syncCharsBuffer(text);
                     needsTextLayout = isComplexLayout(charsBuffer, 0, length);
                 }
             }
-            if (needsTextLayout) {
+
+            if (info != null) {
+                Object oldContrast = null;
+                Object oldAAValue = g2.getRenderingHint(KEY_TEXT_ANTIALIASING);
+                if (info.aaHint != oldAAValue) {
+                    g2.setRenderingHint(KEY_TEXT_ANTIALIASING, info.aaHint);
+                } else {
+                    oldAAValue = null;
+                }
+                if (info.lcdContrastHint != null) {
+                    oldContrast = g2.getRenderingHint(KEY_TEXT_LCD_CONTRAST);
+                    if (info.lcdContrastHint.equals(oldContrast)) {
+                        oldContrast = null;
+                    } else {
+                        g2.setRenderingHint(KEY_TEXT_LCD_CONTRAST,
+                                            info.lcdContrastHint);
+                    }
+                }
+
+                if (needsTextLayout) {
+                    TextLayout layout = createTextLayout(c, text, g2.getFont(),
+                                                    g2.getFontRenderContext());
+                    layout.draw(g2, x, y);
+                } else {
+                    g.drawString(text, x, y);
+                }
+
+                if (oldAAValue != null) {
+                    g2.setRenderingHint(KEY_TEXT_ANTIALIASING, oldAAValue);
+                }
+                if (oldContrast != null) {
+                    g2.setRenderingHint(KEY_TEXT_LCD_CONTRAST, oldContrast);
+                }
+
+                return;
+            }
+
+            if (needsTextLayout){
                 TextLayout layout = createTextLayout(c, text, g2.getFont(),
                                                     g2.getFontRenderContext());
                 layout.draw(g2, x, y);
-            } else {
-                g.drawString(text, x, y);
+                return;
             }
+        }
 
-            if (oldAAValue != null) {
-                g2.setRenderingHint(KEY_TEXT_ANTIALIASING, oldAAValue);
-            }
-            if (oldContrast != null) {
-                g2.setRenderingHint(KEY_TEXT_LCD_CONTRAST, oldContrast);
-            }
-        }
-        else {
-            g.drawString(text, x, y);
-        }
+        g.drawString(text, x, y);
     }
-
 
     /**
      * Draws the string at the specified location underlining the specified
@@ -777,24 +793,26 @@ public class SwingUtilities2 {
                 if (frc != null &&
                     !isFontRenderContextPrintCompatible
                     (deviceFontRenderContext, frc)) {
-                    TextLayout layout =
-                        createTextLayout(c, new String(data, offset, length),
-                                       g2d.getFont(),
-                                       deviceFontRenderContext);
-                    float screenWidth = (float)g2d.getFont().
-                        getStringBounds(data, offset, offset + length, frc).
-                        getWidth();
-                    layout = layout.getJustifiedLayout(screenWidth);
 
-                    /* Use alternate print color if specified */
-                    Color col = g2d.getColor();
-                    if (col instanceof PrintColorUIResource) {
-                        g2d.setColor(((PrintColorUIResource)col).getPrintColor());
+                    String text = new String(data, offset, length);
+                    TextLayout layout = new TextLayout(text, g2d.getFont(),
+                                    deviceFontRenderContext);
+                    String trimmedText = trimTrailingSpaces(text);
+                    if (!trimmedText.isEmpty()) {
+                        float screenWidth = (float)g2d.getFont().
+                            getStringBounds(trimmedText, frc).getWidth();
+                        layout = layout.getJustifiedLayout(screenWidth);
+
+                        /* Use alternate print color if specified */
+                        Color col = g2d.getColor();
+                        if (col instanceof PrintColorUIResource) {
+                            g2d.setColor(((PrintColorUIResource)col).getPrintColor());
+                        }
+
+                        layout.draw(g2d,x,y);
+
+                        g2d.setColor(col);
                     }
-
-                    layout.draw(g2d,x,y);
-
-                    g2d.setColor(col);
 
                     return nextX;
                 }
@@ -876,14 +894,23 @@ public class SwingUtilities2 {
             } else {
                 frc = g2d.getFontRenderContext();
             }
-            TextLayout layout = new TextLayout(iterator, frc);
+            TextLayout layout;
             if (isPrinting) {
                 FontRenderContext deviceFRC = g2d.getFontRenderContext();
                 if (!isFontRenderContextPrintCompatible(frc, deviceFRC)) {
-                    float screenWidth = layout.getAdvance();
                     layout = new TextLayout(iterator, deviceFRC);
-                    layout = layout.getJustifiedLayout(screenWidth);
+                    AttributedCharacterIterator trimmedIt =
+                            getTrimmedTrailingSpacesIterator(iterator);
+                    if (trimmedIt != null) {
+                        float screenWidth = new TextLayout(trimmedIt, frc).
+                                getAdvance();
+                        layout = layout.getJustifiedLayout(screenWidth);
+                    }
+                } else {
+                    layout = new TextLayout(iterator, frc);
                 }
+            } else {
+                layout = new TextLayout(iterator, frc);
             }
             layout.draw(g2d, x, y);
             retVal = layout.getAdvance();
@@ -1035,6 +1062,39 @@ public class SwingUtilities2 {
         return (g instanceof PrinterGraphics || g instanceof PrintGraphics);
     }
 
+    private static String trimTrailingSpaces(String s) {
+        int i = s.length() - 1;
+        while(i >= 0 && Character.isWhitespace(s.charAt(i))) {
+            i--;
+        }
+        return s.substring(0, i + 1);
+    }
+
+    private static AttributedCharacterIterator getTrimmedTrailingSpacesIterator
+            (AttributedCharacterIterator iterator) {
+        int curIdx = iterator.getIndex();
+
+        char c = iterator.last();
+        while(c != CharacterIterator.DONE && Character.isWhitespace(c)) {
+            c = iterator.previous();
+        }
+
+        if (c != CharacterIterator.DONE) {
+            int endIdx = iterator.getIndex();
+
+            if (endIdx == iterator.getEndIndex() - 1) {
+                iterator.setIndex(curIdx);
+                return iterator;
+            } else {
+                AttributedString trimmedText = new AttributedString(iterator,
+                        iterator.getBeginIndex(), endIdx + 1);
+                return trimmedText.getIterator();
+            }
+        } else {
+            return null;
+        }
+    }
+
     /**
      * Determines whether the SelectedTextColor should be used for painting text
      * foreground for the specified highlight.
@@ -1172,7 +1232,7 @@ public class SwingUtilities2 {
                canAccess = true;
            } else {
                try {
-                   sm.checkSystemClipboardAccess();
+                   sm.checkPermission(SecurityConstants.AWT.ACCESS_CLIPBOARD_PERMISSION);
                    canAccess = true;
                } catch (SecurityException e) {
                }
@@ -1297,6 +1357,19 @@ public class SwingUtilities2 {
             }
         } else {
             return true;
+        }
+    }
+
+    /**
+     * Utility method that throws SecurityException if SecurityManager is set
+     * and modifiers are not public
+     *
+     * @param modifiers a set of modifiers
+     */
+    public static void checkAccess(int modifiers) {
+        if (System.getSecurityManager() != null
+                && !Modifier.isPublic(modifiers)) {
+            throw new SecurityException("Resource is not accessible");
         }
     }
 
@@ -1867,5 +1940,31 @@ public class SwingUtilities2 {
             }
         }
         return -1;
+    }
+
+    public static int getSystemMnemonicKeyMask() {
+        Toolkit toolkit = Toolkit.getDefaultToolkit();
+        if (toolkit instanceof SunToolkit) {
+            return ((SunToolkit) toolkit).getFocusAcceleratorKeyMask();
+        }
+        return InputEvent.ALT_MASK;
+    }
+
+    /**
+     * Returns the {@link TreePath} that identifies the changed nodes.
+     *
+     * @param event  changes in a tree model
+     * @param model  corresponing tree model
+     * @return  the path to the changed nodes
+     */
+    public static TreePath getTreePath(TreeModelEvent event, TreeModel model) {
+        TreePath path = event.getTreePath();
+        if ((path == null) && (model != null)) {
+            Object root = model.getRoot();
+            if (root != null) {
+                path = new TreePath(root);
+            }
+        }
+        return path;
     }
 }

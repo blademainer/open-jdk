@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.BufferedOutputStream;
 import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.security.PrivilegedExceptionAction;
 import sun.net.SocksProxy;
 import sun.net.www.ParseUtil;
@@ -314,7 +315,7 @@ class SocksSocketImpl extends PlainSocketImpl implements SocksConsts {
      * grants the connections, then the connect is successful and all
      * further traffic will go to the "real" endpoint.
      *
-     * @param   endpoint        the <code>SocketAddress</code> to connect to.
+     * @param   endpoint        the {@code SocketAddress} to connect to.
      * @param   timeout         the timeout value in milliseconds
      * @throws  IOException     if the connection can't be established.
      * @throws  SecurityException if there is a security manager and it
@@ -436,7 +437,7 @@ class SocksSocketImpl extends PlainSocketImpl implements SocksConsts {
             }
         }
 
-        // cmdIn & cmdOut were intialized during the privilegedConnect() call
+        // cmdIn & cmdOut were initialized during the privilegedConnect() call
         BufferedOutputStream out = new BufferedOutputStream(cmdOut, 512);
         InputStream in = cmdIn;
 
@@ -590,7 +591,13 @@ class SocksSocketImpl extends PlainSocketImpl implements SocksConsts {
         /* Test for AnyLocal */
         InetAddress naddr = baddr;
         if (naddr.isAnyLocalAddress()) {
-            naddr = cmdsock.getLocalAddress();
+            naddr = AccessController.doPrivileged(
+                        new PrivilegedAction<InetAddress>() {
+                            public InetAddress run() {
+                                return cmdsock.getLocalAddress();
+
+                            }
+                        });
             addr1 = naddr.getAddress();
         }
         out.write(PROTO_VERS4);
@@ -644,7 +651,7 @@ class SocksSocketImpl extends PlainSocketImpl implements SocksConsts {
      * means "accept incoming connection from", so the SocketAddress is the
      * the one of the host we do accept connection from.
      *
-     * @param      addr   the Socket address of the remote host.
+     * @param      saddr   the Socket address of the remote host.
      * @exception  IOException  if an I/O error occurs when binding this socket.
      */
     protected synchronized void socksBind(InetSocketAddress saddr) throws IOException {
@@ -1025,9 +1032,9 @@ class SocksSocketImpl extends PlainSocketImpl implements SocksConsts {
 
 
     /**
-     * Returns the value of this socket's <code>address</code> field.
+     * Returns the value of this socket's {@code address} field.
      *
-     * @return  the value of this socket's <code>address</code> field.
+     * @return  the value of this socket's {@code address} field.
      * @see     java.net.SocketImpl#address
      */
     @Override
@@ -1039,9 +1046,9 @@ class SocksSocketImpl extends PlainSocketImpl implements SocksConsts {
     }
 
     /**
-     * Returns the value of this socket's <code>port</code> field.
+     * Returns the value of this socket's {@code port} field.
      *
-     * @return  the value of this socket's <code>port</code> field.
+     * @return  the value of this socket's {@code port} field.
      * @see     java.net.SocketImpl#port
      */
     @Override

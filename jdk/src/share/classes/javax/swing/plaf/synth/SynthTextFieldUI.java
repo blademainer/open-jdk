@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,14 +36,14 @@ import java.beans.PropertyChangeEvent;
 
 
 /**
- * Provides the Synth L&F UI delegate for {@link javax.swing.JTextField}.
+ * Provides the Synth L&amp;F UI delegate for {@link javax.swing.JTextField}.
  * <p>
  * <strong>Warning:</strong>
  * Serialized objects of this class will not be compatible with
  * future Swing releases. The current serialization support is
  * appropriate for short term storage or RMI between applications running
  * the same version of Swing.  As of 1.4, support for long term storage
- * of all JavaBeans<sup><font size="-2">TM</font></sup>
+ * of all JavaBeans&trade;
  * has been added to the <code>java.beans</code> package.
  * Please see {@link java.beans.XMLEncoder}.
  *
@@ -148,7 +148,7 @@ public class SynthTextFieldUI extends BasicTextFieldUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public SynthContext getContext(JComponent c) {
@@ -204,7 +204,7 @@ public class SynthTextFieldUI extends BasicTextFieldUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public void paintBorder(SynthContext context, Graphics g, int x,
@@ -213,7 +213,7 @@ public class SynthTextFieldUI extends BasicTextFieldUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      * Overridden to do nothing.
      */
     @Override
@@ -241,7 +241,7 @@ public class SynthTextFieldUI extends BasicTextFieldUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void installDefaults() {
@@ -252,7 +252,7 @@ public class SynthTextFieldUI extends BasicTextFieldUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void uninstallDefaults() {

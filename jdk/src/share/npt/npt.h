@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -94,13 +94,13 @@ typedef struct {
 
 JNIEXPORT void JNICALL nptInitialize
                        (NptEnv **pnpt, char *nptVersion, char *options);
-typedef JNIEXPORT void (JNICALL *NptInitialize)
-                       (NptEnv **pnpt, char *nptVersion, char *options);
+typedef void (JNICALL *NptInitialize)
+             (NptEnv **pnpt, char *nptVersion, char *options);
 
 JNIEXPORT void JNICALL nptTerminate
                        (NptEnv* npt, char *options);
-typedef JNIEXPORT void (JNICALL *NptTerminate)
-                       (NptEnv* npt, char *options);
+typedef void (JNICALL *NptTerminate)
+             (NptEnv* npt, char *options);
 
 #ifdef __cplusplus
 } /* extern "C" */

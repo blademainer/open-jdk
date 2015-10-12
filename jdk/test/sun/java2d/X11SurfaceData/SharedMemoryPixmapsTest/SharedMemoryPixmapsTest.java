@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,8 +54,12 @@ public class SharedMemoryPixmapsTest {
     public SharedMemoryPixmapsTest() {
         testFrame = new Frame("SharedMemoryPixmapsTest");
         testFrame.add(new TestComponent());
+        testFrame.setUndecorated(true);
+        testFrame.setResizable(false);
         testFrame.pack();
+        testFrame.setLocationRelativeTo(null);
         testFrame.setVisible(true);
+        testFrame.toFront();
     }
 
     public static void main(String[] args) {

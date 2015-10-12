@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -142,7 +142,7 @@ abstract class AbstractLauncher extends ConnectorImpl implements LaunchingConnec
      * This class simply provides a context for a single launch and
      * accept. It provides instance fields that can be used by
      * all threads involved. This stuff can't be in the Connector proper
-     * because the connector is is a singleton and not specific to any
+     * because the connector is a singleton and is not specific to any
      * one launch.
      */
     private class Helper {

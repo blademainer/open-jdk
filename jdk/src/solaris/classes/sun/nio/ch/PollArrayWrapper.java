@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,9 +41,9 @@ import sun.misc.*;
  * @since 1.4
  */
 
-class PollArrayWrapper extends AbstractPollArrayWrapper {
+public class PollArrayWrapper extends AbstractPollArrayWrapper {
 
-    static final short POLLCONN = POLLOUT;
+    public static final short POLLCONN = POLLOUT;
 
     // File descriptor to write for interrupt
     int interruptFD;
@@ -126,4 +126,7 @@ class PollArrayWrapper extends AbstractPollArrayWrapper {
 
     private static native void interrupt(int fd);
 
+    static {
+        IOUtil.load();
+    }
 }

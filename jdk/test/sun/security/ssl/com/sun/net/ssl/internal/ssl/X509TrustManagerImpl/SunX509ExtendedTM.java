@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,8 +24,11 @@
 /*
  * @test
  * @bug 6916074
- * @run main/othervm -Djavax.net.debug=all SunX509ExtendedTM
  * @summary Add support for TLS 1.2
+ * @run main/othervm SunX509ExtendedTM
+ *
+ *     SunJSSE does not support dynamic system properties, no way to re-use
+ *     system properties in samevm/agentvm mode.
  */
 
 import java.net.*;

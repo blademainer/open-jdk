@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@ package com.sun.rowset.internal;
 
 import java.sql.*;
 import java.io.*;
+import java.util.Arrays;
 
 /**
  * The abstract base class from which the classes <code>Row</code>
@@ -51,6 +52,11 @@ import java.io.*;
 public abstract class BaseRow implements Serializable, Cloneable {
 
 /**
+ * Specify the serialVersionUID
+ */
+private static final long serialVersionUID = 4152013523511412238L;
+
+/**
  * The array containing the original values for this <code>BaseRow</code>
  * object.
  * @serial
@@ -65,7 +71,8 @@ public abstract class BaseRow implements Serializable, Cloneable {
  * original values
  */
     public Object[] getOrigRow() {
-        return origVals;
+        Object[] origRow = this.origVals;
+        return (origRow == null) ? null: Arrays.copyOf(origRow, origRow.length);
     }
 
 /**
@@ -75,7 +82,7 @@ public abstract class BaseRow implements Serializable, Cloneable {
  * @param idx the index of the element to return
  * @return the <code>Object</code> value at the given index into this
  *         row's array of original values
- * @throws <code>SQLException</code> if there is an error
+ * @throws SQLException if there is an error
  */
     public abstract Object getColumnObject(int idx) throws SQLException;
 
@@ -88,7 +95,7 @@ public abstract class BaseRow implements Serializable, Cloneable {
  * @param idx the index of the element to be set
  * @param obj the <code>Object</code> to which the element at index
  *              <code>idx</code> to be set
- * @throws <code>SQLException</code> if there is an error
+ * @throws SQLException if there is an error
  */
     public abstract void setColumnObject(int idx, Object obj) throws SQLException;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,6 +44,7 @@ import javax.print.event.PrintServiceAttributeListener;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.net.URLConnection;
 import java.net.HttpURLConnection;
 import java.io.File;
 import java.io.InputStream;
@@ -366,6 +367,7 @@ public class IPPPrintService implements PrintService, SunPrinterJobService {
                                           " IPPPrintService, myURL="+
                                           myURL+" Exception= "+
                                           e);
+            throw new IllegalArgumentException("invalid url");
         }
 
         isCupsPrinter = isCups;
@@ -1023,6 +1025,22 @@ public class IPPPrintService implements PrintService, SunPrinterJobService {
 
             // this is already supported in UnixPrintJob
             catList.add(Destination.class);
+
+            // It is unfortunate that CUPS doesn't provide a way to query
+            // if printer supports collation but since most printers
+            // now supports collation and that most OS has a way
+            // of setting it, it is a safe assumption to just always
+            // include SheetCollate as supported attribute.
+
+            /*
+               In Linux, we use Postscript for rendering but Linux still
+               has issues in propagating Postscript-embedded setpagedevice
+               setting like collation.  Therefore, we temporarily exclude
+               Linux.
+            */
+            if (!UnixPrintServiceLookup.isLinux()) {
+                catList.add(SheetCollate.class);
+            }
         }
 
         // With the assumption that  Chromaticity is equivalent to
@@ -1083,6 +1101,15 @@ public class IPPPrintService implements PrintService, SunPrinterJobService {
 
         if (category == PrinterName.class) {
             return (T)(new PrinterName(printer, null));
+        } else if (category == PrinterInfo.class) {
+            PrinterInfo pInfo = new PrinterInfo(printer, null);
+            AttributeClass ac = (getAttMap != null) ?
+                (AttributeClass)getAttMap.get(pInfo.getName())
+                : null;
+            if (ac != null) {
+                return (T)(new PrinterInfo(ac.getStringValue(), null));
+            }
+            return (T)pInfo;
         } else if (category == QueuedJobCount.class) {
             QueuedJobCount qjc = new QueuedJobCount(0);
             AttributeClass ac = (getAttMap != null) ?
@@ -1120,6 +1147,8 @@ public class IPPPrintService implements PrintService, SunPrinterJobService {
                 // REMIND: check attribute values
                 return (T)PDLOverrideSupported.NOT_ATTEMPTED;
             }
+        } else if (category == PrinterURI.class) {
+            return (T)(new PrinterURI(myURI));
         } else {
             return null;
         }
@@ -1550,7 +1579,24 @@ public class IPPPrintService implements PrintService, SunPrinterJobService {
         }
     }
 
+    String getDest() {
+        return printer;
+    }
+
     public String getName() {
+        /*
+         * Mac is using printer-info IPP attribute for its human-readable printer
+         * name and is also the identifier used in NSPrintInfo:setPrinter.
+         */
+        if (UnixPrintServiceLookup.isMac()) {
+            PrintServiceAttributeSet psaSet = this.getAttributes();
+            if (psaSet != null) {
+                PrinterInfo pName = (PrinterInfo)psaSet.get(PrinterInfo.class);
+                if (pName != null) {
+                    return pName.toString();
+                }
+            }
+        }
         return printer;
     }
 
@@ -1562,14 +1608,16 @@ public class IPPPrintService implements PrintService, SunPrinterJobService {
 
     public static HttpURLConnection getIPPConnection(URL url) {
         HttpURLConnection connection;
+        URLConnection urlc;
         try {
-            connection = (HttpURLConnection)url.openConnection();
+            urlc = url.openConnection();
         } catch (java.io.IOException ioe) {
             return null;
         }
-        if (!(connection instanceof HttpURLConnection)) {
+        if (!(urlc instanceof HttpURLConnection)) {
             return null;
         }
+        connection = (HttpURLConnection)urlc;
         connection.setUseCaches(false);
         connection.setDefaultUseCaches(false);
         connection.setDoInput(true);

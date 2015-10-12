@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -74,9 +74,9 @@ class InitSecContextToken extends InitialToken {
 
         EncryptionKey subKey = apReq.getSubKey();
         if (subKey != null)
-            context.setKey(subKey);
+            context.setKey(Krb5Context.INITIATOR_SUBKEY, subKey);
         else
-            context.setKey(serviceTicket.getSessionKey());
+            context.setKey(Krb5Context.SESSION_KEY, serviceTicket.getSessionKey());
 
         if (!mutualRequired)
             context.resetPeerSequenceNumber(0);
@@ -86,7 +86,7 @@ class InitSecContextToken extends InitialToken {
      * For the context acceptor to call. It reads the bytes out of an
      * InputStream and constructs an InitSecContextToken with them.
      */
-    InitSecContextToken(Krb5Context context, EncryptionKey[] keys,
+    InitSecContextToken(Krb5Context context, Krb5AcceptCredential cred,
                                InputStream is)
         throws IOException, GSSException, KrbException  {
 
@@ -105,7 +105,7 @@ class InitSecContextToken extends InitialToken {
         if (context.getChannelBinding() != null) {
             addr = context.getChannelBinding().getInitiatorAddress();
         }
-        apReq = new KrbApReq(apReqBytes, keys, addr);
+        apReq = new KrbApReq(apReqBytes, cred, addr);
         //debug("\nReceived AP-REQ and authenticated it.\n");
 
         EncryptionKey sessionKey = apReq.getCreds().getSessionKey();
@@ -117,13 +117,13 @@ class InitSecContextToken extends InitialToken {
 
         EncryptionKey subKey = apReq.getSubKey();
         if (subKey != null) {
-            context.setKey(subKey);
+            context.setKey(Krb5Context.INITIATOR_SUBKEY, subKey);
             /*
               System.out.println("Sub-Session key from authenticator is: " +
               getHexBytes(subKey.getBytes()) + "\n");
             */
         } else {
-            context.setKey(sessionKey);
+            context.setKey(Krb5Context.SESSION_KEY, sessionKey);
             //System.out.println("Sub-Session Key Missing in Authenticator.\n");
         }
 

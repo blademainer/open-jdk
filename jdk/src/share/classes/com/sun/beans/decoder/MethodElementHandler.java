@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,8 @@ import com.sun.beans.finder.MethodFinder;
 
 import java.lang.reflect.Method;
 
+import sun.reflect.misc.MethodUtil;
+
 /**
  * This class is intended to handle &lt;method&gt; element.
  * It describes invocation of the method.
@@ -41,7 +43,7 @@ import java.lang.reflect.Method;
  *     &lt;string&gt;10&lt;/string&gt;
  * &lt;/method&gt;</pre>
  * is equivalent to {@code Long.valueOf("10")} in Java code.
- * <p>The following atributes are supported:
+ * <p>The following attributes are supported:
  * <dl>
  * <dt>name
  * <dd>the method name
@@ -60,7 +62,7 @@ final class MethodElementHandler extends NewElementHandler {
 
     /**
      * Parses attributes of the element.
-     * The following atributes are supported:
+     * The following attributes are supported:
      * <dl>
      * <dt>name
      * <dd>the method name
@@ -101,7 +103,7 @@ final class MethodElementHandler extends NewElementHandler {
         if (method.isVarArgs()) {
             args = getArguments(args, method.getParameterTypes());
         }
-        Object value = method.invoke(bean, args);
+        Object value = MethodUtil.invoke(method, bean, args);
         return method.getReturnType().equals(void.class)
                 ? ValueObjectImpl.VOID
                 : ValueObjectImpl.create(value);

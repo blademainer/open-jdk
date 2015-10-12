@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -78,11 +78,6 @@ private:
 
   // Distinguished instances of certain ciObjects..
   static ciObject*              _null_object_instance;
-  static ciMethodKlass*         _method_klass_instance;
-  static ciKlassKlass*          _klass_klass_instance;
-  static ciInstanceKlassKlass*  _instance_klass_klass_instance;
-  static ciTypeArrayKlassKlass* _type_array_klass_klass_instance;
-  static ciObjArrayKlassKlass*  _obj_array_klass_klass_instance;
 
 #define WK_KLASS_DECL(name, ignore_s, ignore_o) static ciInstanceKlass* _##name;
   WK_KLASSES_DO(WK_KLASS_DECL)
@@ -152,14 +147,12 @@ private:
   ciMethod*  get_method_by_index_impl(constantPoolHandle cpool,
                                       int method_index, Bytecodes::Code bc,
                                       ciInstanceKlass* loading_klass);
-  ciMethod*  get_fake_invokedynamic_method_impl(constantPoolHandle cpool,
-                                                int index, Bytecodes::Code bc);
 
   // Helper methods
   bool       check_klass_accessibility(ciKlass* accessing_klass,
-                                      klassOop resolved_klassOop);
-  methodOop  lookup_method(instanceKlass*  accessor,
-                           instanceKlass*  holder,
+                                      Klass* resolved_klass);
+  Method*    lookup_method(InstanceKlass*  accessor,
+                           InstanceKlass*  holder,
                            Symbol*         name,
                            Symbol*         sig,
                            Bytecodes::Code bc);
@@ -183,7 +176,44 @@ private:
     }
   }
 
-  ciMethod* get_method_from_handle(jobject method);
+  ciMetadata* get_metadata(Metadata* o) {
+    if (o == NULL) {
+      return NULL;
+    } else {
+      return _factory->get_metadata(o);
+    }
+  }
+
+  ciInstance* get_instance(oop o) {
+    if (o == NULL) return NULL;
+    return get_object(o)->as_instance();
+  }
+  ciObjArrayKlass* get_obj_array_klass(Klass* o) {
+    if (o == NULL) return NULL;
+    return get_metadata(o)->as_obj_array_klass();
+  }
+  ciTypeArrayKlass* get_type_array_klass(Klass* o) {
+    if (o == NULL) return NULL;
+    return get_metadata(o)->as_type_array_klass();
+  }
+  ciKlass* get_klass(Klass* o) {
+    if (o == NULL) return NULL;
+    return get_metadata(o)->as_klass();
+  }
+  ciInstanceKlass* get_instance_klass(Klass* o) {
+    if (o == NULL) return NULL;
+    return get_metadata(o)->as_instance_klass();
+  }
+  ciMethod* get_method(Method* o) {
+    if (o == NULL) return NULL;
+    return get_metadata(o)->as_method();
+  }
+  ciMethodData* get_method_data(MethodData* o) {
+    if (o == NULL) return NULL;
+    return get_metadata(o)->as_method_data();
+  }
+
+  ciMethod* get_method_from_handle(Method* method);
 
   ciInstance* get_or_create_exception(jobject& handle, Symbol* name);
 
@@ -192,13 +222,14 @@ private:
   // the result.
   ciMethod* get_unloaded_method(ciInstanceKlass* holder,
                                 ciSymbol*        name,
-                                ciSymbol*        signature) {
-    return _factory->get_unloaded_method(holder, name, signature);
+                                ciSymbol*        signature,
+                                ciInstanceKlass* accessor) {
+    return _factory->get_unloaded_method(holder, name, signature, accessor);
   }
 
   // Get a ciKlass representing an unloaded klass.
   // Ensures uniqueness of the result.
-  ciKlass* get_unloaded_klass(ciKlass* accessing_klass,
+  ciKlass* get_unloaded_klass(ciKlass*  accessing_klass,
                               ciSymbol* name) {
     return _factory->get_unloaded_klass(accessing_klass, name, true);
   }
@@ -224,7 +255,7 @@ private:
 
   // See if we already have an unloaded klass for the given name
   // or return NULL if not.
-  ciKlass *check_get_unloaded_klass(ciKlass* accessing_klass, ciSymbol* name) {
+  ciKlass *check_get_unloaded_klass(ciKlass*  accessing_klass, ciSymbol* name) {
     return _factory->get_unloaded_klass(accessing_klass, name, false);
   }
 
@@ -247,9 +278,9 @@ private:
   // Is this thread currently in the VM state?
   static bool is_in_vm();
 
-  // Helper routine for determining the validity of a compilation
-  // with respect to concurrent class loading.
-  void check_for_system_dictionary_modification(ciMethod* target);
+  // Helper routine for determining the validity of a compilation with
+  // respect to method dependencies (e.g. concurrent class loading).
+  void validate_compile_task_dependencies(ciMethod* target);
 
 public:
   enum {
@@ -281,6 +312,20 @@ public:
 
   // Return state of appropriate compilability
   int compilable() { return _compilable; }
+
+  const char* retry_message() const {
+    switch (_compilable) {
+      case ciEnv::MethodCompilable_not_at_tier:
+        return "retry at different tier";
+      case ciEnv::MethodCompilable_never:
+        return "not retryable";
+      case ciEnv::MethodCompilable:
+        return NULL;
+      default:
+        ShouldNotReachHere();
+        return NULL;
+    }
+  }
 
   bool break_at_compile() { return _break_at_compile; }
   void set_break_at_compile(bool z) { _break_at_compile = z; }
@@ -317,8 +362,8 @@ public:
                        ImplicitExceptionTable*   inc_table,
                        AbstractCompiler*         compiler,
                        int                       comp_level,
-                       bool                      has_debug_info = true,
-                       bool                      has_unsafe_access = false);
+                       bool                      has_unsafe_access,
+                       bool                      has_wide_vectors);
 
 
   // Access to certain well known ciObjects.
@@ -355,14 +400,11 @@ public:
   static ciInstanceKlass* unloaded_ciinstance_klass() {
     return _unloaded_ciinstance_klass;
   }
+  ciInstance* unloaded_ciinstance();
 
   ciKlass*  find_system_klass(ciSymbol* klass_name);
   // Note:  To find a class from its name string, use ciSymbol::make,
   // but consider adding to vmSymbols.hpp instead.
-
-  // Use this to make a holder for non-perm compile time constants.
-  // The resulting array is guaranteed to satisfy "can_be_constant".
-  ciArray*  make_system_array(GrowableArray<ciObject*>* objects);
 
   // converts the ciKlass* representing the holder of a method into a
   // ciInstanceKlass*.  This is needed since the holder of a method in
@@ -404,6 +446,13 @@ public:
   void record_failure(const char* reason);
   void record_method_not_compilable(const char* reason, bool all_tiers = true);
   void record_out_of_memory_failure();
+
+  // RedefineClasses support
+  void metadata_do(void f(Metadata*)) { _factory->metadata_do(f); }
+
+  // Dump the compilation replay data for the ciEnv to the stream.
+  void dump_replay_data(outputStream* out);
+  void dump_replay_data_unsafe(outputStream* out);
 };
 
 #endif // SHARE_VM_CI_CIENV_HPP

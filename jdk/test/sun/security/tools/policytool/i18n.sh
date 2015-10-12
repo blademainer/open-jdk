@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2000, 2002, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -23,10 +23,13 @@
 
 # @test
 # @bug 4348370
+# @bug 8015274
+# @bug 8015276
+# @bug 8016158
 # @summary policytool not i18n compliant
 #
 # @run applet/manual=done i18n.html
-# @run shell i18n.sh
+# @run shell/timeout=1200 i18n.sh
 # @run applet/manual=yesno i18n.html
 
 # set a few environment variables so that the shell-script can run stand-alone
@@ -46,17 +49,20 @@ fi
 # set platform-dependent variables
 OS=`uname -s`
 case "$OS" in
-  SunOS | Linux )
+  SunOS | Linux | Darwin )
     NULL=/dev/null
     PS=":"
     FS="/"
-    TMP=/tmp
+    ;;
+  CYGWIN* )
+    NULL=/dev/null
+    PS=";"
+    FS="/"
     ;;
   Windows* )
     NULL=NUL
     PS=";"
     FS="\\"
-    TMP="c:/temp"
     ;;
   * )
     echo "Unrecognized system!"
@@ -68,6 +74,19 @@ esac
 
 echo "HELLO!"
 
+echo "Checking for $HOME/.java.policy"
+
+# 8015274
+if [ -e $HOME/.java.policy ]; then
+    echo "You have a .java.policy file in your HOME directory"
+    echo "The file must be removed before running this test"
+    exit 1
+fi
+
+${TESTJAVA}${FS}bin${FS}keytool -genkeypair -alias hello -dname CN=Hello \
+        -storepass changeit -keypass changeit -keystore ks
+echo changeit > good
+echo badpass > bad
 ${TESTJAVA}${FS}bin${FS}policytool
 
 exit $?

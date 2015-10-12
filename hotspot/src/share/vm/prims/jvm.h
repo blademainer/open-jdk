@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,6 @@
 #define SHARE_VM_PRIMS_JVM_H
 
 #include "prims/jni.h"
-#include "runtime/reflectionCompat.hpp"
 #ifdef TARGET_OS_FAMILY_linux
 # include "jvm_linux.h"
 #endif
@@ -36,6 +35,9 @@
 #ifdef TARGET_OS_FAMILY_windows
 # include "jvm_windows.h"
 #endif
+#ifdef TARGET_OS_FAMILY_bsd
+# include "jvm_bsd.h"
+#endif
 
 #ifndef _JAVASOFT_JVM_H_
 #define _JAVASOFT_JVM_H_
@@ -43,8 +45,7 @@
 // HotSpot integration note:
 //
 // This file and jvm.h used with the JDK are identical,
-// except for the three includes removed below and the
-// SUPPORT_OLD_REFLECTION sections cut out of the JDK's jvm.h.
+// except for the three includes removed below
 
 // #include <sys/stat.h>
 // #include "jni.h"
@@ -85,6 +86,8 @@ extern "C" {
 
 #define JVM_INTERFACE_VERSION 4
 
+JNIEXPORT jobjectArray JNICALL
+JVM_GetMethodParameters(JNIEnv *env, jobject method);
 
 JNIEXPORT jint JNICALL
 JVM_GetInterfaceVersion(void);
@@ -209,9 +212,6 @@ JVM_IsNaN(jdouble d);
 JNIEXPORT void JNICALL
 JVM_FillInStackTrace(JNIEnv *env, jobject throwable);
 
-JNIEXPORT void JNICALL
-JVM_PrintStackTrace(JNIEnv *env, jobject throwable, jobject printable);
-
 JNIEXPORT jint JNICALL
 JVM_GetStackTraceDepth(JNIEnv *env, jobject throwable);
 
@@ -289,6 +289,9 @@ JVM_DumpAllStacks(JNIEnv *env, jclass unused);
 
 JNIEXPORT jobjectArray JNICALL
 JVM_GetAllThreads(JNIEnv *env, jclass dummy);
+
+JNIEXPORT void JNICALL
+JVM_SetNativeThreadName(JNIEnv *env, jobject jthread, jstring name);
 
 /* getStackTrace() and getAllStackTraces() method */
 JNIEXPORT jobjectArray JNICALL
@@ -371,6 +374,9 @@ JVM_NewMultiArray(JNIEnv *env, jclass eltClass, jintArray dim);
 /*
  * java.lang.Class and java.lang.ClassLoader
  */
+
+#define JVM_CALLER_DEPTH -1
+
 /*
  * Returns the class in which the code invoking the native method
  * belongs.
@@ -443,14 +449,6 @@ JVM_DefineClassWithSourceCond(JNIEnv *env, const char *name,
                               jsize len, jobject pd, const char *source,
                               jboolean verify);
 
-/* Define a class with a source (MLVM) */
-JNIEXPORT jclass JNICALL
-JVM_DefineClassWithCP(JNIEnv *env, const char *name, jobject loader,
-                      const jbyte *buf, jsize len, jobject pd,
-                      const char *source,
-                      // same args as JVM_DefineClassWithSource to this point
-                      jobjectArray constants);
-
 /*
  * Reflection support functions
  */
@@ -475,9 +473,6 @@ JVM_SetClassSigners(JNIEnv *env, jclass cls, jobjectArray signers);
 
 JNIEXPORT jobject JNICALL
 JVM_GetProtectionDomain(JNIEnv *env, jclass cls);
-
-JNIEXPORT void JNICALL
-JVM_SetProtectionDomain(JNIEnv *env, jclass cls, jobject protection_domain);
 
 JNIEXPORT jboolean JNICALL
 JVM_IsArrayClass(JNIEnv *env, jclass cls);
@@ -523,6 +518,18 @@ JVM_GetMethodDefaultAnnotationValue(JNIEnv *env, jobject method);
 JNIEXPORT jbyteArray JNICALL
 JVM_GetMethodParameterAnnotations(JNIEnv *env, jobject method);
 
+/* Type use annotations support (JDK 1.8) */
+
+JNIEXPORT jbyteArray JNICALL
+JVM_GetClassTypeAnnotations(JNIEnv *env, jclass cls);
+
+// field is a handle to a java.lang.reflect.Field object
+JNIEXPORT jbyteArray JNICALL
+JVM_GetFieldTypeAnnotations(JNIEnv *env, jobject field);
+
+// method is a handle to a java.lang.reflect.Method object
+JNIEXPORT jbyteArray JNICALL
+JVM_GetMethodTypeAnnotations(JNIEnv *env, jobject method);
 
 /*
  * New (JDK 1.4) reflection implementation
@@ -554,46 +561,46 @@ JNIEXPORT jobject JNICALL
 JVM_GetClassConstantPool(JNIEnv *env, jclass cls);
 
 JNIEXPORT jint JNICALL JVM_ConstantPoolGetSize
-(JNIEnv *env, jobject unused, jobject jcpool);
+(JNIEnv *env, jobject obj, jobject unused);
 
 JNIEXPORT jclass JNICALL JVM_ConstantPoolGetClassAt
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jclass JNICALL JVM_ConstantPoolGetClassAtIfLoaded
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jobject JNICALL JVM_ConstantPoolGetMethodAt
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jobject JNICALL JVM_ConstantPoolGetMethodAtIfLoaded
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jobject JNICALL JVM_ConstantPoolGetFieldAt
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jobject JNICALL JVM_ConstantPoolGetFieldAtIfLoaded
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jobjectArray JNICALL JVM_ConstantPoolGetMemberRefInfoAt
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jint JNICALL JVM_ConstantPoolGetIntAt
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jlong JNICALL JVM_ConstantPoolGetLongAt
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jfloat JNICALL JVM_ConstantPoolGetFloatAt
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jdouble JNICALL JVM_ConstantPoolGetDoubleAt
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jstring JNICALL JVM_ConstantPoolGetStringAt
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 JNIEXPORT jstring JNICALL JVM_ConstantPoolGetUTF8At
-(JNIEnv *env, jobject unused, jobject jcpool, jint index);
+(JNIEnv *env, jobject obj, jobject unused, jint index);
 
 /*
  * java.security.*
@@ -638,7 +645,7 @@ JNIEXPORT jobject JNICALL
 JVM_AssertionStatusDirectives(JNIEnv *env, jclass unused);
 
 /*
- * sun.misc.AtomicLong
+ * java.util.concurrent.atomic.AtomicLong
  */
 JNIEXPORT jboolean JNICALL
 JVM_SupportsCX8(void);
@@ -859,6 +866,13 @@ JVM_GetMethodIxMaxStack(JNIEnv *env, jclass cb, int index);
  */
 JNIEXPORT jboolean JNICALL
 JVM_IsConstructorIx(JNIEnv *env, jclass cb, int index);
+
+/*
+ * Is the given method generated by the VM.
+ * The method is identified by method_index.
+ */
+JNIEXPORT jboolean JNICALL
+JVM_IsVMGeneratedMethodIx(JNIEnv *env, jclass cb, int index);
 
 /*
  * Returns the name of a given method in UTF format.
@@ -1442,65 +1456,6 @@ JVM_RawMonitorEnter(void *mon);
 JNIEXPORT void JNICALL
 JVM_RawMonitorExit(void *mon);
 
-
-#ifdef SUPPORT_OLD_REFLECTION
-
-/*
- * Support for old native code-based (pre-JDK 1.4) reflection implementation.
- * Disabled by default in the product build.
- *
- * See reflection.hpp for information on SUPPORT_OLD_REFLECTION
- */
-
-/*
- * reflecting fields and methods.
- * which: 0 --- MEMBER_PUBLIC
- *        1 --- MEMBER_DECLARED
- * NOTE: absent in product build by default
- */
-
-JNIEXPORT jobjectArray JNICALL
-JVM_GetClassFields(JNIEnv *env, jclass cls, jint which);
-
-JNIEXPORT jobjectArray JNICALL
-JVM_GetClassMethods(JNIEnv *env, jclass cls, jint which);
-
-JNIEXPORT jobjectArray JNICALL
-JVM_GetClassConstructors(JNIEnv *env, jclass cls, jint which);
-
-JNIEXPORT jobject JNICALL
-JVM_GetClassField(JNIEnv *env, jclass cls, jstring name, jint which);
-
-JNIEXPORT jobject JNICALL
-JVM_GetClassMethod(JNIEnv *env, jclass cls, jstring name, jobjectArray types,
-                   jint which);
-JNIEXPORT jobject JNICALL
-JVM_GetClassConstructor(JNIEnv *env, jclass cls, jobjectArray types,
-                        jint which);
-
-/*
- * Implements Class.newInstance
- */
-JNIEXPORT jobject JNICALL
-JVM_NewInstance(JNIEnv *env, jclass cls);
-
-/*
- * java.lang.reflect.Field
- */
-JNIEXPORT jobject JNICALL
-JVM_GetField(JNIEnv *env, jobject field, jobject obj);
-
-JNIEXPORT jvalue JNICALL
-JVM_GetPrimitiveField(JNIEnv *env, jobject field, jobject obj,
-                      unsigned char wCode);
-
-JNIEXPORT void JNICALL
-JVM_SetField(JNIEnv *env, jobject field, jobject obj, jobject val);
-
-JNIEXPORT void JNICALL
-JVM_SetPrimitiveField(JNIEnv *env, jobject field, jobject obj, jvalue v,
-                      unsigned char vCode);
-
 /*
  * java.lang.reflect.Method
  */
@@ -1512,8 +1467,6 @@ JVM_InvokeMethod(JNIEnv *env, jobject method, jobject obj, jobjectArray args0);
  */
 JNIEXPORT jobject JNICALL
 JVM_NewInstanceFromConstructor(JNIEnv *env, jobject c, jobjectArray args0);
-
-#endif /* SUPPORT_OLD_REFLECTION */
 
 /*
  * java.lang.management support
@@ -1614,8 +1567,7 @@ typedef struct {
      * the new bit is also added in the main/baseline.
      */
     unsigned int is_attachable : 1;
-    unsigned int is_kernel_jvm : 1;
-    unsigned int : 30;
+    unsigned int : 31;
     unsigned int : 32;
     unsigned int : 32;
 } jvm_version_info;
@@ -1650,7 +1602,8 @@ typedef struct {
      */
     unsigned int thread_park_blocker : 1;
     unsigned int post_vm_init_hook_enabled : 1;
-    unsigned int : 30;
+    unsigned int pending_list_uses_discovered_field : 1;
+    unsigned int : 29;
     unsigned int : 32;
     unsigned int : 32;
 } jdk_version_info;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,7 +58,10 @@ public class OpRead {
             boolean done = false;
             int failCount = 0;
             while (!done) {
-                if (selector.select() > 0) {
+                int nSelected = selector.select();
+                if (nSelected > 0) {
+                    if (nSelected > 1)
+                        throw new RuntimeException("More than one channel selected");
                     Set<SelectionKey> keys = selector.selectedKeys();
                     Iterator<SelectionKey> iterator = keys.iterator();
                     while (iterator.hasNext()) {

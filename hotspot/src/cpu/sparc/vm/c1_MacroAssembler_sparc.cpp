@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,9 +41,7 @@ void C1_MacroAssembler::inline_cache_check(Register receiver, Register iCache) {
   // Note: needs more testing of out-of-line vs. inline slow case
   verify_oop(receiver);
   load_klass(receiver, temp_reg);
-  cmp(temp_reg, iCache);
-  brx(Assembler::equal, true, Assembler::pt, L);
-  delayed()->nop();
+  cmp_and_brx_short(temp_reg, iCache, Assembler::equal, Assembler::pt, L);
   AddressLiteral ic_miss(SharedRuntime::get_ic_miss_stub());
   jump_to(ic_miss, temp_reg);
   delayed()->nop();
@@ -110,7 +108,7 @@ void C1_MacroAssembler::lock_object(Register Rmark, Register Roop, Register Rbox
 
   // compare object markOop with Rmark and if equal exchange Rscratch with object markOop
   assert(mark_addr.disp() == 0, "cas must take a zero displacement");
-  casx_under_lock(mark_addr.base(), Rmark, Rscratch, (address)StubRoutines::Sparc::atomic_memory_operation_lock_addr());
+  cas_ptr(mark_addr.base(), Rmark, Rscratch);
   // if compare/exchange succeeded we found an unlocked object and we now have locked it
   // hence we are done
   cmp(Rmark, Rscratch);
@@ -142,8 +140,7 @@ void C1_MacroAssembler::unlock_object(Register Rmark, Register Roop, Register Rb
   }
   // Test first it it is a fast recursive unlock
   ld_ptr(Rbox, BasicLock::displaced_header_offset_in_bytes(), Rmark);
-  br_null(Rmark, false, Assembler::pt, done);
-  delayed()->nop();
+  br_null_short(Rmark, Assembler::pt, done);
   if (!UseBiasedLocking) {
     // load object
     ld_ptr(Rbox, BasicObjectLock::obj_offset_in_bytes(), Roop);
@@ -152,7 +149,7 @@ void C1_MacroAssembler::unlock_object(Register Rmark, Register Roop, Register Rb
 
   // Check if it is still a light weight lock, this is is true if we see
   // the stack address of the basicLock in the markOop of the object
-  casx_under_lock(mark_addr.base(), Rbox, Rmark, (address)StubRoutines::Sparc::atomic_memory_operation_lock_addr());
+  cas_ptr(mark_addr.base(), Rbox, Rmark);
   cmp(Rbox, Rmark);
 
   brx(Assembler::notEqual, false, Assembler::pn, slow_case);
@@ -184,21 +181,23 @@ void C1_MacroAssembler::try_allocate(
 void C1_MacroAssembler::initialize_header(Register obj, Register klass, Register len, Register t1, Register t2) {
   assert_different_registers(obj, klass, len, t1, t2);
   if (UseBiasedLocking && !len->is_valid()) {
-    ld_ptr(klass, Klass::prototype_header_offset_in_bytes() + klassOopDesc::klass_part_offset_in_bytes(), t1);
+    ld_ptr(klass, in_bytes(Klass::prototype_header_offset()), t1);
   } else {
     set((intx)markOopDesc::prototype(), t1);
   }
   st_ptr(t1, obj, oopDesc::mark_offset_in_bytes());
-  if (UseCompressedOops) {
+  if (UseCompressedClassPointers) {
     // Save klass
     mov(klass, t1);
-    encode_heap_oop_not_null(t1);
+    encode_klass_not_null(t1);
     stw(t1, obj, oopDesc::klass_offset_in_bytes());
   } else {
     st_ptr(klass, obj, oopDesc::klass_offset_in_bytes());
   }
-  if (len->is_valid()) st(len, obj, arrayOopDesc::length_offset_in_bytes());
-  else if (UseCompressedOops) {
+  if (len->is_valid()) {
+    st(len, obj, arrayOopDesc::length_offset_in_bytes());
+  } else if (UseCompressedClassPointers) {
+    // otherwise length is in the class gap
     store_klass_gap(G0, obj);
   }
 }
@@ -231,7 +230,7 @@ void C1_MacroAssembler::allocate_object(
   if (!is_simm13(obj_size * wordSize)) {
     // would need to use extra register to load
     // object size => go the slow case for now
-    br(Assembler::always, false, Assembler::pt, slow_case);
+    ba(slow_case);
     delayed()->nop();
     return;
   }
@@ -255,14 +254,12 @@ void C1_MacroAssembler::initialize_object(
 #ifdef ASSERT
   {
     Label ok;
-    ld(klass, klassOopDesc::header_size() * HeapWordSize + Klass::layout_helper_offset_in_bytes(), t1);
+    ld(klass, in_bytes(Klass::layout_helper_offset()), t1);
     if (var_size_in_bytes != noreg) {
-      cmp(t1, var_size_in_bytes);
+      cmp_and_brx_short(t1, var_size_in_bytes, Assembler::equal, Assembler::pt, ok);
     } else {
-      cmp(t1, con_size_in_bytes);
+      cmp_and_brx_short(t1, con_size_in_bytes, Assembler::equal, Assembler::pt, ok);
     }
-    brx(Assembler::equal, false, Assembler::pt, ok);
-    delayed()->nop();
     stop("bad size in initialize_object");
     should_not_reach_here();
 
@@ -279,7 +276,7 @@ void C1_MacroAssembler::initialize_object(
     sub(var_size_in_bytes, hdr_size_in_bytes, t2); // compute size of body
     initialize_body(t1, t2);
 #ifndef _LP64
-  } else if (VM_Version::v9_instructions_work() && con_size_in_bytes < threshold * 2) {
+  } else if (con_size_in_bytes < threshold * 2) {
     // on v9 we can do double word stores to fill twice as much space.
     assert(hdr_size_in_bytes % 8 == 0, "double word aligned");
     assert(con_size_in_bytes % 8 == 0, "double word aligned");
@@ -387,8 +384,7 @@ void C1_MacroAssembler::verify_stack_oop(int stack_offset) {
 
 void C1_MacroAssembler::verify_not_null_oop(Register r) {
   Label not_null;
-  br_notnull(r, false, Assembler::pt, not_null);
-  delayed()->nop();
+  br_notnull_short(r, Assembler::pt, not_null);
   stop("non-null oop required");
   bind(not_null);
   if (!VerifyOops) return;

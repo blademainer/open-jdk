@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,20 +25,12 @@
 
 package sun.security.x509;
 
-import java.io.InputStream;
 import java.io.IOException;
 import java.security.cert.CRLException;
 import java.security.cert.CRLReason;
-import java.security.cert.CertificateException;
 import java.security.cert.X509CRLEntry;
 import java.math.BigInteger;
-import java.util.Collection;
-import java.util.Date;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import java.util.HashSet;
+import java.util.*;
 
 import javax.security.auth.x500.X500Principal;
 
@@ -75,7 +67,8 @@ import sun.misc.HexDumpEncoder;
  * @author Hemma Prafullchandra
  */
 
-public class X509CRLEntryImpl extends X509CRLEntry {
+public class X509CRLEntryImpl extends X509CRLEntry
+        implements Comparable<X509CRLEntryImpl> {
 
     private SerialNumber serialNumber = null;
     private Date revocationDate = null;
@@ -196,9 +189,14 @@ public class X509CRLEntryImpl extends X509CRLEntry {
      * @exception CRLException if an encoding error occurs.
      */
     public byte[] getEncoded() throws CRLException {
+        return getEncoded0().clone();
+    }
+
+    // Called internally to avoid clone
+    private byte[] getEncoded0() throws CRLException {
         if (revokedCert == null)
             this.encode(new DerOutputStream());
-        return revokedCert.clone();
+        return revokedCert;
     }
 
     @Override
@@ -281,7 +279,7 @@ public class X509CRLEntryImpl extends X509CRLEntry {
         if (obj == null)
             return null;
         CRLReasonCodeExtension reasonCode = (CRLReasonCodeExtension)obj;
-        return (Integer)(reasonCode.get(reasonCode.REASON));
+        return reasonCode.get(CRLReasonCodeExtension.REASON);
     }
 
     /**
@@ -299,13 +297,13 @@ public class X509CRLEntryImpl extends X509CRLEntry {
             sb.append("\n    Certificate issuer: " + certIssuer);
         }
         if (extensions != null) {
-            Collection allEntryExts = extensions.getAllExtensions();
-            Object[] objs = allEntryExts.toArray();
+            Collection<Extension> allEntryExts = extensions.getAllExtensions();
+            Extension[] exts = allEntryExts.toArray(new Extension[0]);
 
-            sb.append("\n    CRL Entry Extensions: " + objs.length);
-            for (int i = 0; i < objs.length; i++) {
+            sb.append("\n    CRL Entry Extensions: " + exts.length);
+            for (int i = 0; i < exts.length; i++) {
                 sb.append("\n    [" + (i+1) + "]: ");
-                Extension ext = (Extension)objs[i];
+                Extension ext = exts[i];
                 try {
                     if (OIDMap.getClass(ext.getExtensionId()) == null) {
                         sb.append(ext.toString());
@@ -352,7 +350,7 @@ public class X509CRLEntryImpl extends X509CRLEntry {
         if (extensions == null) {
             return null;
         }
-        Set<String> extSet = new HashSet<String>();
+        Set<String> extSet = new TreeSet<>();
         for (Extension ex : extensions.getAllExtensions()) {
             if (ex.isCritical()) {
                 extSet.add(ex.getExtensionId().toString());
@@ -373,7 +371,7 @@ public class X509CRLEntryImpl extends X509CRLEntry {
         if (extensions == null) {
             return null;
         }
-        Set<String> extSet = new HashSet<String>();
+        Set<String> extSet = new TreeSet<>();
         for (Extension ex : extensions.getAllExtensions()) {
             if (!ex.isCritical()) {
                 extSet.add(ex.getExtensionId().toString());
@@ -409,7 +407,7 @@ public class X509CRLEntryImpl extends X509CRLEntry {
                                                  e.hasMoreElements();) {
                     ex = e.nextElement();
                     inCertOID = ex.getExtensionId();
-                    if (inCertOID.equals(findOID)) {
+                    if (inCertOID.equals((Object)findOID)) {
                         crlExt = ex;
                         break;
                     }
@@ -501,13 +499,39 @@ public class X509CRLEntryImpl extends X509CRLEntry {
             getExtension(PKIXExtensions.CertificateIssuer_Id);
     }
 
+    /**
+     * Returns all extensions for this entry in a map
+     * @return the extension map, can be empty, but not null
+     */
     public Map<String, java.security.cert.Extension> getExtensions() {
+        if (extensions == null) {
+            return Collections.emptyMap();
+        }
         Collection<Extension> exts = extensions.getAllExtensions();
-        HashMap<String, java.security.cert.Extension> map =
-            new HashMap<String, java.security.cert.Extension>(exts.size());
+        Map<String, java.security.cert.Extension> map = new TreeMap<>();
         for (Extension ext : exts) {
             map.put(ext.getId(), ext);
         }
         return map;
+    }
+
+    @Override
+    public int compareTo(X509CRLEntryImpl that) {
+        int compSerial = getSerialNumber().compareTo(that.getSerialNumber());
+        if (compSerial != 0) {
+            return compSerial;
+        }
+        try {
+            byte[] thisEncoded = this.getEncoded0();
+            byte[] thatEncoded = that.getEncoded0();
+            for (int i=0; i<thisEncoded.length && i<thatEncoded.length; i++) {
+                int a = thisEncoded[i] & 0xff;
+                int b = thatEncoded[i] & 0xff;
+                if (a != b) return a-b;
+            }
+            return thisEncoded.length -thatEncoded.length;
+        } catch (CRLException ce) {
+            return -1;
+        }
     }
 }

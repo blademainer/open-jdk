@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,11 +23,11 @@
  */
 
 #include "prims/jvm.h"
-#include "utilities/decoder.hpp"
+#include "utilities/decoder_elf.hpp"
 
 #include <cxxabi.h>
 
-bool Decoder::demangle(const char* symbol, char *buf, int buflen) {
+bool ElfDecoder::demangle(const char* symbol, char *buf, int buflen) {
   int   status;
   char* result;
   size_t size = (size_t)buflen;
@@ -43,3 +43,4 @@ bool Decoder::demangle(const char* symbol, char *buf, int buflen) {
   }
   return false;
 }
+

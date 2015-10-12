@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2007, 2009, 2010, 2011 Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -37,6 +37,7 @@ void Relocation::pd_set_data_value(address x, intptr_t o, bool verify_only) {
 
 address Relocation::pd_call_destination(address orig_addr) {
   ShouldNotCallThis();
+  return NULL;
 }
 
 void Relocation::pd_set_call_destination(address x) {
@@ -45,27 +46,12 @@ void Relocation::pd_set_call_destination(address x) {
 
 address Relocation::pd_get_address_from_code() {
   ShouldNotCallThis();
+  return NULL;
 }
 
 address* Relocation::pd_address_in_code() {
   // Relocations in Shark are just stored directly
   return (address *) addr();
-}
-
-int Relocation::pd_breakpoint_size() {
-  ShouldNotCallThis();
-}
-
-void Relocation::pd_swap_in_breakpoint(address x,
-                                       short*  instrs,
-                                       int     instrlen) {
-  ShouldNotCallThis();
-}
-
-void Relocation::pd_swap_out_breakpoint(address x,
-                                        short*  instrs,
-                                        int     instrlen) {
-  ShouldNotCallThis();
 }
 
 void poll_Relocation::fix_relocation_after_move(const CodeBuffer* src,
@@ -75,5 +61,9 @@ void poll_Relocation::fix_relocation_after_move(const CodeBuffer* src,
 
 void poll_return_Relocation::fix_relocation_after_move(const CodeBuffer* src,
                                                        CodeBuffer*       dst) {
+  ShouldNotCallThis();
+}
+
+void metadata_Relocation::pd_fix_value(address x) {
   ShouldNotCallThis();
 }

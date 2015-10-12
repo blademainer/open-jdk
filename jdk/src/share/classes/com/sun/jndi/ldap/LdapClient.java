@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,8 +25,8 @@
 
 package com.sun.jndi.ldap;
 
-import java.net.*;
 import java.io.*;
+import java.util.Locale;
 import java.util.Vector;
 import java.util.Hashtable;
 
@@ -81,7 +81,8 @@ public final class LdapClient implements PooledConnection {
     static final boolean caseIgnore = true;
 
     // Default list of binary attributes
-    private static final Hashtable defaultBinaryAttrs = new Hashtable(23,0.75f);
+    private static final Hashtable<String, Boolean> defaultBinaryAttrs =
+            new Hashtable<>(23,0.75f);
     static {
         defaultBinaryAttrs.put("userpassword", Boolean.TRUE);      //2.5.4.35
         defaultBinaryAttrs.put("javaserializeddata", Boolean.TRUE);
@@ -146,152 +147,158 @@ public final class LdapClient implements PooledConnection {
 
     synchronized LdapResult
     authenticate(boolean initial, String name, Object pw, int version,
-        String authMechanism, Control[] ctls,  Hashtable env)
+        String authMechanism, Control[] ctls,  Hashtable<?,?> env)
         throws NamingException {
 
-        authenticateCalled = true;
-
-        try {
-            ensureOpen();
-        } catch (IOException e) {
-            NamingException ne = new CommunicationException();
-            ne.setRootCause(e);
-            throw ne;
-        }
-
-        switch (version) {
-        case LDAP_VERSION3_VERSION2:
-        case LDAP_VERSION3:
-            isLdapv3 = true;
-            break;
-        case LDAP_VERSION2:
-            isLdapv3 = false;
-            break;
-        default:
-            throw new CommunicationException("Protocol version " + version +
-                " not supported");
-        }
-
+        int readTimeout = conn.readTimeout;
+        conn.readTimeout = conn.connectTimeout;
         LdapResult res = null;
 
-        if (authMechanism.equalsIgnoreCase("none") ||
-            authMechanism.equalsIgnoreCase("anonymous")) {
+        try {
+            authenticateCalled = true;
 
-            // Perform LDAP bind if we are reauthenticating, using LDAPv2,
-            // supporting failover to LDAPv2, or controls have been supplied.
-            if (!initial ||
-                (version == LDAP_VERSION2) ||
-                (version == LDAP_VERSION3_VERSION2) ||
-                ((ctls != null) && (ctls.length > 0))) {
+            try {
+                ensureOpen();
+            } catch (IOException e) {
+                NamingException ne = new CommunicationException();
+                ne.setRootCause(e);
+                throw ne;
+            }
+
+            switch (version) {
+            case LDAP_VERSION3_VERSION2:
+            case LDAP_VERSION3:
+                isLdapv3 = true;
+                break;
+            case LDAP_VERSION2:
+                isLdapv3 = false;
+                break;
+            default:
+                throw new CommunicationException("Protocol version " + version +
+                    " not supported");
+            }
+
+            if (authMechanism.equalsIgnoreCase("none") ||
+                authMechanism.equalsIgnoreCase("anonymous")) {
+
+                // Perform LDAP bind if we are reauthenticating, using LDAPv2,
+                // supporting failover to LDAPv2, or controls have been supplied.
+                if (!initial ||
+                    (version == LDAP_VERSION2) ||
+                    (version == LDAP_VERSION3_VERSION2) ||
+                    ((ctls != null) && (ctls.length > 0))) {
+                    try {
+                        // anonymous bind; update name/pw for LDAPv2 retry
+                        res = ldapBind(name=null, (byte[])(pw=null), ctls, null,
+                            false);
+                        if (res.status == LdapClient.LDAP_SUCCESS) {
+                            conn.setBound();
+                        }
+                    } catch (IOException e) {
+                        NamingException ne =
+                            new CommunicationException("anonymous bind failed: " +
+                            conn.host + ":" + conn.port);
+                        ne.setRootCause(e);
+                        throw ne;
+                    }
+                } else {
+                    // Skip LDAP bind for LDAPv3 anonymous bind
+                    res = new LdapResult();
+                    res.status = LdapClient.LDAP_SUCCESS;
+                }
+            } else if (authMechanism.equalsIgnoreCase("simple")) {
+                // simple authentication
+                byte[] encodedPw = null;
                 try {
-                    // anonymous bind; update name/pw for LDAPv2 retry
-                    res = ldapBind(name=null, (byte[])(pw=null), ctls, null,
-                        false);
+                    encodedPw = encodePassword(pw, isLdapv3);
+                    res = ldapBind(name, encodedPw, ctls, null, false);
                     if (res.status == LdapClient.LDAP_SUCCESS) {
                         conn.setBound();
                     }
                 } catch (IOException e) {
                     NamingException ne =
-                        new CommunicationException("anonymous bind failed: " +
+                        new CommunicationException("simple bind failed: " +
+                            conn.host + ":" + conn.port);
+                    ne.setRootCause(e);
+                    throw ne;
+                } finally {
+                    // If pw was copied to a new array, clear that array as
+                    // a security precaution.
+                    if (encodedPw != pw && encodedPw != null) {
+                        for (int i = 0; i < encodedPw.length; i++) {
+                            encodedPw[i] = 0;
+                        }
+                    }
+                }
+            } else if (isLdapv3) {
+                // SASL authentication
+                try {
+                    res = LdapSasl.saslBind(this, conn, conn.host, name, pw,
+                        authMechanism, env, ctls);
+                    if (res.status == LdapClient.LDAP_SUCCESS) {
+                        conn.setBound();
+                    }
+                } catch (IOException e) {
+                    NamingException ne =
+                        new CommunicationException("SASL bind failed: " +
                         conn.host + ":" + conn.port);
                     ne.setRootCause(e);
                     throw ne;
                 }
             } else {
-                // Skip LDAP bind for LDAPv3 anonymous bind
-                res = new LdapResult();
-                res.status = LdapClient.LDAP_SUCCESS;
+                throw new AuthenticationNotSupportedException(authMechanism);
             }
-        } else if (authMechanism.equalsIgnoreCase("simple")) {
-            // simple authentication
-            byte[] encodedPw = null;
-            try {
-                encodedPw = encodePassword(pw, isLdapv3);
-                res = ldapBind(name, encodedPw, ctls, null, false);
-                if (res.status == LdapClient.LDAP_SUCCESS) {
-                    conn.setBound();
-                }
-            } catch (IOException e) {
-                NamingException ne =
-                    new CommunicationException("simple bind failed: " +
-                        conn.host + ":" + conn.port);
-                ne.setRootCause(e);
-                throw ne;
-            } finally {
-                // If pw was copied to a new array, clear that array as
-                // a security precaution.
-                if (encodedPw != pw && encodedPw != null) {
-                    for (int i = 0; i < encodedPw.length; i++) {
-                        encodedPw[i] = 0;
+
+            //
+            // re-try login using v2 if failing over
+            //
+            if (initial &&
+                (res.status == LdapClient.LDAP_PROTOCOL_ERROR) &&
+                (version == LdapClient.LDAP_VERSION3_VERSION2) &&
+                (authMechanism.equalsIgnoreCase("none") ||
+                    authMechanism.equalsIgnoreCase("anonymous") ||
+                    authMechanism.equalsIgnoreCase("simple"))) {
+
+                byte[] encodedPw = null;
+                try {
+                    isLdapv3 = false;
+                    encodedPw = encodePassword(pw, false);
+                    res = ldapBind(name, encodedPw, ctls, null, false);
+                    if (res.status == LdapClient.LDAP_SUCCESS) {
+                        conn.setBound();
+                    }
+                } catch (IOException e) {
+                    NamingException ne =
+                        new CommunicationException(authMechanism + ":" +
+                            conn.host +     ":" + conn.port);
+                    ne.setRootCause(e);
+                    throw ne;
+                } finally {
+                    // If pw was copied to a new array, clear that array as
+                    // a security precaution.
+                    if (encodedPw != pw && encodedPw != null) {
+                        for (int i = 0; i < encodedPw.length; i++) {
+                            encodedPw[i] = 0;
+                        }
                     }
                 }
             }
-        } else if (isLdapv3) {
-            // SASL authentication
-            try {
-                res = LdapSasl.saslBind(this, conn, conn.host, name, pw,
-                    authMechanism, env, ctls);
-                if (res.status == LdapClient.LDAP_SUCCESS) {
-                    conn.setBound();
-                }
-            } catch (IOException e) {
-                NamingException ne =
-                    new CommunicationException("SASL bind failed: " +
-                    conn.host + ":" + conn.port);
-                ne.setRootCause(e);
-                throw ne;
+
+            // principal name not found
+            // (map NameNotFoundException to AuthenticationException)
+            // %%% This is a workaround for Netscape servers returning
+            // %%% no such object when the principal name is not found
+            // %%% Note that when this workaround is applied, it does not allow
+            // %%% response controls to be recorded by the calling context
+            if (res.status == LdapClient.LDAP_NO_SUCH_OBJECT) {
+                throw new AuthenticationException(
+                    getErrorMessage(res.status, res.errorMessage));
             }
-        } else {
-            throw new AuthenticationNotSupportedException(authMechanism);
+            conn.setV3(isLdapv3);
+            return res;
+        } finally {
+            conn.readTimeout = readTimeout;
         }
-
-        //
-        // re-try login using v2 if failing over
-        //
-        if (initial &&
-            (res.status == LdapClient.LDAP_PROTOCOL_ERROR) &&
-            (version == LdapClient.LDAP_VERSION3_VERSION2) &&
-            (authMechanism.equalsIgnoreCase("none") ||
-                authMechanism.equalsIgnoreCase("anonymous") ||
-                authMechanism.equalsIgnoreCase("simple"))) {
-
-            byte[] encodedPw = null;
-            try {
-                isLdapv3 = false;
-                encodedPw = encodePassword(pw, false);
-                res = ldapBind(name, encodedPw, ctls, null, false);
-                if (res.status == LdapClient.LDAP_SUCCESS) {
-                    conn.setBound();
-                }
-            } catch (IOException e) {
-                NamingException ne =
-                    new CommunicationException(authMechanism + ":" +
-                        conn.host +     ":" + conn.port);
-                ne.setRootCause(e);
-                throw ne;
-            } finally {
-                // If pw was copied to a new array, clear that array as
-                // a security precaution.
-                if (encodedPw != pw && encodedPw != null) {
-                    for (int i = 0; i < encodedPw.length; i++) {
-                        encodedPw[i] = 0;
-                    }
-                }
-            }
-        }
-
-        // principal name not found
-        // (map NameNotFoundException to AuthenticationException)
-        // %%% This is a workaround for Netscape servers returning
-        // %%% no such object when the principal name is not found
-        // %%% Note that when this workaround is applied, it does not allow
-        // %%% response controls to be recorded by the calling context
-        if (res.status == LdapClient.LDAP_NO_SUCH_OBJECT) {
-            throw new AuthenticationException(
-                getErrorMessage(res.status, res.errorMessage));
-        }
-        conn.setV3(isLdapv3);
-        return res;
     }
 
     /**
@@ -487,14 +494,16 @@ public final class LdapClient implements PooledConnection {
      */
     void processConnectionClosure() {
         // Notify listeners
-        if (unsolicited.size() > 0) {
-            String msg;
-            if (conn != null) {
-                msg = conn.host + ":" + conn.port + " connection closed";
-            } else {
-                msg = "Connection closed";
+        synchronized (unsolicited) {
+            if (unsolicited.size() > 0) {
+                String msg;
+                if (conn != null) {
+                    msg = conn.host + ":" + conn.port + " connection closed";
+                } else {
+                    msg = "Connection closed";
+                }
+                notifyUnsolicited(new CommunicationException(msg));
             }
-            notifyUnsolicited(new CommunicationException(msg));
         }
 
         // Remove from pool
@@ -516,8 +525,8 @@ public final class LdapClient implements PooledConnection {
     LdapResult search(String dn, int scope, int deref, int sizeLimit,
                       int timeLimit, boolean attrsOnly, String attrs[],
                       String filter, int batchSize, Control[] reqCtls,
-                      Hashtable binaryAttrs, boolean waitFirstReply,
-                      int replyQueueCapacity)
+                      Hashtable<String, Boolean> binaryAttrs,
+                      boolean waitFirstReply, int replyQueueCapacity)
         throws IOException, NamingException {
 
         ensureOpen();
@@ -586,7 +595,7 @@ public final class LdapClient implements PooledConnection {
      * Retrieve the next batch of entries and/or referrals.
      */
     LdapResult getSearchReply(int batchSize, LdapResult res,
-        Hashtable binaryAttrs) throws IOException, NamingException {
+        Hashtable<String, Boolean> binaryAttrs) throws IOException, NamingException {
 
         ensureOpen();
 
@@ -600,7 +609,7 @@ public final class LdapClient implements PooledConnection {
     }
 
     private LdapResult getSearchReply(LdapRequest req,
-        int batchSize, LdapResult res, Hashtable binaryAttrs)
+        int batchSize, LdapResult res, Hashtable<String, Boolean> binaryAttrs)
         throws IOException, NamingException {
 
         if (batchSize == 0)
@@ -610,7 +619,7 @@ public final class LdapClient implements PooledConnection {
             res.entries.setSize(0); // clear the (previous) set of entries
         } else {
             res.entries =
-                new Vector(batchSize == Integer.MAX_VALUE ? 32 : batchSize);
+                new Vector<>(batchSize == Integer.MAX_VALUE ? 32 : batchSize);
         }
 
         if (res.referrals != null) {
@@ -660,7 +669,7 @@ public final class LdapClient implements PooledConnection {
             } else if ((seq == LDAP_REP_SEARCH_REF) && isLdapv3) {
 
                 // handle LDAPv3 search reference
-                Vector URLs = new Vector(4);
+                Vector<String> URLs = new Vector<>(4);
 
                 // %%% Although not strictly correct, some LDAP servers
                 //     encode the SEQUENCE OF tag in the SearchResultRef
@@ -676,7 +685,7 @@ public final class LdapClient implements PooledConnection {
                 }
 
                 if (res.referrals == null) {
-                    res.referrals = new Vector(4);
+                    res.referrals = new Vector<>(4);
                 }
                 res.referrals.addElement(URLs);
                 res.resControls = isLdapv3 ? parseControls(replyBer) : null;
@@ -700,7 +709,8 @@ public final class LdapClient implements PooledConnection {
         return res;
     }
 
-    private Attribute parseAttribute(BerDecoder ber, Hashtable binaryAttrs)
+    private Attribute parseAttribute(BerDecoder ber,
+                                     Hashtable<String, Boolean> binaryAttrs)
         throws IOException {
 
         int len[] = new int[1];
@@ -737,13 +747,15 @@ public final class LdapClient implements PooledConnection {
         if (hasBinaryValues) {
             la.add(ber.parseOctetString(ber.peekByte(), len));
         } else {
-            la.add(ber.parseStringWithTag(Ber.ASN_SIMPLE_STRING, isLdapv3, len));
+            la.add(ber.parseStringWithTag(
+                                    Ber.ASN_SIMPLE_STRING, isLdapv3, len));
         }
         return len[0];
     }
 
-    private boolean isBinaryValued(String attrid, Hashtable binaryAttrs) {
-        String id = attrid.toLowerCase();
+    private boolean isBinaryValued(String attrid,
+                                   Hashtable<String, Boolean> binaryAttrs) {
+        String id = attrid.toLowerCase(Locale.ENGLISH);
 
         return ((id.indexOf(";binary") != -1) ||
             defaultBinaryAttrs.containsKey(id) ||
@@ -751,8 +763,8 @@ public final class LdapClient implements PooledConnection {
     }
 
     // package entry point; used by Connection
-    static void parseResult(BerDecoder replyBer, LdapResult res, boolean isLdapv3)
-        throws IOException {
+    static void parseResult(BerDecoder replyBer, LdapResult res,
+            boolean isLdapv3) throws IOException {
 
         res.status = replyBer.parseEnumeration();
         res.matchedDN = replyBer.parseString(isLdapv3);
@@ -763,7 +775,7 @@ public final class LdapClient implements PooledConnection {
             (replyBer.bytesLeft() > 0) &&
             (replyBer.peekByte() == LDAP_REP_REFERRAL)) {
 
-            Vector URLs = new Vector(4);
+            Vector<String> URLs = new Vector<>(4);
             int[] seqlen = new int[1];
 
             replyBer.parseSeq(seqlen);
@@ -775,18 +787,18 @@ public final class LdapClient implements PooledConnection {
             }
 
             if (res.referrals == null) {
-                res.referrals = new Vector(4);
+                res.referrals = new Vector<>(4);
             }
             res.referrals.addElement(URLs);
         }
     }
 
     // package entry point; used by Connection
-    static Vector parseControls(BerDecoder replyBer) throws IOException {
+    static Vector<Control> parseControls(BerDecoder replyBer) throws IOException {
 
         // handle LDAPv3 controls (if present)
         if ((replyBer.bytesLeft() > 0) && (replyBer.peekByte() == LDAP_CONTROLS)) {
-            Vector ctls = new Vector(4);
+            Vector<Control> ctls = new Vector<>(4);
             String controlOID;
             boolean criticality = false; // default
             byte[] controlValue = null;  // optional
@@ -957,7 +969,7 @@ public final class LdapClient implements PooledConnection {
         ber.beginSeq(Ber.ASN_SEQUENCE | Ber.ASN_CONSTRUCTOR);
             ber.encodeString(attr.getID(), isLdapv3);
             ber.beginSeq(Ber.ASN_SEQUENCE | Ber.ASN_CONSTRUCTOR | 1);
-                NamingEnumeration enum_ = attr.getAll();
+                NamingEnumeration<?> enum_ = attr.getAll();
                 Object val;
                 while (enum_.hasMore()) {
                     val = enum_.next();
@@ -1007,9 +1019,10 @@ public final class LdapClient implements PooledConnection {
                 ber.beginSeq(LDAP_REQ_ADD);
                     ber.encodeString(entry.DN, isLdapv3);
                     ber.beginSeq(Ber.ASN_SEQUENCE | Ber.ASN_CONSTRUCTOR);
-                        NamingEnumeration enum_ = entry.attributes.getAll();
+                        NamingEnumeration<? extends Attribute> enum_ =
+                                entry.attributes.getAll();
                         while (enum_.hasMore()) {
-                            attr = (Attribute)enum_.next();
+                            attr = enum_.next();
 
                             // zero values is not permitted
                             if (hasNoValue(attr)) {
@@ -1474,7 +1487,7 @@ public final class LdapClient implements PooledConnection {
     // removeUnsolicited() is invoked to remove an LdapCtx from this client.
     //
     ////////////////////////////////////////////////////////////////////////////
-    private Vector unsolicited = new Vector(3);
+    private Vector<LdapCtx> unsolicited = new Vector<>(3);
     void addUnsolicited(LdapCtx ctx) {
         if (debug > 0) {
             System.err.println("LdapClient.addUnsolicited" + ctx);
@@ -1500,70 +1513,70 @@ public final class LdapClient implements PooledConnection {
         if (debug > 0) {
             System.err.println("LdapClient.processUnsolicited");
         }
-      synchronized (unsolicited) {
-        try {
-            // Parse the response
-            LdapResult res = new LdapResult();
+        synchronized (unsolicited) {
+            try {
+                // Parse the response
+                LdapResult res = new LdapResult();
 
-            ber.parseSeq(null); // init seq
-            ber.parseInt();             // msg id; should be 0; ignored
-            if (ber.parseByte() != LDAP_REP_EXTENSION) {
-                throw new IOException(
-                    "Unsolicited Notification must be an Extended Response");
-            }
-            ber.parseLength();
-            parseExtResponse(ber, res);
-
-            if (DISCONNECT_OID.equals(res.extensionId)) {
-                // force closing of connection
-                forceClose(pooled);
-            }
-
-            if (unsolicited.size() > 0) {
-                // Create an UnsolicitedNotification using the parsed data
-                // Need a 'ctx' object because we want to use the context's
-                // list of provider control factories.
-                UnsolicitedNotification notice = new UnsolicitedResponseImpl(
-                    res.extensionId,
-                    res.extensionValue,
-                    res.referrals,
-                    res.status,
-                    res.errorMessage,
-                    res.matchedDN,
-                    (res.resControls != null) ?
-            ((LdapCtx)unsolicited.elementAt(0)).convertControls(res.resControls) :
-                    null);
-
-                // Fire UnsolicitedNotification events to listeners
-                notifyUnsolicited(notice);
-
-                // If "disconnect" notification,
-                // notify unsolicited listeners via NamingException
-                if (DISCONNECT_OID.equals(res.extensionId)) {
-                    notifyUnsolicited(
-                        new CommunicationException("Connection closed"));
+                ber.parseSeq(null); // init seq
+                ber.parseInt();             // msg id; should be 0; ignored
+                if (ber.parseByte() != LDAP_REP_EXTENSION) {
+                    throw new IOException(
+                        "Unsolicited Notification must be an Extended Response");
                 }
+                ber.parseLength();
+                parseExtResponse(ber, res);
+
+                if (DISCONNECT_OID.equals(res.extensionId)) {
+                    // force closing of connection
+                    forceClose(pooled);
+                }
+
+                if (unsolicited.size() > 0) {
+                    // Create an UnsolicitedNotification using the parsed data
+                    // Need a 'ctx' object because we want to use the context's
+                    // list of provider control factories.
+                    UnsolicitedNotification notice = new UnsolicitedResponseImpl(
+                        res.extensionId,
+                        res.extensionValue,
+                        res.referrals,
+                        res.status,
+                        res.errorMessage,
+                        res.matchedDN,
+                        (res.resControls != null) ?
+                        unsolicited.elementAt(0).convertControls(res.resControls) :
+                        null);
+
+                    // Fire UnsolicitedNotification events to listeners
+                    notifyUnsolicited(notice);
+
+                    // If "disconnect" notification,
+                    // notify unsolicited listeners via NamingException
+                    if (DISCONNECT_OID.equals(res.extensionId)) {
+                        notifyUnsolicited(
+                            new CommunicationException("Connection closed"));
+                    }
+                }
+            } catch (IOException e) {
+                if (unsolicited.size() == 0)
+                    return;  // no one registered; ignore
+
+                NamingException ne = new CommunicationException(
+                    "Problem parsing unsolicited notification");
+                ne.setRootCause(e);
+
+                notifyUnsolicited(ne);
+
+            } catch (NamingException e) {
+                notifyUnsolicited(e);
             }
-        } catch (IOException e) {
-            if (unsolicited.size() == 0)
-                return;  // no one registered; ignore
-
-            NamingException ne = new CommunicationException(
-                "Problem parsing unsolicited notification");
-            ne.setRootCause(e);
-
-            notifyUnsolicited(ne);
-
-        } catch (NamingException e) {
-            notifyUnsolicited(e);
         }
-      }
     }
 
 
     private void notifyUnsolicited(Object e) {
         for (int i = 0; i < unsolicited.size(); i++) {
-            ((LdapCtx)unsolicited.elementAt(i)).fireUnsolicited(e);
+            unsolicited.elementAt(i).fireUnsolicited(e);
         }
         if (e instanceof NamingException) {
             unsolicited.setSize(0);  // no more listeners after exception
@@ -1584,7 +1597,7 @@ public final class LdapClient implements PooledConnection {
     static LdapClient getInstance(boolean usePool, String hostname, int port,
         String factory, int connectTimeout, int readTimeout, OutputStream trace,
         int version, String authMechanism, Control[] ctls, String protocol,
-        String user, Object passwd, Hashtable env) throws NamingException {
+        String user, Object passwd, Hashtable<?,?> env) throws NamingException {
 
         if (usePool) {
             if (LdapPoolManager.isPoolingAllowed(factory, trace,

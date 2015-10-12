@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -98,7 +98,8 @@ class LinuxFileStore
             int fd = path.openForAttributeAccess(false);
             try {
                 // fgetxattr returns size if called with size==0
-                LinuxNativeDispatcher.fgetxattr(fd, "user.java".getBytes(), 0L, 0);
+                byte[] name = Util.toBytes("user.java");
+                LinuxNativeDispatcher.fgetxattr(fd, name, 0L, 0);
                 return true;
             } catch (UnixException e) {
                 // attribute does not exist
@@ -145,6 +146,9 @@ class LinuxFileStore
             }
             return xattrEnabled;
         }
+        // POSIX attributes not supported on FAT
+        if (type == PosixFileAttributeView.class && entry().fstype().equals("vfat"))
+            return false;
         return super.supportsFileAttributeView(type);
     }
 

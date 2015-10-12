@@ -1,5 +1,5 @@
 # 
-# Copyright (c) 2004, 2007, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -37,28 +37,6 @@
         .globl _Copy_conjoint_jlongs_atomic
 
 	.text
-
-        .globl SafeFetch32, Fetch32PFI, Fetch32Resume
-        .align  16
-        .type   SafeFetch32,@function
-        // Prototype: int SafeFetch32 (int * Adr, int ErrValue) 
-SafeFetch32:
-        movl    %esi, %eax
-Fetch32PFI:
-        movl    (%rdi), %eax
-Fetch32Resume:
-        ret
-
-        .globl SafeFetchN, FetchNPFI, FetchNResume
-        .align  16
-        .type   SafeFetchN,@function
-        // Prototype: intptr_t SafeFetchN (intptr_t * Adr, intptr_t ErrValue) 
-SafeFetchN:
-        movq    %rsi, %rax
-FetchNPFI:
-        movq    (%rdi), %rax
-FetchNResume:
-        ret
 
         .globl SpinPause
         .align 16

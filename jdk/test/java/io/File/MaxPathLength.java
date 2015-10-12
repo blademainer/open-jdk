@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,11 +22,14 @@
  */
 
 /* @test
-   @bug 4759207 4403166 4165006 4403166 6182812 6274272
+   @bug 4759207 4403166 4165006 4403166 6182812 6274272 7160013
    @summary Test to see if win32 path length can be greater than 260
  */
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.DirectoryNotEmptyException;
 
 public class MaxPathLength {
     private static String sep = File.separator;
@@ -35,71 +38,52 @@ public class MaxPathLength {
     private static String fileName =
                  "areallylongfilenamethatsforsur";
     private static boolean isWindows = false;
-    private static long totalSpace;
-    private static long freeSpace;
-    private static long usableSpace;
-    private static long ONEMEGA = 1024*1024;
+
+    private final static int MAX_LENGTH = 256;
+
+    private static int counter = 0;
 
     public static void main(String[] args) throws Exception {
         String osName = System.getProperty("os.name");
         if (osName.startsWith("Windows")) {
             isWindows = true;
-            if (osName.startsWith("Windows 9") ||
-                osName.startsWith("Windows Me"))
-            return; // win9x/Me cannot handle long paths
-        }
-
-        if (osName.startsWith("SunOS")) {
-            return; // We don't run this test on Solaris either.
-                    // Some Solaris machines have very "slow" disk
-                    // access performance which causes this one
-                    // to timeout.
-        }
-
-        if (isWindows) {
-            File f = new File(".");
-            totalSpace = f.getTotalSpace()/ONEMEGA;
-            freeSpace = f.getFreeSpace()/ONEMEGA;
-            usableSpace = f.getUsableSpace()/ONEMEGA;
         }
 
         for (int i = 4; i < 7; i++) {
             String name = fileName;
-            while (name.length() < 256) {
+            while (name.length() < MAX_LENGTH) {
                 testLongPath (i, name, false);
                 testLongPath (i, name, true);
-                name += "A";
+                name = getNextName(name);
             }
         }
 
-        // Testing below will not be run if "-extra" is not
-        if (args.length == 0 ||
-            !"-extra".equals(args[0]) ||
-            !isWindows)
-            return;
-
-        /* Testings below should not be run on a remote
-           dir that exists on a Solaris machine */
-        for (int i = 20; i < 21; i++) {
+        // test long paths on windows
+        // And these long pathes cannot be handled on Solaris and Mac platforms
+        if (isWindows) {
             String name = fileName;
-            while (name.length() < 256) {
-                testLongPath (i, name, false);
-                testLongPath (i, name, true);
-                name += "A";
+            while (name.length() < MAX_LENGTH) {
+                testLongPath (20, name, false);
+                testLongPath (20, name, true);
+                name = getNextName(name);
             }
         }
     }
 
-    private static int lastMax = 0;
+    private static String getNextName(String fName) {
+        return (fName.length() < MAX_LENGTH/2) ? fName + fName
+                                               : fName + "A";
+    }
+
     static void testLongPath(int max, String fn,
                              boolean tryAbsolute) throws Exception {
         String[] created = new String[max];
         String pathString = ".";
         for (int i = 0; i < max -1; i++) {
-            pathString = pathString + pathComponent;
+            pathString = pathString + pathComponent + (counter++);
             created[max - 1 -i] = pathString;
-
         }
+
         File dirFile = new File(pathString);
         File f = new File(pathString + sep + fn);
 
@@ -116,31 +100,19 @@ public class MaxPathLength {
             System.err.println("Warning: Test directory structure exists already!");
             return;
         }
-        boolean couldMakeTestDirectory = dirFile.mkdirs();
-        if (!couldMakeTestDirectory) {
-            throw new RuntimeException ("Could not create test directory structure");
-        }
+
         try {
+            Files.createDirectories(dirFile.toPath());
+
             if (tryAbsolute)
                 dirFile = new File(dirFile.getCanonicalPath());
             if (!dirFile.isDirectory())
                 throw new RuntimeException ("File.isDirectory() failed");
-            if (isWindows && lastMax != max) {
-                long diff = totalSpace - dirFile.getTotalSpace()/ONEMEGA;
-                if (diff < -5 || diff > 5)
-                    throw new RuntimeException ("File.getTotalSpace() failed");
-                diff = freeSpace - dirFile.getFreeSpace()/ONEMEGA;
-                if (diff < -5 || diff > 5)
-                    throw new RuntimeException ("File.getFreeSpace() failed");
-                diff = usableSpace - dirFile.getUsableSpace()/ONEMEGA;
-                if (diff < -5 || diff > 5)
-                    throw new RuntimeException ("File.getUsableSpace() failed");
-                lastMax = max;
-            }
             f = new File(tPath);
             if (!f.createNewFile()) {
                 throw new RuntimeException ("File.createNewFile() failed");
             }
+
             if (!f.exists())
                 throw new RuntimeException ("File.exists() failed");
             if (!f.isFile())
@@ -149,11 +121,14 @@ public class MaxPathLength {
                 throw new RuntimeException ("File.canRead() failed");
             if (!f.canWrite())
                 throw new RuntimeException ("File.canWrite() failed");
+
             if (!f.delete())
                 throw new RuntimeException ("File.delete() failed");
+
             FileOutputStream fos = new FileOutputStream(f);
             fos.write(1);
             fos.close();
+
             if (f.length() != 1)
                 throw new RuntimeException ("File.length() failed");
             long time = System.currentTimeMillis();
@@ -190,30 +165,37 @@ public class MaxPathLength {
                     throw new RuntimeException ("File.renameTo() failed for lenth="
                                                 + abPath.length());
                 }
-                return;
+            } else {
+                if (!nf.canRead())
+                    throw new RuntimeException ("Renamed file is not readable");
+                if (!nf.canWrite())
+                    throw new RuntimeException ("Renamed file is not writable");
+                if (nf.length() != 1)
+                    throw new RuntimeException ("Renamed file's size is not correct");
+                if (!nf.renameTo(f)) {
+                    created[0] = nf.getPath();
+                }
+                /* add a script to test these two if we got a regression later
+                if (!f.setReadOnly())
+                    throw new RuntimeException ("File.setReadOnly() failed");
+                f.deleteOnExit();
+                */
             }
-            if (!nf.canRead())
-                throw new RuntimeException ("Renamed file is not readable");
-            if (!nf.canWrite())
-                throw new RuntimeException ("Renamed file is not writable");
-            if (nf.length() != 1)
-                throw new RuntimeException ("Renamed file's size is not correct");
-            nf.renameTo(f);
-            /* add a script to test these two if we got a regression later
-            if (!f.setReadOnly())
-                throw new RuntimeException ("File.setReadOnly() failed");
-            f.deleteOnExit();
-            */
         } finally {
             // Clean up
             for (int i = 0; i < max; i++) {
-                pathString = created[i];
-                // Only works with completex canonical paths
-                File df = new File(pathString);
-                pathString = df.getCanonicalPath();
-                df = new File(pathString);
-                if (!df.delete())
-                    System.out.printf("Delete failed->%s\n", pathString);
+                Path p = (new File(created[i])).toPath();
+                try {
+                    Files.deleteIfExists(p);
+                    // Test if the file is really deleted and wait for 1 second at most
+                    for (int j = 0; j < 10 && Files.exists(p); j++) {
+                        Thread.sleep(100);
+                    }
+                } catch (DirectoryNotEmptyException ex) {
+                    // Give up the clean-up, let jtreg handle it.
+                    System.err.println("Dir, " + p + ", is not empty");
+                    break;
+                }
             }
         }
     }

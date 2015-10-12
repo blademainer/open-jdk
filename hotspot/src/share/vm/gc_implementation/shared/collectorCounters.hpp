@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,7 @@
 // CollectorCounters is a holder class for performance counters
 // that track a collector
 
-class CollectorCounters: public CHeapObj {
+class CollectorCounters: public CHeapObj<mtGC> {
   friend class VMStructs;
 
   private:
@@ -50,7 +50,7 @@ class CollectorCounters: public CHeapObj {
     CollectorCounters(const char* name, int ordinal);
 
     ~CollectorCounters() {
-      if (_name_space != NULL) FREE_C_HEAP_ARRAY(char, _name_space);
+      if (_name_space != NULL) FREE_C_HEAP_ARRAY(char, _name_space, mtGC);
     }
 
     inline PerfCounter* invocation_counter() const  { return _invocations; }

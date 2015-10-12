@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -108,10 +108,6 @@ public class FontConfigManager {
     public FontConfigManager() {
     }
 
-    public static String[] getFontConfigNames() {
-        return fontConfigNames;
-    }
-
     /* Called from code that needs to know what are the AA settings
      * that apps using FC would pick up for the default desktop font.
      * Note apps can change the default desktop font. etc, so this
@@ -182,7 +178,6 @@ public class FontConfigManager {
             t0 = System.nanoTime();
         }
 
-        String[] fontConfigNames = FontConfigManager.getFontConfigNames();
         FcCompFont[] fontArr = new FcCompFont[fontConfigNames.length];
 
         for (int i = 0; i< fontArr.length; i++) {
@@ -347,6 +342,11 @@ public class FontConfigManager {
         name = name.toLowerCase();
 
         initFontConfigFonts(false);
+        if (fontConfigFonts == null) {
+            // This avoids an immediate NPE if fontconfig look up failed
+            // but doesn't guarantee this is a recoverable situation.
+            return null;
+        }
 
         FcCompFont fcInfo = null;
         for (int i=0; i<fontConfigFonts.length; i++) {

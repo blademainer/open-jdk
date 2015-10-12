@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,7 +40,7 @@ public interface ScrollPaneConstants
     String VIEWPORT = "VIEWPORT";
     /** Identifies a vertical scrollbar. */
     String VERTICAL_SCROLLBAR = "VERTICAL_SCROLLBAR";
-    /** Identifies a horizonal scrollbar. */
+    /** Identifies a horizontal scrollbar. */
     String HORIZONTAL_SCROLLBAR = "HORIZONTAL_SCROLLBAR";
     /**
      * Identifies the area along the left side of the viewport between the

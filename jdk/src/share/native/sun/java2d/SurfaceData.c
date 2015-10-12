@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,7 @@
 #include "jni_util.h"
 #include "Disposer.h"
 
-#include "malloc.h"
+#include "stdlib.h"
 #include "string.h"
 
 /**
@@ -237,7 +237,9 @@ SurfaceDataOps *SurfaceData_InitOps(JNIEnv *env, jobject sData, int opsSize)
     SurfaceData_SetOps(env, sData, ops);
     if (ops != NULL) {
         memset(ops, 0, opsSize);
-        ops->sdObject = (*env)->NewWeakGlobalRef(env, sData);
+        if (!(*env)->ExceptionCheck(env)) {
+            ops->sdObject = (*env)->NewWeakGlobalRef(env, sData);
+        }
     }
     return ops;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,7 +37,7 @@
 class CompileTask;
 class CompileQueue;
 
-class CompilationPolicy : public CHeapObj {
+class CompilationPolicy : public CHeapObj<mtCompiler> {
   static CompilationPolicy* _policy;
   // Accumulated time
   static elapsedTimer       _accumulated_time;
@@ -52,6 +52,8 @@ public:
   static bool must_be_compiled(methodHandle m, int comp_level = CompLevel_all);
   // m is allowed to be compiled
   static bool can_be_compiled(methodHandle m, int comp_level = CompLevel_all);
+  // m is allowed to be osr compiled
+  static bool can_be_osr_compiled(methodHandle m, int comp_level = CompLevel_all);
   static bool is_compilation_enabled();
   static void set_policy(CompilationPolicy* policy) { _policy = policy; }
   static CompilationPolicy* policy()                { return _policy; }
@@ -59,27 +61,30 @@ public:
   // Profiling
   elapsedTimer* accumulated_time() { return &_accumulated_time; }
   void print_time() PRODUCT_RETURN;
+  // Return initial compile level that is used with Xcomp
+  virtual CompLevel initial_compile_level() = 0;
   virtual int compiler_count(CompLevel comp_level) = 0;
   // main notification entry, return a pointer to an nmethod if the OSR is required,
   // returns NULL otherwise.
-  virtual nmethod* event(methodHandle method, methodHandle inlinee, int branch_bci, int bci, CompLevel comp_level, TRAPS) = 0;
+  virtual nmethod* event(methodHandle method, methodHandle inlinee, int branch_bci, int bci, CompLevel comp_level, nmethod* nm, JavaThread* thread) = 0;
   // safepoint() is called at the end of the safepoint
   virtual void do_safepoint_work() = 0;
   // reprofile request
   virtual void reprofile(ScopeDesc* trap_scope, bool is_osr) = 0;
   // delay_compilation(method) can be called by any component of the runtime to notify the policy
   // that it's recommended to delay the complation of this method.
-  virtual void delay_compilation(methodOop method) = 0;
+  virtual void delay_compilation(Method* method) = 0;
   // disable_compilation() is called whenever the runtime decides to disable compilation of the
   // specified method.
-  virtual void disable_compilation(methodOop method) = 0;
+  virtual void disable_compilation(Method* method) = 0;
   // Select task is called by CompileBroker. The queue is guaranteed to have at least one
   // element and is locked. The function should select one and return it.
   virtual CompileTask* select_task(CompileQueue* compile_queue) = 0;
   // Tell the runtime if we think a given method is adequately profiled.
-  virtual bool is_mature(methodOop method) = 0;
+  virtual bool is_mature(Method* method) = 0;
   // Do policy initialization
   virtual void initialize() = 0;
+  virtual bool should_not_inline(ciEnv* env, ciMethod* method) { return false; }
 };
 
 // A base class for baseline policies.
@@ -93,23 +98,24 @@ protected:
   void reset_counter_for_back_branch_event(methodHandle method);
 public:
   NonTieredCompPolicy() : _compiler_count(0) { }
+  virtual CompLevel initial_compile_level() { return CompLevel_highest_tier; }
   virtual int compiler_count(CompLevel comp_level);
   virtual void do_safepoint_work();
   virtual void reprofile(ScopeDesc* trap_scope, bool is_osr);
-  virtual void delay_compilation(methodOop method);
-  virtual void disable_compilation(methodOop method);
-  virtual bool is_mature(methodOop method);
+  virtual void delay_compilation(Method* method);
+  virtual void disable_compilation(Method* method);
+  virtual bool is_mature(Method* method);
   virtual void initialize();
   virtual CompileTask* select_task(CompileQueue* compile_queue);
-  virtual nmethod* event(methodHandle method, methodHandle inlinee, int branch_bci, int bci, CompLevel comp_level, TRAPS);
-  virtual void method_invocation_event(methodHandle m, TRAPS) = 0;
-  virtual void method_back_branch_event(methodHandle m, int bci, TRAPS) = 0;
+  virtual nmethod* event(methodHandle method, methodHandle inlinee, int branch_bci, int bci, CompLevel comp_level, nmethod* nm, JavaThread* thread);
+  virtual void method_invocation_event(methodHandle m, JavaThread* thread) = 0;
+  virtual void method_back_branch_event(methodHandle m, int bci, JavaThread* thread) = 0;
 };
 
 class SimpleCompPolicy : public NonTieredCompPolicy {
  public:
-  virtual void method_invocation_event(methodHandle m, TRAPS);
-  virtual void method_back_branch_event(methodHandle m, int bci, TRAPS);
+  virtual void method_invocation_event(methodHandle m, JavaThread* thread);
+  virtual void method_back_branch_event(methodHandle m, int bci, JavaThread* thread);
 };
 
 // StackWalkCompPolicy - existing C2 policy
@@ -117,8 +123,8 @@ class SimpleCompPolicy : public NonTieredCompPolicy {
 #ifdef COMPILER2
 class StackWalkCompPolicy : public NonTieredCompPolicy {
  public:
-  virtual void method_invocation_event(methodHandle m, TRAPS);
-  virtual void method_back_branch_event(methodHandle m, int bci, TRAPS);
+  virtual void method_invocation_event(methodHandle m, JavaThread* thread);
+  virtual void method_back_branch_event(methodHandle m, int bci, JavaThread* thread);
 
  private:
   RFrame* findTopInlinableFrame(GrowableArray<RFrame*>* stack);

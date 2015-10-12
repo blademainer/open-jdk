@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -61,6 +61,7 @@ import java.util.HashMap;
  * @author Laird Dornin
  * @since 1.4
  */
+@SuppressWarnings("deprecation")
 public abstract class Log {
 
     /** Logger re-definition of old RMI log values */
@@ -378,7 +379,7 @@ public abstract class Log {
 
         private LogStreamLog(LogStream stream, Level level) {
             if ((stream != null) && (level != null)) {
-                /* if the stream or level is null, dont log any
+                /* if the stream or level is null, don't log any
                  * messages
                  */
                 levelValue = level.intValue();

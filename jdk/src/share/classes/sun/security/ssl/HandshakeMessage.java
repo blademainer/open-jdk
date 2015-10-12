@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,12 +41,14 @@ import javax.security.auth.x500.X500Principal;
 
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.DHPublicKeySpec;
 
 import javax.net.ssl.*;
 
 import sun.security.internal.spec.TlsPrfParameterSpec;
 import sun.security.ssl.CipherSuite.*;
 import static sun.security.ssl.CipherSuite.PRF.*;
+import sun.security.util.KeyUtil;
 
 /**
  * Many data structures are involved in the handshake messages.  These
@@ -132,7 +134,7 @@ public abstract class HandshakeMessage {
      */
     final void write(HandshakeOutStream s) throws IOException {
         int len = messageLength();
-        if (len > (1 << 24)) {
+        if (len >= Record.OVERFLOW_OF_INT24) {
             throw new SSLException("Handshake message too big"
                 + ", type = " + messageType() + ", len = " + len);
         }
@@ -170,6 +172,7 @@ public abstract class HandshakeMessage {
  * session parameters after a connection has been (re)established.
  */
 static final class HelloRequest extends HandshakeMessage {
+    @Override
     int messageType() { return ht_hello_request; }
 
     HelloRequest() { }
@@ -179,13 +182,16 @@ static final class HelloRequest extends HandshakeMessage {
         // nothing in this message
     }
 
+    @Override
     int messageLength() { return 0; }
 
+    @Override
     void send(HandshakeOutStream out) throws IOException
     {
         // nothing in this messaage
     }
 
+    @Override
     void print(PrintStream out) throws IOException
     {
         out.println("*** HelloRequest (empty)");
@@ -256,13 +262,9 @@ static final class ClientHello extends HandshakeMessage {
     }
 
     // add server_name extension
-    void addServerNameIndicationExtension(String hostname) {
-        // We would have checked that the hostname ia a FQDN.
-        ArrayList<String> hostnames = new ArrayList<>(1);
-        hostnames.add(hostname);
-
+    void addSNIExtension(List<SNIServerName> serverNames) {
         try {
-            extensions.add(new ServerNameExtension(hostnames));
+            extensions.add(new ServerNameExtension(serverNames));
         } catch (IOException ioe) {
             // ignore the exception and return
         }
@@ -333,6 +335,7 @@ static final class ClientHello extends HandshakeMessage {
 static final
 class ServerHello extends HandshakeMessage
 {
+    @Override
     int messageType() { return ht_server_hello; }
 
     ProtocolVersion     protocolVersion;
@@ -359,6 +362,7 @@ class ServerHello extends HandshakeMessage
         }
     }
 
+    @Override
     int messageLength()
     {
         // almost fixed size, except session ID and extensions:
@@ -370,6 +374,7 @@ class ServerHello extends HandshakeMessage
         return 38 + sessionId.length() + extensions.length();
     }
 
+    @Override
     void send(HandshakeOutStream s) throws IOException
     {
         s.putInt8(protocolVersion.major);
@@ -382,6 +387,7 @@ class ServerHello extends HandshakeMessage
         extensions.send(s);
     }
 
+    @Override
     void print(PrintStream s) throws IOException
     {
         s.println("*** ServerHello, " + protocolVersion);
@@ -389,8 +395,6 @@ class ServerHello extends HandshakeMessage
         if (debug != null && Debug.isOn("verbose")) {
             s.print("RandomCookie:  ");
             svr_random.print(s);
-
-            int i;
 
             s.print("Session ID:  ");
             s.println(sessionId);
@@ -420,6 +424,7 @@ class ServerHello extends HandshakeMessage
 static final
 class CertificateMsg extends HandshakeMessage
 {
+    @Override
     int messageType() { return ht_certificate; }
 
     private X509Certificate[] chain;
@@ -454,6 +459,7 @@ class CertificateMsg extends HandshakeMessage
         chain = v.toArray(new X509Certificate[v.size()]);
     }
 
+    @Override
     int messageLength() {
         if (encodedChain == null) {
             messageLength = 3;
@@ -472,6 +478,7 @@ class CertificateMsg extends HandshakeMessage
         return messageLength;
     }
 
+    @Override
     void send(HandshakeOutStream s) throws IOException {
         s.putInt24(messageLength() - 3);
         for (byte[] b : encodedChain) {
@@ -479,6 +486,7 @@ class CertificateMsg extends HandshakeMessage
         }
     }
 
+    @Override
     void print(PrintStream s) throws IOException {
         s.println("*** Certificate chain");
 
@@ -532,6 +540,7 @@ class CertificateMsg extends HandshakeMessage
  */
 static abstract class ServerKeyExchange extends HandshakeMessage
 {
+    @Override
     int messageType() { return ht_server_key_exchange; }
 }
 
@@ -639,17 +648,20 @@ class RSA_ServerKeyExchange extends ServerKeyExchange
         return signature.verify(signatureBytes);
     }
 
+    @Override
     int messageLength() {
         return 6 + rsa_modulus.length + rsa_exponent.length
                + signatureBytes.length;
     }
 
+    @Override
     void send(HandshakeOutStream s) throws IOException {
         s.putBytes16(rsa_modulus);
         s.putBytes16(rsa_exponent);
         s.putBytes16(signatureBytes);
     }
 
+    @Override
     void print(PrintStream s) throws IOException {
         s.println("*** RSA ServerKeyExchange");
 
@@ -702,6 +714,7 @@ class DH_ServerKeyExchange extends ServerKeyExchange
         this.protocolVersion = protocolVersion;
         this.preferableSignatureAlgorithm = null;
 
+        // The DH key has been validated in the constructor of DHCrypt.
         setValues(obj);
         signature = null;
     }
@@ -718,6 +731,7 @@ class DH_ServerKeyExchange extends ServerKeyExchange
 
         this.protocolVersion = protocolVersion;
 
+        // The DH key has been validated in the constructor of DHCrypt.
         setValues(obj);
 
         Signature sig;
@@ -744,7 +758,8 @@ class DH_ServerKeyExchange extends ServerKeyExchange
      * DH_anon key exchange
      */
     DH_ServerKeyExchange(HandshakeInStream input,
-            ProtocolVersion protocolVersion) throws IOException {
+            ProtocolVersion protocolVersion)
+            throws IOException, GeneralSecurityException {
 
         this.protocolVersion = protocolVersion;
         this.preferableSignatureAlgorithm = null;
@@ -752,6 +767,10 @@ class DH_ServerKeyExchange extends ServerKeyExchange
         dh_p = input.getBytes16();
         dh_g = input.getBytes16();
         dh_Ys = input.getBytes16();
+        KeyUtil.validate(new DHPublicKeySpec(new BigInteger(1, dh_Ys),
+                                             new BigInteger(1, dh_p),
+                                             new BigInteger(1, dh_g)));
+
         signature = null;
     }
 
@@ -772,6 +791,9 @@ class DH_ServerKeyExchange extends ServerKeyExchange
         dh_p = input.getBytes16();
         dh_g = input.getBytes16();
         dh_Ys = input.getBytes16();
+        KeyUtil.validate(new DHPublicKeySpec(new BigInteger(1, dh_Ys),
+                                             new BigInteger(1, dh_p),
+                                             new BigInteger(1, dh_g)));
 
         // read the signature and hash algorithm
         if (protocolVersion.v >= ProtocolVersion.TLS12.v) {
@@ -811,13 +833,16 @@ class DH_ServerKeyExchange extends ServerKeyExchange
             sig = JsseJce.getSignature(
                         preferableSignatureAlgorithm.getAlgorithmName());
         } else {
-            if (algorithm.equals("DSA")) {
-                sig = JsseJce.getSignature(JsseJce.SIGNATURE_DSA);
-            } else if (algorithm.equals("RSA")) {
-                sig = RSASignature.getInstance();
-            } else {
-                throw new SSLKeyException("neither an RSA or a DSA key");
-            }
+                switch (algorithm) {
+                    case "DSA":
+                        sig = JsseJce.getSignature(JsseJce.SIGNATURE_DSA);
+                        break;
+                    case "RSA":
+                        sig = RSASignature.getInstance();
+                        break;
+                    default:
+                        throw new SSLKeyException("neither an RSA or a DSA key");
+                }
         }
 
         sig.initVerify(publicKey);
@@ -875,6 +900,7 @@ class DH_ServerKeyExchange extends ServerKeyExchange
         dh_Ys = toByteArray(obj.getPublicKey());
     }
 
+    @Override
     int messageLength() {
         int temp = 6;   // overhead for p, g, y(s) values.
 
@@ -896,6 +922,7 @@ class DH_ServerKeyExchange extends ServerKeyExchange
         return temp;
     }
 
+    @Override
     void send(HandshakeOutStream s) throws IOException {
         s.putBytes16(dh_p);
         s.putBytes16(dh_g);
@@ -915,6 +942,7 @@ class DH_ServerKeyExchange extends ServerKeyExchange
         }
     }
 
+    @Override
     void print(PrintStream s) throws IOException {
         s.println("*** Diffie-Hellman ServerKeyExchange");
 
@@ -1097,13 +1125,14 @@ class ECDH_ServerKeyExchange extends ServerKeyExchange {
 
     private static Signature getSignature(String keyAlgorithm)
             throws NoSuchAlgorithmException {
-        if (keyAlgorithm.equals("EC")) {
-            return JsseJce.getSignature(JsseJce.SIGNATURE_ECDSA);
-        } else if (keyAlgorithm.equals("RSA")) {
-            return RSASignature.getInstance();
-        } else {
-            throw new NoSuchAlgorithmException("neither an RSA or a EC key");
-        }
+            switch (keyAlgorithm) {
+                case "EC":
+                    return JsseJce.getSignature(JsseJce.SIGNATURE_ECDSA);
+                case "RSA":
+                    return RSASignature.getInstance();
+                default:
+                    throw new NoSuchAlgorithmException("neither an RSA or a EC key");
+            }
     }
 
     private void updateSignature(Signature sig, byte clntNonce[],
@@ -1118,6 +1147,7 @@ class ECDH_ServerKeyExchange extends ServerKeyExchange {
         sig.update(pointBytes);
     }
 
+    @Override
     int messageLength() {
         int sigLen = 0;
         if (signatureBytes != null) {
@@ -1130,6 +1160,7 @@ class ECDH_ServerKeyExchange extends ServerKeyExchange {
         return 4 + pointBytes.length + sigLen;
     }
 
+    @Override
     void send(HandshakeOutStream s) throws IOException {
         s.putInt8(CURVE_NAMED_CURVE);
         s.putInt16(curveId);
@@ -1145,6 +1176,7 @@ class ECDH_ServerKeyExchange extends ServerKeyExchange {
         }
     }
 
+    @Override
     void print(PrintStream s) throws IOException {
         s.println("*** ECDH ServerKeyExchange");
 
@@ -1479,6 +1511,7 @@ class CertificateRequest extends HandshakeMessage
 static final
 class ServerHelloDone extends HandshakeMessage
 {
+    @Override
     int messageType() { return ht_server_hello_done; }
 
     ServerHelloDone() { }
@@ -1488,16 +1521,19 @@ class ServerHelloDone extends HandshakeMessage
         // nothing to do
     }
 
+    @Override
     int messageLength()
     {
         return 0;
     }
 
+    @Override
     void send(HandshakeOutStream s) throws IOException
     {
         // nothing to send
     }
 
+    @Override
     void print(PrintStream s) throws IOException
     {
         s.println("*** ServerHelloDone");
@@ -1611,16 +1647,17 @@ static final class CertificateVerify extends HandshakeMessage {
      */
     private static Signature getSignature(ProtocolVersion protocolVersion,
             String algorithm) throws GeneralSecurityException {
-        if (algorithm.equals("RSA")) {
-            return RSASignature.getInternalInstance();
-        } else if (algorithm.equals("DSA")) {
-            return JsseJce.getSignature(JsseJce.SIGNATURE_RAWDSA);
-        } else if (algorithm.equals("EC")) {
-            return JsseJce.getSignature(JsseJce.SIGNATURE_RAWECDSA);
-        } else {
-            throw new SignatureException("Unrecognized algorithm: "
-                + algorithm);
-        }
+            switch (algorithm) {
+                case "RSA":
+                    return RSASignature.getInternalInstance();
+                case "DSA":
+                    return JsseJce.getSignature(JsseJce.SIGNATURE_RAWDSA);
+                case "EC":
+                    return JsseJce.getSignature(JsseJce.SIGNATURE_RAWECDSA);
+                default:
+                    throw new SignatureException("Unrecognized algorithm: "
+                        + algorithm);
+            }
     }
 
     /*
@@ -1696,7 +1733,7 @@ static final class CertificateVerify extends HandshakeMessage {
         md.update(temp);
     }
 
-    private final static Class delegate;
+    private final static Class<?> delegate;
     private final static Field spiField;
 
     static {
@@ -1711,6 +1748,7 @@ static final class CertificateVerify extends HandshakeMessage {
 
     private static void makeAccessible(final AccessibleObject o) {
         AccessController.doPrivileged(new PrivilegedAction<Object>() {
+            @Override
             public Object run() {
                 o.setAccessible(true);
                 return null;
@@ -1724,7 +1762,7 @@ static final class CertificateVerify extends HandshakeMessage {
     // cache Method objects per Spi class
     // Note that this will prevent the Spi classes from being GC'd. We assume
     // that is not a problem.
-    private final static Map<Class,Object> methodCache =
+    private final static Map<Class<?>,Object> methodCache =
                                         new ConcurrentHashMap<>();
 
     private static void digestKey(MessageDigest md, SecretKey key) {

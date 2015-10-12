@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,7 @@ import javax.swing.tree.ExpandVetoException;
   * The listener that's notified when a tree expands or collapses
   * a node.
   * For further information and examples see
-  * <a href="http://java.sun.com/docs/books/tutorial/uiswing/events/treewillexpandlistener.html">How to Write a Tree-Will-Expand Listener</a>,
+  * <a href="http://docs.oracle.com/javase/tutorial/uiswing/events/treewillexpandlistener.html">How to Write a Tree-Will-Expand Listener</a>,
   * a section in <em>The Java Tutorial.</em>
   *
   * @author Scott Violet

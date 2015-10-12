@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -133,6 +133,10 @@ SplashDecodeJpeg(Splash * splash, struct jpeg_decompress_struct *cinfo)
     ImageFormat srcFormat;
 
     jpeg_read_header(cinfo, TRUE);
+
+    // SplashScreen jpeg converter expects data in RGB format only
+    cinfo->out_color_space = JCS_RGB;
+
     jpeg_start_decompress(cinfo);
 
     SplashCleanup(splash);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,7 +36,7 @@
 // Currently, code descriptors are simply chained in a linked list,
 // this may have to change if searching becomes too slow.
 
-class StubCodeDesc: public CHeapObj {
+class StubCodeDesc: public CHeapObj<mtCode> {
  protected:
   static StubCodeDesc* _list;                  // the list of all descriptors
   static int           _count;                 // length of list

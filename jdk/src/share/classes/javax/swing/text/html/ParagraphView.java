@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -211,7 +211,7 @@ public class ParagraphView extends javax.swing.text.ParagraphView {
 
     /**
      * Renders using the given rendering surface and area on that
-     * surface.  This is implemented to delgate to the superclass
+     * surface.  This is implemented to delegate to the superclass
      * after stashing the base coordinate for tab calculations.
      *
      * @param g the rendering surface to use

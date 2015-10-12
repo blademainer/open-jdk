@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,6 +48,7 @@ import java.security.AccessController;
 import java.security.MessageDigest;
 import java.security.DigestOutputStream;
 import java.security.NoSuchAlgorithmException;
+import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
@@ -63,6 +64,7 @@ import sun.security.action.GetPropertyAction;
  * A utility class with static methods for creating stubs/proxies and
  * skeletons for remote objects.
  */
+@SuppressWarnings("deprecation")
 public final class Util {
 
     /** "server" package log level */
@@ -85,7 +87,7 @@ public final class Util {
         Collections.synchronizedMap(new WeakHashMap<Class<?>, Void>(11));
 
     /** parameter types for stub constructor */
-    private static final Class[] stubConsParamTypes = { RemoteRef.class };
+    private static final Class<?>[] stubConsParamTypes = { RemoteRef.class };
 
     private Util() {
     }
@@ -119,12 +121,12 @@ public final class Util {
      * @throws StubNotFoundException if problem locating/creating stub or
      * creating the dynamic proxy instance
      **/
-    public static Remote createProxy(Class implClass,
+    public static Remote createProxy(Class<?> implClass,
                                      RemoteRef clientRef,
                                      boolean forceStubUse)
         throws StubNotFoundException
     {
-        Class remoteClass;
+        Class<?> remoteClass;
 
         try {
             remoteClass = getRemoteClass(implClass);
@@ -140,17 +142,20 @@ public final class Util {
             return createStub(remoteClass, clientRef);
         }
 
-        ClassLoader loader = implClass.getClassLoader();
-        Class[] interfaces = getRemoteInterfaces(implClass);
-        InvocationHandler handler =
+        final ClassLoader loader = implClass.getClassLoader();
+        final Class<?>[] interfaces = getRemoteInterfaces(implClass);
+        final InvocationHandler handler =
             new RemoteObjectInvocationHandler(clientRef);
 
         /* REMIND: private remote interfaces? */
 
         try {
-            return (Remote) Proxy.newProxyInstance(loader,
-                                                   interfaces,
-                                                   handler);
+            return AccessController.doPrivileged(new PrivilegedAction<Remote>() {
+                public Remote run() {
+                    return (Remote) Proxy.newProxyInstance(loader,
+                                                           interfaces,
+                                                           handler);
+                }});
         } catch (IllegalArgumentException e) {
             throw new StubNotFoundException("unable to create proxy", e);
         }
@@ -162,7 +167,7 @@ public final class Util {
      *
      * @param remoteClass the class to obtain remote interfaces from
      */
-    private static boolean stubClassExists(Class remoteClass) {
+    private static boolean stubClassExists(Class<?> remoteClass) {
         if (!withoutStubs.containsKey(remoteClass)) {
             try {
                 Class.forName(remoteClass.getName() + "_Stub",
@@ -182,11 +187,11 @@ public final class Util {
      * @throws ClassNotFoundException if no class is found to have a
      * remote interface
      */
-    private static Class getRemoteClass(Class cl)
+    private static Class<?> getRemoteClass(Class<?> cl)
         throws ClassNotFoundException
     {
         while (cl != null) {
-            Class[] interfaces = cl.getInterfaces();
+            Class<?>[] interfaces = cl.getInterfaces();
             for (int i = interfaces.length -1; i >= 0; i--) {
                 if (Remote.class.isAssignableFrom(interfaces[i]))
                     return cl;          // this class implements remote object
@@ -206,8 +211,8 @@ public final class Util {
      *          any illegal remote interfaces
      * @throws  NullPointerException if remoteClass is null
      */
-    private static Class[] getRemoteInterfaces(Class remoteClass) {
-        ArrayList<Class<?>> list = new ArrayList<Class<?>>();
+    private static Class<?>[] getRemoteInterfaces(Class<?> remoteClass) {
+        ArrayList<Class<?>> list = new ArrayList<>();
         getRemoteInterfaces(list, remoteClass);
         return list.toArray(new Class<?>[list.size()]);
     }
@@ -220,15 +225,15 @@ public final class Util {
      *          any illegal remote interfaces
      * @throws  NullPointerException if the specified class or list is null
      */
-    private static void getRemoteInterfaces(ArrayList<Class<?>> list, Class cl) {
-        Class superclass = cl.getSuperclass();
+    private static void getRemoteInterfaces(ArrayList<Class<?>> list, Class<?> cl) {
+        Class<?> superclass = cl.getSuperclass();
         if (superclass != null) {
             getRemoteInterfaces(list, superclass);
         }
 
-        Class[] interfaces = cl.getInterfaces();
+        Class<?>[] interfaces = cl.getInterfaces();
         for (int i = 0; i < interfaces.length; i++) {
-            Class intf = interfaces[i];
+            Class<?> intf = interfaces[i];
             /*
              * If it is a remote interface (if it extends from
              * java.rmi.Remote) and is not already in the list,
@@ -272,7 +277,7 @@ public final class Util {
      * the stub class is initiated from class loader of the specified class
      * (which may be the bootstrap class loader).
      **/
-    private static RemoteStub createStub(Class remoteClass, RemoteRef ref)
+    private static RemoteStub createStub(Class<?> remoteClass, RemoteRef ref)
         throws StubNotFoundException
     {
         String stubname = remoteClass.getName() + "_Stub";
@@ -285,7 +290,7 @@ public final class Util {
         try {
             Class<?> stubcl =
                 Class.forName(stubname, false, remoteClass.getClassLoader());
-            Constructor cons = stubcl.getConstructor(stubConsParamTypes);
+            Constructor<?> cons = stubcl.getConstructor(stubConsParamTypes);
             return (RemoteStub) cons.newInstance(new Object[] { ref });
 
         } catch (ClassNotFoundException e) {
@@ -315,7 +320,7 @@ public final class Util {
     static Skeleton createSkeleton(Remote object)
         throws SkeletonNotFoundException
     {
-        Class cl;
+        Class<?> cl;
         try {
             cl = getRemoteClass(object.getClass());
         } catch (ClassNotFoundException ex ) {
@@ -327,7 +332,7 @@ public final class Util {
         // now try to load the skeleton based ont he name of the class
         String skelname = cl.getName() + "_Skel";
         try {
-            Class skelcl = Class.forName(skelname, false, cl.getClassLoader());
+            Class<?> skelcl = Class.forName(skelname, false, cl.getClassLoader());
 
             return (Skeleton)skelcl.newInstance();
         } catch (ClassNotFoundException ex) {
@@ -391,12 +396,12 @@ public final class Util {
     private static String getMethodNameAndDescriptor(Method m) {
         StringBuffer desc = new StringBuffer(m.getName());
         desc.append('(');
-        Class[] paramTypes = m.getParameterTypes();
+        Class<?>[] paramTypes = m.getParameterTypes();
         for (int i = 0; i < paramTypes.length; i++) {
             desc.append(getTypeDescriptor(paramTypes[i]));
         }
         desc.append(')');
-        Class returnType = m.getReturnType();
+        Class<?> returnType = m.getReturnType();
         if (returnType == void.class) { // optimization: handle void here
             desc.append('V');
         } else {
@@ -409,7 +414,7 @@ public final class Util {
      * Get the descriptor of a particular type, as appropriate for either
      * a parameter or return type in a method descriptor.
      */
-    private static String getTypeDescriptor(Class type) {
+    private static String getTypeDescriptor(Class<?> type) {
         if (type.isPrimitive()) {
             if (type == int.class) {
                 return "I";
@@ -454,7 +459,7 @@ public final class Util {
      * top-level type (and perhaps other enclosing types), the
      * separator will be '$', etc.
      **/
-    public static String getUnqualifiedName(Class c) {
+    public static String getUnqualifiedName(Class<?> c) {
         String binaryName = c.getName();
         return binaryName.substring(binaryName.lastIndexOf('.') + 1);
     }

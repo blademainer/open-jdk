@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -158,7 +158,7 @@ public class DuctusRenderingEngine extends RenderingEngine {
             feedConsumer(pi, consumer, normalize, 0.25f);
         } catch (PathException e) {
             throw new InternalError("Unable to Stroke shape ("+
-                                    e.getMessage()+")");
+                                    e.getMessage()+")", e);
         } finally {
             while (consumer != null && consumer != sr) {
                 PathConsumer next = consumer.getConsumer();
@@ -290,7 +290,7 @@ public class DuctusRenderingEngine extends RenderingEngine {
                  * and Infinity values. Ignoring current path segment in case
                  * of invalid endpoints's data. Equivalent to the SEG_LINETO
                  * if endpoint coordinates are valid but there are invalid data
-                 * amoung other coordinates
+                 * among other coordinates
                  */
                 if (point[2] < UPPER_BND && point[2] > LOWER_BND &&
                     point[3] < UPPER_BND && point[3] > LOWER_BND)
@@ -319,7 +319,7 @@ public class DuctusRenderingEngine extends RenderingEngine {
                  * and Infinity values. Ignoring current path segment in case
                  * of invalid endpoints's data. Equivalent to the SEG_LINETO
                  * if endpoint coordinates are valid but there are invalid data
-                 * amoung other coordinates
+                 * among other coordinates
                  */
                 if (point[4] < UPPER_BND && point[4] > LOWER_BND &&
                     point[5] < UPPER_BND && point[5] > LOWER_BND)
@@ -545,7 +545,7 @@ public class DuctusRenderingEngine extends RenderingEngine {
                      * NaN and Infinity values. Ignoring current path segment
                      * in case of invalid endpoints's data. Equivalent to the
                      * SEG_LINETO if endpoint coordinates are valid but there
-                     * are invalid data amoung other coordinates
+                     * are invalid data among other coordinates
                      */
                     if (point[2] < UPPER_BND && point[2] > LOWER_BND &&
                         point[3] < UPPER_BND && point[3] > LOWER_BND)
@@ -574,7 +574,7 @@ public class DuctusRenderingEngine extends RenderingEngine {
                      * NaN and Infinity values. Ignoring  current path segment
                      * in case of invalid endpoints's data. Equivalent to the
                      * SEG_LINETO if endpoint coordinates are valid but there
-                     * are invalid data amoung other coordinates
+                     * are invalid data among other coordinates
                      */
 
                     if (point[4] < UPPER_BND && point[4] > LOWER_BND &&
@@ -763,7 +763,7 @@ public class DuctusRenderingEngine extends RenderingEngine {
             consumer.endPath();
         } catch (PathException e) {
             throw new InternalError("Unable to Stroke shape ("+
-                                    e.getMessage()+")");
+                                    e.getMessage()+")", e);
         }
     }
 

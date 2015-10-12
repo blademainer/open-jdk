@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -192,7 +192,7 @@ abstract class InitialToken extends Krb5Token {
 
                 if (krbCredMessage.length > 0x0000ffff)
                     throw new GSSException(GSSException.FAILURE, -1,
-                        "Incorrect messsage length");
+                        "Incorrect message length");
 
                 writeLittleEndian(krbCredMessage.length, temp);
                 checksumBytes[pos++] = temp[0];
@@ -277,24 +277,17 @@ abstract class InitialToken extends Krb5Token {
                 byte[] credBytes = new byte[credLen];
                 System.arraycopy(checksumBytes, 28, credBytes, 0, credLen);
 
-                CipherHelper cipherHelper = context.getCipherHelper(key);
-                if (useNullKey(cipherHelper)) {
-                    delegCreds =
-                        new KrbCred(credBytes, EncryptionKey.NULL_KEY).
-                        getDelegatedCreds()[0];
-                } else {
-                    KrbCred cred;
-                    try {
-                        cred = new KrbCred(credBytes, key);
-                    } catch (KrbException e) {
-                        if (subKey != null) {
-                            cred = new KrbCred(credBytes, subKey);
-                        } else {
-                            throw e;
-                        }
+                KrbCred cred;
+                try {
+                    cred = new KrbCred(credBytes, key);
+                } catch (KrbException ke) {
+                    if (subKey != null) {
+                        cred = new KrbCred(credBytes, subKey);
+                    } else {
+                        throw ke;
                     }
-                    delegCreds = cred.getDelegatedCreds()[0];
                 }
+                delegCreds = cred.getDelegatedCreds()[0];
             }
         }
 

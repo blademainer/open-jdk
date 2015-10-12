@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,16 +55,18 @@ void*       Disassembler::_library               = NULL;
 bool        Disassembler::_tried_to_load_library = false;
 
 // This routine is in the shared library:
+Disassembler::decode_func_virtual Disassembler::_decode_instructions_virtual = NULL;
 Disassembler::decode_func Disassembler::_decode_instructions = NULL;
 
 static const char hsdis_library_name[] = "hsdis-"HOTSPOT_LIB_ARCH;
+static const char decode_instructions_virtual_name[] = "decode_instructions_virtual";
 static const char decode_instructions_name[] = "decode_instructions";
-
+static bool use_new_version = true;
 #define COMMENT_COLUMN  40 LP64_ONLY(+8) /*could be an option*/
 #define BYTES_COMMENT   ";..."  /* funky byte display comment */
 
 bool Disassembler::load_library() {
-  if (_decode_instructions != NULL) {
+  if (_decode_instructions_virtual != NULL || _decode_instructions != NULL) {
     // Already succeeded.
     return true;
   }
@@ -78,31 +80,64 @@ bool Disassembler::load_library() {
   char buf[JVM_MAXPATHLEN];
   os::jvm_path(buf, sizeof(buf));
   int jvm_offset = -1;
+  int lib_offset = -1;
   {
     // Match "jvm[^/]*" in jvm_path.
     const char* base = buf;
     const char* p = strrchr(buf, '/');
+    if (p != NULL) lib_offset = p - base + 1;
     p = strstr(p ? p : base, "jvm");
     if (p != NULL)  jvm_offset = p - base;
   }
+  // Find the disassembler shared library.
+  // Search for several paths derived from libjvm, in this order:
+  // 1. <home>/jre/lib/<arch>/<vm>/libhsdis-<arch>.so  (for compatibility)
+  // 2. <home>/jre/lib/<arch>/<vm>/hsdis-<arch>.so
+  // 3. <home>/jre/lib/<arch>/hsdis-<arch>.so
+  // 4. hsdis-<arch>.so  (using LD_LIBRARY_PATH)
   if (jvm_offset >= 0) {
-    // Find the disassembler next to libjvm.so.
+    // 1. <home>/jre/lib/<arch>/<vm>/libhsdis-<arch>.so
     strcpy(&buf[jvm_offset], hsdis_library_name);
     strcat(&buf[jvm_offset], os::dll_file_extension());
     _library = os::dll_load(buf, ebuf, sizeof ebuf);
+    if (_library == NULL) {
+      // 2. <home>/jre/lib/<arch>/<vm>/hsdis-<arch>.so
+      strcpy(&buf[lib_offset], hsdis_library_name);
+      strcat(&buf[lib_offset], os::dll_file_extension());
+      _library = os::dll_load(buf, ebuf, sizeof ebuf);
+    }
+    if (_library == NULL) {
+      // 3. <home>/jre/lib/<arch>/hsdis-<arch>.so
+      buf[lib_offset - 1] = '\0';
+      const char* p = strrchr(buf, '/');
+      if (p != NULL) {
+        lib_offset = p - buf + 1;
+        strcpy(&buf[lib_offset], hsdis_library_name);
+        strcat(&buf[lib_offset], os::dll_file_extension());
+        _library = os::dll_load(buf, ebuf, sizeof ebuf);
+      }
+    }
   }
   if (_library == NULL) {
-    // Try a free-floating lookup.
+    // 4. hsdis-<arch>.so  (using LD_LIBRARY_PATH)
     strcpy(&buf[0], hsdis_library_name);
     strcat(&buf[0], os::dll_file_extension());
     _library = os::dll_load(buf, ebuf, sizeof ebuf);
   }
   if (_library != NULL) {
+    _decode_instructions_virtual = CAST_TO_FN_PTR(Disassembler::decode_func_virtual,
+                                          os::dll_lookup(_library, decode_instructions_virtual_name));
+  }
+  if (_decode_instructions_virtual == NULL) {
+    // could not spot in new version, try old version
     _decode_instructions = CAST_TO_FN_PTR(Disassembler::decode_func,
                                           os::dll_lookup(_library, decode_instructions_name));
+    use_new_version = false;
+  } else {
+    use_new_version = true;
   }
   _tried_to_load_library = true;
-  if (_decode_instructions == NULL) {
+  if (_decode_instructions_virtual == NULL && _decode_instructions == NULL) {
     tty->print_cr("Could not load %s; %s; %s", buf,
                   ((_library != NULL)
                    ? "entry point is missing"
@@ -123,6 +158,7 @@ class decode_env {
  private:
   nmethod*      _nm;
   CodeBlob*     _code;
+  CodeStrings   _strings;
   outputStream* _output;
   address       _start, _end;
 
@@ -162,7 +198,7 @@ class decode_env {
   void print_address(address value);
 
  public:
-  decode_env(CodeBlob* code, outputStream* output);
+  decode_env(CodeBlob* code, outputStream* output, CodeStrings c = CodeStrings());
 
   address decode_instructions(address start, address end);
 
@@ -193,6 +229,8 @@ class decode_env {
         }
       }
     }
+    // follow each complete insn by a nice newline
+    st->cr();
   }
 
   address handle_event(const char* event, address arg);
@@ -204,12 +242,13 @@ class decode_env {
   const char* options() { return _option_buf; }
 };
 
-decode_env::decode_env(CodeBlob* code, outputStream* output) {
+decode_env::decode_env(CodeBlob* code, outputStream* output, CodeStrings c) {
   memset(this, 0, sizeof(*this));
   _output = output ? output : tty;
   _code = code;
   if (code != NULL && code->is_nmethod())
     _nm = (nmethod*) code;
+  _strings.assign(c);
 
   // by default, output pc but not bytes:
   _print_pc       = true;
@@ -249,7 +288,13 @@ address decode_env::handle_event(const char* event, address arg) {
       return arg;
     }
   } else if (match(event, "mach")) {
-   output()->print_cr("[Disassembling for mach='%s']", arg);
+    static char buffer[32] = { 0, };
+    if (strcmp(buffer, (const char*)arg) != 0 ||
+        strlen((const char*)arg) > sizeof(buffer) - 1) {
+      // Only print this when the mach changes
+      strncpy(buffer, (const char*)arg, sizeof(buffer) - 1);
+      output()->print_cr("[Disassembling for mach='%s']", arg);
+    }
   } else if (match(event, "format bytes-per-line")) {
     _bytes_per_line = (int) (intptr_t) arg;
   } else {
@@ -308,7 +353,7 @@ void decode_env::print_address(address adr) {
       obj->print_value_on(st);
       if (st->count() == c) {
         // No output.  (Can happen in product builds.)
-        st->print("(a %s)", Klass::cast(obj->klass())->external_name());
+        st->print("(a %s)", obj->klass()->external_name());
       }
       return;
     }
@@ -325,6 +370,7 @@ void decode_env::print_insn_labels() {
   if (cb != NULL) {
     cb->print_block_comment(st, p);
   }
+  _strings.print_block_comment(st, (intptr_t)(p - _start));
   if (_print_pc) {
     st->print("  " PTR_FORMAT ": ", p);
   }
@@ -414,14 +460,30 @@ address decode_env::decode_instructions(address start, address end) {
     // This is mainly for debugging the library itself.
     FILE* out = stdout;
     FILE* xmlout = (_print_raw > 1 ? out : NULL);
-    return (address)
+    return use_new_version ?
+      (address)
+      (*Disassembler::_decode_instructions_virtual)((uintptr_t)start, (uintptr_t)end,
+                                                    start, end - start,
+                                                    NULL, (void*) xmlout,
+                                                    NULL, (void*) out,
+                                                    options(), 0/*nice new line*/)
+      :
+      (address)
       (*Disassembler::_decode_instructions)(start, end,
                                             NULL, (void*) xmlout,
                                             NULL, (void*) out,
                                             options());
   }
 
-  return (address)
+  return use_new_version ?
+    (address)
+    (*Disassembler::_decode_instructions_virtual)((uintptr_t)start, (uintptr_t)end,
+                                                  start, end - start,
+                                                  &event_to_env,  (void*) this,
+                                                  &printf_to_env, (void*) this,
+                                                  options(), 0/*nice new line*/)
+    :
+    (address)
     (*Disassembler::_decode_instructions)(start, end,
                                           &event_to_env,  (void*) this,
                                           &printf_to_env, (void*) this,
@@ -436,10 +498,9 @@ void Disassembler::decode(CodeBlob* cb, outputStream* st) {
   env.decode_instructions(cb->code_begin(), cb->code_end());
 }
 
-
-void Disassembler::decode(address start, address end, outputStream* st) {
+void Disassembler::decode(address start, address end, outputStream* st, CodeStrings c) {
   if (!load_library())  return;
-  decode_env env(CodeCache::find_blob_unsafe(start), st);
+  decode_env env(CodeCache::find_blob_unsafe(start), st, c);
   env.decode_instructions(start, end);
 }
 

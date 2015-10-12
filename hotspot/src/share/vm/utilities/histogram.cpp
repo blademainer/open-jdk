@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -69,7 +69,7 @@ int Histogram::sort_helper(HistogramElement** e1, HistogramElement** e2) {
 
 Histogram::Histogram(const char* title,int estimatedCount) {
   _title = title;
-  _elements = new (ResourceObj::C_HEAP) GrowableArray<HistogramElement*>(estimatedCount,true);
+  _elements = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<HistogramElement*>(estimatedCount,true);
 }
 
 void Histogram::add_element(HistogramElement* element) {

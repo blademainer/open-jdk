@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,7 +42,7 @@ import java.util.MissingResourceException;
 /**
  * <p>
  * The UCharacter class provides extensions to the
- * <a href="http://java.sun.com/j2se/1.5/docs/api/java/lang/Character.html">
+ * <a href="http://docs.oracle.com/javase/1.5.0/docs/api/java/lang/Character.html">
  * java.lang.Character</a> class. These extensions provide support for
  * more Unicode properties and together with the <a href=../text/UTF16.html>UTF16</a>
  * class, provide support for supplementary characters (those with code

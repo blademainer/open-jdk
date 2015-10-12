@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,8 @@
 
 #include "awt_Toolkit.h"
 #include "awt_TextComponent.h"
+#include "awt_TextArea.h"
+#include "awt_TextField.h"
 #include "awt_Canvas.h"
 
 #include "jni.h"
@@ -51,13 +53,11 @@ struct EnableEditingStruct {
  * AwtTextComponent fields
  */
 
-/* java.awt.TextComponent fields */
-jfieldID AwtTextComponent::canAccessClipboardID;
-
-
 /************************************************************************
  * AwtTextComponent methods
  */
+
+jmethodID AwtTextComponent::canAccessClipboardMID;
 
 AwtTextComponent::AwtTextComponent() {
     m_synthetic = FALSE;
@@ -70,7 +70,196 @@ AwtTextComponent::AwtTextComponent() {
 }
 
 LPCTSTR AwtTextComponent::GetClassName() {
-    return TEXT("EDIT");  /* System provided edit control class */
+    static BOOL richedLibraryLoaded = FALSE;
+    if (!richedLibraryLoaded) {
+        JDK_LoadSystemLibrary("RICHED20.DLL");
+        richedLibraryLoaded = TRUE;
+    }
+    return RICHEDIT_CLASS;
+}
+
+/* Create a new AwtTextArea or AwtTextField object and window.   */
+AwtTextComponent* AwtTextComponent::Create(jobject peer, jobject parent, BOOL isMultiline)
+{
+    JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
+
+    jobject target = NULL;
+    AwtTextComponent* c = NULL;
+
+    try {
+        if (env->EnsureLocalCapacity(1) < 0) {
+            return NULL;
+        }
+
+        PDATA pData;
+        AwtCanvas* awtParent;
+        JNI_CHECK_PEER_GOTO(parent, done);
+
+        awtParent = (AwtCanvas*)pData;
+        JNI_CHECK_NULL_GOTO(awtParent, "null awtParent", done);
+
+        target = env->GetObjectField(peer, AwtObject::targetID);
+        JNI_CHECK_NULL_GOTO(target, "null target", done);
+
+        if(isMultiline){
+            c = new AwtTextArea();
+        }else{
+            c = new AwtTextField();
+        }
+
+        {
+            /* Adjust style for scrollbar visibility and word wrap  */
+            DWORD scroll_style;
+
+            if(isMultiline){
+
+                 jint scrollbarVisibility =
+                     env->GetIntField(target, AwtTextArea::scrollbarVisibilityID);
+
+                 switch (scrollbarVisibility) {
+                     case java_awt_TextArea_SCROLLBARS_NONE:
+                         scroll_style = ES_AUTOVSCROLL;
+                         break;
+                     case java_awt_TextArea_SCROLLBARS_VERTICAL_ONLY:
+                         scroll_style = WS_VSCROLL | ES_AUTOVSCROLL;
+                         break;
+                     case java_awt_TextArea_SCROLLBARS_HORIZONTAL_ONLY:
+                         scroll_style = WS_HSCROLL | ES_AUTOHSCROLL | ES_AUTOVSCROLL;
+                         break;
+                     case java_awt_TextArea_SCROLLBARS_BOTH:
+                         scroll_style = WS_VSCROLL | WS_HSCROLL |
+                             ES_AUTOVSCROLL | ES_AUTOHSCROLL;
+                         break;
+                }
+            }
+
+          DWORD style = WS_CHILD | WS_CLIPSIBLINGS | ES_LEFT;
+
+          /*
+           * Specify ES_DISABLENOSCROLL - RichEdit control style to disable
+           * scrollbars instead of hiding them when not needed.
+           */
+          style |= isMultiline ?  ES_MULTILINE | ES_WANTRETURN | scroll_style
+              | ES_DISABLENOSCROLL : ES_AUTOHSCROLL;
+
+
+          DWORD exStyle = WS_EX_CLIENTEDGE;
+          if (GetRTL()) {
+              exStyle |= WS_EX_RIGHT | WS_EX_LEFTSCROLLBAR;
+              if (GetRTLReadingOrder())
+                  exStyle |= WS_EX_RTLREADING;
+          }
+
+
+          jint x = env->GetIntField(target, AwtComponent::xID);
+          jint y = env->GetIntField(target, AwtComponent::yID);
+          jint width = env->GetIntField(target, AwtComponent::widthID);
+          jint height = env->GetIntField(target, AwtComponent::heightID);
+
+          c->CreateHWnd(env, L"", style, exStyle,
+                        x, y, width, height,
+                        awtParent->GetHWnd(),
+                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(
+                awtParent->CreateControlID())),
+                        ::GetSysColor(COLOR_WINDOWTEXT),
+                        ::GetSysColor(COLOR_WINDOW),
+                        peer);
+
+          // Fix for 4753116.
+          // If it is not win95 (we are using Richedit 2.0)
+          // we set plain text mode, in which the control is
+          // similar to a standard edit control:
+          //  - The text in a plain text control can have only
+          //    one format.
+          //  - The user cannot paste rich text formats, such as RTF
+          //    or embedded objects into a plain text control.
+          //  - Rich text mode controls always have a default
+          //    end-of-document marker or carriage return,
+          //    to format paragraphs.
+          // kdm@sparc.spb.su
+          c->SendMessage(EM_SETTEXTMODE, TM_PLAINTEXT, 0);
+
+          c->m_backgroundColorSet = TRUE;
+          /* suppress inheriting parent's color. */
+          c->UpdateBackground(env, target);
+          c->SendMessage(EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN,
+                         MAKELPARAM(1, 1));
+          /*
+           * Fix for BugTraq Id 4260109.
+           * Set the text limit to the maximum.
+           * Use EM_EXLIMITTEXT for RichEdit controls.
+           * For some reason RichEdit 1.0 becomes read-only if the
+           * specified limit is greater than 0x7FFFFFFD.
+           */
+          c->SendMessage(EM_EXLIMITTEXT, 0, 0x7FFFFFFD);
+
+          /* Unregister RichEdit built-in drop target. */
+          VERIFY(::RevokeDragDrop(c->GetHWnd()) != DRAGDROP_E_INVALIDHWND);
+
+          /* To enforce CF_TEXT format for paste operations. */
+          VERIFY(c->SendMessage(EM_SETOLECALLBACK, 0,
+                                (LPARAM)&GetOleCallback()));
+
+          c->SendMessage(EM_SETEVENTMASK, 0, ENM_CHANGE);
+        }
+    } catch (...) {
+        env->DeleteLocalRef(target);
+        throw;
+    }
+
+done:
+    env->DeleteLocalRef(target);
+
+    return c;
+}
+
+LRESULT
+AwtTextComponent::WindowProc(UINT message, WPARAM wParam, LPARAM lParam) {
+
+    switch (message) {
+        case WM_PRINTCLIENT:
+          {
+            FORMATRANGE fr;
+            HDC hPrinterDC = (HDC)wParam;
+            int nHorizRes = ::GetDeviceCaps(hPrinterDC, HORZRES);
+            int nVertRes = ::GetDeviceCaps(hPrinterDC, VERTRES);
+            int nLogPixelsX = ::GetDeviceCaps(hPrinterDC, LOGPIXELSX);
+            int nLogPixelsY = ::GetDeviceCaps(hPrinterDC, LOGPIXELSY);
+
+            // Ensure the printer DC is in MM_TEXT mode.
+            ::SetMapMode ( hPrinterDC, MM_TEXT );
+
+            // Rendering to the same DC we are measuring.
+            ::ZeroMemory(&fr, sizeof(fr));
+            fr.hdc = fr.hdcTarget = hPrinterDC;
+            // Set up the page.
+            fr.rcPage.left     = fr.rcPage.top = 0;
+            fr.rcPage.right    = (nHorizRes/nLogPixelsX) * 1440; // in twips
+            fr.rcPage.bottom   = (nVertRes/nLogPixelsY) * 1440;
+            fr.rc.left   = fr.rcPage.left;
+            fr.rc.top    = fr.rcPage.top;
+            fr.rc.right  = fr.rcPage.right;
+            fr.rc.bottom = fr.rcPage.bottom;
+
+            // start printing from the first visible line
+            LRESULT nLine = SendMessage(EM_GETFIRSTVISIBLELINE, 0, 0);
+            LONG startCh = static_cast<LONG>(SendMessage(EM_LINEINDEX,
+                                                         (WPARAM)nLine, 0));
+            fr.chrg.cpMin = startCh;
+            fr.chrg.cpMax = -1;
+
+            SendMessage(EM_FORMATRANGE, TRUE, (LPARAM)&fr);
+          }
+
+        break;
+    }
+
+    return AwtComponent::WindowProc(message, wParam, lParam);
+}
+
+LONG AwtTextComponent::EditGetCharFromPos(POINT& pt) {
+    return static_cast<LONG>(SendMessage(EM_CHARFROMPOS, 0,
+            reinterpret_cast<LPARAM>(&pt)));
 }
 
 /* Set a suitable font to IME against the component font. */
@@ -159,7 +348,7 @@ AwtTextComponent::HandleEvent(MSG *msg, BOOL synthetic)
 }
 
 /*
- * If this Paste is occuring because of a synthetic Java event (e.g.,
+ * If this Paste is occurring because of a synthetic Java event (e.g.,
  * a synthesized <CTRL>-V KeyEvent), then verify that the TextComponent
  * has permission to access the Clipboard before pasting. If permission
  * is denied, we should throw a SecurityException, but currently do not
@@ -176,8 +365,7 @@ AwtTextComponent::WmPaste()
         }
         jobject target = GetTarget(env);
         jboolean canAccessClipboard =
-            env->GetBooleanField(target,
-                                 AwtTextComponent::canAccessClipboardID);
+            env->CallBooleanMethod (target, AwtTextComponent::canAccessClipboardMID);
         env->DeleteLocalRef(target);
         return (canAccessClipboard) ? mrDoDefault : mrConsume;
     }
@@ -189,7 +377,8 @@ AwtTextComponent::WmPaste()
 //im --- override to over the spot composition
 void AwtTextComponent::SetCompositionWindow(RECT& rc)
 {
-    HIMC hIMC = ImmGetContext();
+    HWND hwnd = ImmGetHWnd();
+    HIMC hIMC = ImmGetContext(hwnd);
     // rc is not used for text component.
     COMPOSITIONFORM cf = { CFS_FORCE_POSITION, {0,0}, {0,0,0,0} };
     GetCaretPos(&(cf.ptCurrentPos));
@@ -201,6 +390,7 @@ void AwtTextComponent::SetCompositionWindow(RECT& rc)
     LOGFONT lf;
     GetObject(m_hFont, sizeof(LOGFONT), &lf);
     ImmSetCompositionFont(hIMC, &lf);
+    ImmReleaseContext(hwnd, hIMC);
 }
 //im --- end
 
@@ -463,6 +653,54 @@ ret:
     delete ees;
 }
 
+/*
+ * Disabled edit control has grayed foreground.
+ * Disabled RichEdit 1.0 control has original foreground.
+ * Thus we have to set grayed foreground manually.
+ */
+void AwtTextComponent::Enable(BOOL bEnable)
+{
+    AwtComponent::Enable(bEnable);
+    SetColor(GetColor());
+}
+
+
+/*
+ * WM_CTLCOLOR is not sent by rich edit controls.
+ * Use EM_SETCHARFORMAT and EM_SETBKGNDCOLOR to set
+ * respectively foreground and background color.
+ */
+void AwtTextComponent::SetColor(COLORREF c) {
+    AwtComponent::SetColor(c);
+
+    CHARFORMAT cf;
+    memset(&cf, 0, sizeof(cf));
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_COLOR;
+
+    cf.crTextColor = ::IsWindowEnabled(GetHWnd()) ? GetColor() : ::GetSysColor(COLOR_3DSHADOW);
+
+    /*
+     * The documentation for EM_GETCHARFORMAT is not exactly
+     * correct. It appears that wParam has the same meaning
+     * as for EM_SETCHARFORMAT. Our task is to secure that
+     * all the characters in the control have the required
+     * formatting. That's why we use SCF_ALL.
+     */
+    VERIFY(SendMessage(EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cf));
+    VERIFY(SendMessage(EM_SETCHARFORMAT, SCF_DEFAULT, (LPARAM)&cf));
+}
+
+/*
+ * In responce to EM_SETBKGNDCOLOR rich edit changes
+ * its bg color and repaints itself so we don't need
+ * to force repaint.
+ */
+void AwtTextComponent::SetBackgroundColor(COLORREF c) {
+    AwtComponent::SetBackgroundColor(c);
+    SendMessage(EM_SETBKGNDCOLOR, (WPARAM)FALSE, (LPARAM)GetBackgroundColor());
+}
+
 
 /************************************************************************
  * WTextComponentPeer native methods
@@ -613,43 +851,141 @@ Java_sun_awt_windows_WTextComponentPeer_initIDs(JNIEnv *env, jclass cls)
 {
     TRY;
 
-    cls = env->FindClass("java/awt/TextComponent");
-    if (cls != NULL) {
-        AwtTextComponent::canAccessClipboardID =
-            env->GetFieldID(cls, "canAccessClipboard", "Z");
-        DASSERT(AwtTextComponent::canAccessClipboardID != NULL);
-    }
+    jclass textComponentClassID = env->FindClass("java/awt/TextComponent");
+    AwtTextComponent::canAccessClipboardMID =
+        env->GetMethodID(textComponentClassID,
+        "canAccessClipboard", "()Z");
+    env->DeleteLocalRef(textComponentClassID);
+
+    DASSERT(AwtTextComponent::canAccessClipboardMID != NULL);
 
     CATCH_BAD_ALLOC;
 }
 
+
+AwtTextComponent::OleCallback AwtTextComponent::sm_oleCallback;
+
+/************************************************************************
+ * Inner class OleCallback definition.
+ */
+
+AwtTextComponent::OleCallback::OleCallback() {
+    m_refs = 0;
+    AddRef();
+}
+
+STDMETHODIMP
+AwtTextComponent::OleCallback::QueryInterface(REFIID riid, LPVOID * ppvObj) {
+     if (::IsEqualIID(riid, IID_IUnknown) ||::IsEqualIID(riid, IID_IRichEditOleCallback)  ) {
+         *ppvObj = static_cast<IRichEditOleCallback*>(this);
+         AddRef();
+         return S_OK;
+     }
+     *ppvObj = NULL;
+     return E_NOINTERFACE;
+}
+
+
+STDMETHODIMP_(ULONG)
+AwtTextComponent::OleCallback::AddRef() {
+    return ++m_refs;
+}
+
+STDMETHODIMP_(ULONG)
+AwtTextComponent::OleCallback::Release() {
+    return (ULONG)--m_refs;
+}
+
+STDMETHODIMP
+AwtTextComponent::OleCallback::GetNewStorage(LPSTORAGE FAR * ppstg) {
+    return E_NOTIMPL;
+}
+
+STDMETHODIMP
+AwtTextComponent::OleCallback::GetInPlaceContext(LPOLEINPLACEFRAME FAR * ppipframe,
+                                                 LPOLEINPLACEUIWINDOW FAR* ppipuiDoc,
+                                                 LPOLEINPLACEFRAMEINFO pipfinfo)
+{
+    return E_NOTIMPL;
+}
+
+STDMETHODIMP
+AwtTextComponent::OleCallback::ShowContainerUI(BOOL fShow) {
+    return E_NOTIMPL;
+}
+
+STDMETHODIMP
+AwtTextComponent::OleCallback::QueryInsertObject(LPCLSID pclsid,
+                                                 LPSTORAGE pstg,
+                                                 LONG cp) {
+    return S_OK;
+}
+
+STDMETHODIMP
+AwtTextComponent::OleCallback::DeleteObject(LPOLEOBJECT poleobj) {
+    return S_OK;
+}
+
+STDMETHODIMP
+AwtTextComponent::OleCallback::QueryAcceptData(LPDATAOBJECT pdataobj,
+                                               CLIPFORMAT *pcfFormat,
+                                               DWORD reco,
+                                               BOOL fReally,
+                                               HGLOBAL hMetaPict) {
+    if (reco == RECO_PASTE) {
+        // If CF_TEXT format is available edit controls will select it,
+        // otherwise if it is CF_UNICODETEXT is available it will be
+        // selected, otherwise if CF_OEMTEXT is available it will be selected.
+        if (::IsClipboardFormatAvailable(CF_TEXT)) {
+            *pcfFormat = CF_TEXT;
+        } else if (::IsClipboardFormatAvailable(CF_UNICODETEXT)) {
+            *pcfFormat = CF_UNICODETEXT;
+        } else if (::IsClipboardFormatAvailable(CF_OEMTEXT)) {
+            *pcfFormat = CF_OEMTEXT;
+        } else {
+            // Don't allow rich edit to paste clipboard data
+            // in other formats.
+            *pcfFormat = CF_TEXT;
+        }
+    }
+
+    return S_OK;
+}
+
+STDMETHODIMP
+AwtTextComponent::OleCallback::ContextSensitiveHelp(BOOL fEnterMode) {
+    return S_OK;
+}
+
+STDMETHODIMP
+AwtTextComponent::OleCallback::GetClipboardData(CHARRANGE *pchrg,
+                                                DWORD reco,
+                                                LPDATAOBJECT *ppdataobj) {
+    return E_NOTIMPL;
+}
+
+STDMETHODIMP
+AwtTextComponent::OleCallback::GetDragDropEffect(BOOL fDrag,
+                                                 DWORD grfKeyState,
+                                                 LPDWORD pdwEffect) {
+
+    return E_NOTIMPL;
+}
+
+
+STDMETHODIMP
+AwtTextComponent::OleCallback::GetContextMenu(WORD seltype,
+                                              LPOLEOBJECT lpoleobj,
+                                              CHARRANGE FAR * lpchrg,
+                                              HMENU FAR * lphmenu) {
+    return E_NOTIMPL;
+}
+
+
+
 //
 // Accessibility support
 //
-
-/* To be fully implemented in a future release
- *
- * Class:     sun_awt_windows_WTextComponentPeer
- * Method:    getIndexAtPoint
- * Signature: (II)I
- *
-JNIEXPORT jlong JNICALL
-Java_sun_awt_windows_WTextComponentPeer_filterEvents(JNIEnv *env, jobject self, jlong mask)
-{
-    TRY;
-
-    PDATA pData;
-    JNI_CHECK_PEER_RETURN_NULL(self);
-    AwtTextComponent* c = (AwtTextComponent*)pData;
-
-    jlong oldMask = c->javaEventsMask;
-    c->javaEventsMask = mask;
-
-    return oldMask;
-
-    CATCH_BAD_ALLOC_RET(0);
-}
-*/
 
 // [[[FIXME]]] need to switch to rich edit field; look for EN_SELCHANGE event instead
 /*
@@ -691,112 +1027,4 @@ MsgRouting AwtTextComponent::WmKeyDown(UINT wkey, UINT repCnt,
     return AwtComponent::WmKeyDown(wkey, repCnt, flags, system);
 }
 */
-
-/* To be fully implemented in a future release
- *
- * Class:     sun_awt_windows_WTextComponentPeer
- * Method:    getIndexAtPoint
- * Signature: (II)I
- *
-JNIEXPORT jint JNICALL
-Java_sun_awt_windows_WTextComponentPeer_getIndexAtPoint(JNIEnv *env, jobject self, jint x, jint y)
-{
-    TRY;
-
-    PDATA pData;
-//    JNI_CHECK_PEER_RETURN_VAL(self, -1);   [[[FIXME]]] Peter Korn -> should return -1 here
-    JNI_CHECK_PEER_RETURN_NULL(self);
-    AwtTextComponent* c = (AwtTextComponent*)pData;
-    int indicies = c->SendMessage(EM_CHARFROMPOS, (WPARAM) 0, (LPARAM) MAKELPARAM(x, y));
-    int index = LOWORD(indicies);   // index into the line the (x,y) coord is on
-    int lineIndex = c->SendMessage(EM_LINEINDEX, HIWORD(indicies));  // index of start of line
-    return (index + lineIndex);
-
-    CATCH_BAD_ALLOC_RET(-1);
-}
-*/
-
-/* To be fully implemented in a future release
- *
- * Class:     sun_awt_windows_WTextComponentPeer
- * Method:    getCharacterBounds
- * Signature: (I)Ljava/awt/Rectangle;
- *
-JNIEXPORT jobject JNICALL
-Java_sun_awt_windows_WTextComponentPeer_getCharacterBounds(JNIEnv *env, jobject self, jint i)
-{
-
-    //  loop through lines with EM_LINELENGTH?  e.g.:
-    //     line = 0; ttl = 0;   // index is passed in as 'i' above
-    //     while (ttl < index) {
-    //        ttl += SendMessage(EM_LINELENGTH, line++);
-    //     }
-    //     line-- (decrement back again)
-    //  alternately, we could use EM_LINEINDEX to the same effect; perhaps slightly cleaner:
-    //     computedIndex = 0; line = 0;
-    //     while (computedIndex < index) {
-    //        computedIndex = SendMessage(EM_LINEINDEX, 1 + line++);
-    //     }
-    //     line--;
-
-    // EM_POSFROMCHAR  - convert char index into a Point
-    // wParam = (LPPOINT) lpPoint;        // address of structure
-                                                  // receiving character position
-    // lParam = (LPARAM) wCharIndex;      // zero-based index of character
-    //
-    // still need to turn the above into a Rect somehow...
-    // (use font metrics on font info for letter to get height?  use
-    // getLineHeight type of message?).
-
-    // WM_GETFONT - get the font struct for the window control
-    // wParam = lParam = 0
-    // returns an HFONT
-    //  -or-
-    // GetTextMetrics(hDC) to get the text info for the font selected
-    // into the hDC of the control (tmHeight is what we want in the
-    // TEXTMETRIC struct).
-    // also GetCharWidth32() with the char at the index in question to get
-    // the width of that char
-    // *** Can't use GetTextMetrics/GetCharWidth32, as we don't have an hDC!! ***
-
-    TRY;
-
-    PDATA pData;
-    JNI_CHECK_PEER_RETURN_NULL(self);
-    AwtComponent* c = (AwtComponent*)pData;
-/*
-    int line = 0;
-    int lineIndex = 0;
-    while (lineIndex < i) {
-        lineIndex = c->SendMessage(EM_LINEINDEX, 1 + line++);
-    }
-    line--;     // line is now the line which contains our character at position 'i'
-    int offsetIndex = i - lineIndex;    // offsetIndex is now distance in on the line
-* /
-    POINT p;
-
-    c->SendMessage(EM_POSFROMCHAR, (WPARAM) &p, (LPARAM) i);    // x coord is meaningful; y may not be
-
-    // need to calculate charWidth, charHeight, and set p.y to something meangful
-
-    jint charWidth;
-    jint charHeight;
-
-/*
-    HFONT font = c->SendMessage(WM_GETFONT);
-    if (GetCharWidth32(c->hdc, i, i, &charWidth) != 0) {        // [[[FIXME]]] need to get hDC!
-
-        JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
-        jobject rect = JNU_NewObjectByName(env, "java/awt/Rectangle", "(IIII)V",
-                                           (jint) p.x, (jint) p.y, charWidth, charHeight);
-
-        return rect;
-    }
-* /
-    return (jobject) 0;
-
-    CATCH_BAD_ALLOC_RET(0);
-}
-*/
-
 } /* extern "C" */

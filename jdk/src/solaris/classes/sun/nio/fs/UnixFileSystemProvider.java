@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@ package sun.nio.fs;
 
 import java.nio.file.*;
 import java.nio.file.attribute.*;
+import java.nio.file.spi.FileTypeDetector;
 import java.nio.channels.*;
 import java.net.URI;
 import java.util.concurrent.ExecutorService;
@@ -238,7 +239,7 @@ public abstract class UnixFileSystemProvider
             // DirectoryNotEmptyException if not empty
             if (attrs != null && attrs.isDirectory() &&
                 (x.errno() == EEXIST || x.errno() == ENOTEMPTY))
-                throw new DirectoryNotEmptyException(file.getPathForExecptionMessage());
+                throw new DirectoryNotEmptyException(file.getPathForExceptionMessage());
 
             x.rethrowAsIOException(file);
             return false;
@@ -393,15 +394,15 @@ public abstract class UnixFileSystemProvider
         if (filter == null)
             throw new NullPointerException();
 
-        // can't return SecureDirectoryStream on kernels that don't support
-        // openat, etc.
-        if (!supportsAtSysCalls()) {
+        // can't return SecureDirectoryStream on kernels that don't support openat
+        // or O_NOFOLLOW
+        if (!openatSupported() || O_NOFOLLOW == 0) {
             try {
                 long ptr = opendir(dir);
                 return new UnixDirectoryStream(dir, ptr, filter);
             } catch (UnixException x) {
                 if (x.errno() == ENOTDIR)
-                    throw new NotDirectoryException(dir.getPathForExecptionMessage());
+                    throw new NotDirectoryException(dir.getPathForExceptionMessage());
                 x.rethrowAsIOException(dir);
             }
         }
@@ -421,7 +422,7 @@ public abstract class UnixFileSystemProvider
             if (dfd2 != -1)
                 UnixNativeDispatcher.close(dfd2);
             if (x.errno() == UnixConstants.ENOTDIR)
-                throw new NotDirectoryException(dir.getPathForExecptionMessage());
+                throw new NotDirectoryException(dir.getPathForExceptionMessage());
             x.rethrowAsIOException(dir);
         }
         return new UnixSecureDirectoryStream(dir, dp, dfd2, filter);
@@ -483,16 +484,49 @@ public abstract class UnixFileSystemProvider
         if (sm != null) {
             FilePermission perm = new FilePermission(link.getPathForPermissionCheck(),
                 SecurityConstants.FILE_READLINK_ACTION);
-            AccessController.checkPermission(perm);
+            sm.checkPermission(perm);
         }
         try {
             byte[] target = readlink(link);
             return new UnixPath(link.getFileSystem(), target);
         } catch (UnixException x) {
            if (x.errno() == UnixConstants.EINVAL)
-                throw new NotLinkException(link.getPathForExecptionMessage());
+                throw new NotLinkException(link.getPathForExceptionMessage());
             x.rethrowAsIOException(link);
             return null;    // keep compiler happy
         }
+    }
+
+    /**
+     * Returns a {@code FileTypeDetector} for this platform.
+     */
+    FileTypeDetector getFileTypeDetector() {
+        return new AbstractFileTypeDetector() {
+            @Override
+            public String implProbeContentType(Path file) {
+                return null;
+            }
+        };
+    }
+
+    /**
+     * Returns a {@code FileTypeDetector} that chains the given array of file
+     * type detectors. When the {@code implProbeContentType} method is invoked
+     * then each of the detectors is invoked in turn, the result from the
+     * first to detect the file type is returned.
+     */
+    final FileTypeDetector chain(final AbstractFileTypeDetector... detectors) {
+        return new AbstractFileTypeDetector() {
+            @Override
+            protected String implProbeContentType(Path file) throws IOException {
+                for (AbstractFileTypeDetector detector : detectors) {
+                    String result = detector.implProbeContentType(file);
+                    if (result != null && !result.isEmpty()) {
+                        return result;
+                    }
+                }
+                return null;
+            }
+        };
     }
 }

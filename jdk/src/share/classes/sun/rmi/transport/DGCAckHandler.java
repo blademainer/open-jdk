@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -78,7 +78,7 @@ public class DGCAckHandler {
         Collections.synchronizedMap(new HashMap<UID,DGCAckHandler>());
 
     private final UID id;
-    private List<Object> objList = new ArrayList<Object>(); // null if released
+    private List<Object> objList = new ArrayList<>(); // null if released
     private Future<?> task = null;
 
     /**

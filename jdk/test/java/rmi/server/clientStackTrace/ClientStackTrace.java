@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,7 @@
  * @author Laird Dornin
  *
  * @library ../../testlibrary
- * @build ClientStackTrace MyRemoteObject_Stub TestLibrary TestParams
+ * @build TestLibrary ClientStackTrace MyRemoteObject_Stub
  * @run main/othervm/policy=security.policy/timeout=120 ClientStackTrace
  */
 

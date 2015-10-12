@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2009, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -44,7 +44,10 @@ case "$OS" in
     ;;
 esac
 
-KT="$TESTJAVA${FS}bin${FS}keytool -storepass changeit -keypass changeit -keystore js.jks"
+# Choose 1024-bit RSA to make sure it runs fine and fast on all platforms. In
+# fact, every keyalg/keysize combination is OK for this test.
+
+KT="$TESTJAVA${FS}bin${FS}keytool -storepass changeit -keypass changeit -keystore js.jks -keyalg rsa -keysize 1024"
 JAR=$TESTJAVA${FS}bin${FS}jar
 JARSIGNER=$TESTJAVA${FS}bin${FS}jarsigner
 JAVAC=$TESTJAVA${FS}bin${FS}javac
@@ -136,7 +139,6 @@ LINES=`$JARSIGNER -verify a.jar -verbose:summary -certs | grep "more)" | wc -l`
 # 16 and 32 already covered in the first part
 # ==========================================================
 
-$KT -genkeypair -alias expiring -dname CN=expiring -startdate -1m
 $KT -genkeypair -alias expired -dname CN=expired -startdate -10m
 $KT -genkeypair -alias notyetvalid -dname CN=notyetvalid -startdate +1m
 $KT -genkeypair -alias badku -dname CN=badku -ext KU=cRLSign -validity 365
@@ -150,9 +152,6 @@ $KT -genkeypair -alias ca -dname CN=ca -ext bc -validity 365
 $KT -certreq -alias badchain | $KT -gencert -alias ca -validity 365 | \
         $KT -importcert -alias badchain
 $KT -delete -alias ca
-
-$JARSIGNER -strict -keystore js.jks -storepass changeit a.jar expiring
-[ $? = 2 ] || exit $LINENO
 
 $JARSIGNER -strict -keystore js.jks -storepass changeit a.jar expired
 [ $? = 4 ] || exit $LINENO

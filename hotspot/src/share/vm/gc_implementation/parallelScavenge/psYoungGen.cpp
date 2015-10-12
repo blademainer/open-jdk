@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -103,7 +103,7 @@ void PSYoungGen::initialize_work() {
 
   // Compute maximum space sizes for performance counters
   ParallelScavengeHeap* heap = (ParallelScavengeHeap*)Universe::heap();
-  size_t alignment = heap->intra_heap_alignment();
+  size_t alignment = heap->space_alignment();
   size_t size = virtual_space()->reserved_size();
 
   size_t max_survivor_size;
@@ -156,8 +156,9 @@ void PSYoungGen::compute_initial_space_boundaries() {
   assert(heap->kind() == CollectedHeap::ParallelScavengeHeap, "Sanity");
 
   // Compute sizes
-  size_t alignment = heap->intra_heap_alignment();
+  size_t alignment = heap->space_alignment();
   size_t size = virtual_space()->committed_size();
+  assert(size >= 3 * alignment, "Young space is not large enough for eden + 2 survivors");
 
   size_t survivor_size = size / InitialSurvivorRatio;
   survivor_size = align_size_down(survivor_size, alignment);
@@ -207,7 +208,7 @@ void PSYoungGen::set_space_boundaries(size_t eden_size, size_t survivor_size) {
 #ifndef PRODUCT
 void PSYoungGen::space_invariants() {
   ParallelScavengeHeap* heap = (ParallelScavengeHeap*)Universe::heap();
-  const size_t alignment = heap->intra_heap_alignment();
+  const size_t alignment = heap->space_alignment();
 
   // Currently, our eden size cannot shrink to zero
   guarantee(eden_space()->capacity_in_bytes() >= alignment, "eden too small");
@@ -491,7 +492,7 @@ void PSYoungGen::resize_spaces(size_t requested_eden_size,
   char* to_end     = (char*)to_space()->end();
 
   ParallelScavengeHeap* heap = (ParallelScavengeHeap*)Universe::heap();
-  const size_t alignment = heap->intra_heap_alignment();
+  const size_t alignment = heap->space_alignment();
   const bool maintain_minimum =
     (requested_eden_size + 2 * requested_survivor_size) <= min_gen_size();
 
@@ -808,8 +809,9 @@ void PSYoungGen::print_on(outputStream* st) const {
   st->print("  to  "); to_space()->print_on(st);
 }
 
+// Note that a space is not printed before the [NAME:
 void PSYoungGen::print_used_change(size_t prev_used) const {
-  gclog_or_tty->print(" [%s:", name());
+  gclog_or_tty->print("[%s:", name());
   gclog_or_tty->print(" "  SIZE_FORMAT "K"
                       "->" SIZE_FORMAT "K"
                       "("  SIZE_FORMAT "K)",
@@ -839,8 +841,8 @@ size_t PSYoungGen::available_to_min_gen() {
 size_t PSYoungGen::available_to_live() {
   size_t delta_in_survivor = 0;
   ParallelScavengeHeap* heap = (ParallelScavengeHeap*)Universe::heap();
-  const size_t space_alignment = heap->intra_heap_alignment();
-  const size_t gen_alignment = heap->young_gen_alignment();
+  const size_t space_alignment = heap->space_alignment();
+  const size_t gen_alignment = heap->generation_alignment();
 
   MutableSpace* space_shrinking = NULL;
   if (from_space()->end() > to_space()->end()) {
@@ -937,10 +939,10 @@ void PSYoungGen::update_counters() {
   }
 }
 
-void PSYoungGen::verify(bool allow_dirty) {
-  eden_space()->verify(allow_dirty);
-  from_space()->verify(allow_dirty);
-  to_space()->verify(allow_dirty);
+void PSYoungGen::verify() {
+  eden_space()->verify();
+  from_space()->verify();
+  to_space()->verify();
 }
 
 #ifndef PRODUCT

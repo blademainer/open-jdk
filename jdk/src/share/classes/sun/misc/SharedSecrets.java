@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,7 +29,6 @@ import java.util.jar.JarFile;
 import java.io.Console;
 import java.io.FileDescriptor;
 import java.security.ProtectionDomain;
-import javax.security.auth.kerberos.KeyTab;
 
 import java.security.AccessController;
 
@@ -48,11 +47,13 @@ public class SharedSecrets {
     private static JavaLangAccess javaLangAccess;
     private static JavaIOAccess javaIOAccess;
     private static JavaNetAccess javaNetAccess;
+    private static JavaNetHttpCookieAccess javaNetHttpCookieAccess;
     private static JavaNioAccess javaNioAccess;
     private static JavaIOFileDescriptorAccess javaIOFileDescriptorAccess;
     private static JavaSecurityProtectionDomainAccess javaSecurityProtectionDomainAccess;
     private static JavaSecurityAccess javaSecurityAccess;
-    private static JavaxSecurityAuthKerberosAccess javaxSecurityAuthKerberosAccess;
+    private static JavaUtilZipFileAccess javaUtilZipFileAccess;
+    private static JavaAWTAccess javaAWTAccess;
 
     public static JavaUtilJarAccess javaUtilJarAccess() {
         if (javaUtilJarAccess == null) {
@@ -81,6 +82,16 @@ public class SharedSecrets {
 
     public static JavaNetAccess getJavaNetAccess() {
         return javaNetAccess;
+    }
+
+    public static void setJavaNetHttpCookieAccess(JavaNetHttpCookieAccess a) {
+        javaNetHttpCookieAccess = a;
+    }
+
+    public static JavaNetHttpCookieAccess getJavaNetHttpCookieAccess() {
+        if (javaNetHttpCookieAccess == null)
+            unsafe.ensureClassInitialized(java.net.HttpCookie.class);
+        return javaNetHttpCookieAccess;
     }
 
     public static void setJavaNioAccess(JavaNioAccess jna) {
@@ -142,15 +153,26 @@ public class SharedSecrets {
         return javaSecurityAccess;
     }
 
-    public static void setJavaxSecurityAuthKerberosAccess
-            (JavaxSecurityAuthKerberosAccess jsaka) {
-        javaxSecurityAuthKerberosAccess = jsaka;
+    public static JavaUtilZipFileAccess getJavaUtilZipFileAccess() {
+        if (javaUtilZipFileAccess == null)
+            unsafe.ensureClassInitialized(java.util.zip.ZipFile.class);
+        return javaUtilZipFileAccess;
     }
 
-    public static JavaxSecurityAuthKerberosAccess
-            getJavaxSecurityAuthKerberosAccess() {
-        if (javaxSecurityAuthKerberosAccess == null)
-            unsafe.ensureClassInitialized(KeyTab.class);
-        return javaxSecurityAuthKerberosAccess;
+    public static void setJavaUtilZipFileAccess(JavaUtilZipFileAccess access) {
+        javaUtilZipFileAccess = access;
+    }
+
+    public static void setJavaAWTAccess(JavaAWTAccess jaa) {
+        javaAWTAccess = jaa;
+    }
+
+    public static JavaAWTAccess getJavaAWTAccess() {
+        // this may return null in which case calling code needs to
+        // provision for.
+        if (javaAWTAccess == null) {
+            return null;
+        }
+        return javaAWTAccess;
     }
 }

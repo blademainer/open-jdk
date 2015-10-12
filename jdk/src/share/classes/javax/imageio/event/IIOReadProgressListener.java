@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -62,7 +62,7 @@ public interface IIOReadProgressListener extends EventListener {
     void sequenceStarted(ImageReader source, int minIndex);
 
     /**
-     * Reports that a sequence of read operationshas completed.
+     * Reports that a sequence of read operations has completed.
      * <code>ImageReader</code> implementations are required to call
      * this method exactly once from their
      * <code>readAll(Iterator)</code> method.

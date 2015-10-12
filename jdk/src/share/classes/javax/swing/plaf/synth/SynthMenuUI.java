@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,7 @@ import javax.swing.plaf.basic.*;
 import sun.swing.MenuItemLayoutHelper;
 
 /**
- * Provides the Synth L&F UI delegate for
+ * Provides the Synth L&amp;F UI delegate for
  * {@link javax.swing.JMenu}.
  *
  * @author Georges Saab
@@ -56,7 +56,7 @@ public class SynthMenuUI extends BasicMenuUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void installDefaults() {
@@ -64,7 +64,7 @@ public class SynthMenuUI extends BasicMenuUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void installListeners() {
@@ -120,7 +120,7 @@ public class SynthMenuUI extends BasicMenuUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public void uninstallUI(JComponent c) {
@@ -134,7 +134,7 @@ public class SynthMenuUI extends BasicMenuUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void uninstallDefaults() {
@@ -153,7 +153,7 @@ public class SynthMenuUI extends BasicMenuUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void uninstallListeners() {
@@ -162,7 +162,7 @@ public class SynthMenuUI extends BasicMenuUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public SynthContext getContext(JComponent c) {
@@ -207,7 +207,7 @@ public class SynthMenuUI extends BasicMenuUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected Dimension getPreferredMenuItemSize(JComponent c,
@@ -286,7 +286,7 @@ public class SynthMenuUI extends BasicMenuUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public void paintBorder(SynthContext context, Graphics g, int x,
@@ -295,11 +295,12 @@ public class SynthMenuUI extends BasicMenuUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public void propertyChange(PropertyChangeEvent e) {
-        if (SynthLookAndFeel.shouldUpdateStyle(e)) {
+        if (SynthLookAndFeel.shouldUpdateStyle(e) ||
+                (e.getPropertyName().equals("ancestor") && UIManager.getBoolean("Menu.useMenuBarForTopLevelMenus"))) {
             updateStyle((JMenu)e.getSource());
         }
     }

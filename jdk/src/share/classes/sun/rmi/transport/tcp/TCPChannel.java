@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -64,7 +64,7 @@ public class TCPChannel implements Channel {
     private final TCPTransport tr;
     /** list of cached connections */
     private final List<TCPConnection> freeList =
-        new ArrayList<TCPConnection>();
+        new ArrayList<>();
     /** frees cached connections that have expired (guarded by freeList) */
     private Future<?> reaper = null;
 
@@ -480,7 +480,7 @@ class ConnectionAcceptor implements Runnable {
     private TCPTransport transport;
 
     /** queue of connections to be accepted */
-    private List<Connection> queue = new ArrayList<Connection>();
+    private List<Connection> queue = new ArrayList<>();
 
     /** thread ID counter */
     private static int threadNum = 0;
@@ -515,7 +515,7 @@ class ConnectionAcceptor implements Runnable {
     }
 
     /**
-     * Give transport next accepted conection, when available.
+     * Give transport next accepted connection, when available.
      */
     public void run() {
         Connection conn;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,6 @@ package sun.java2d.xr;
 
 import java.awt.*;
 import java.awt.geom.*;
-
 import sun.awt.SunToolkit;
 import sun.java2d.SunGraphics2D;
 import sun.java2d.loops.*;
@@ -38,6 +37,9 @@ import sun.java2d.pipe.ShapeDrawPipe;
 import sun.java2d.pipe.SpanIterator;
 import sun.java2d.pipe.ShapeSpanIterator;
 import sun.java2d.pipe.LoopPipe;
+
+import static sun.java2d.xr.XRUtils.clampToShort;
+import static sun.java2d.xr.XRUtils.clampToUShort;
 
 /**
  * XRender provides only accalerated rectangles. To emulate higher "order"
@@ -51,10 +53,15 @@ import sun.java2d.pipe.LoopPipe;
 public class XRRenderer implements PixelDrawPipe, PixelFillPipe, ShapeDrawPipe {
     XRDrawHandler drawHandler;
     MaskTileManager tileManager;
+    XRDrawLine lineGen;
+    GrowableRectArray rectBuffer;
 
     public XRRenderer(MaskTileManager tileManager) {
         this.tileManager = tileManager;
+        this.rectBuffer = tileManager.getMainTile().getRects();
+
         this.drawHandler = new XRDrawHandler();
+        this.lineGen = new XRDrawLine();
     }
 
     /**
@@ -69,18 +76,19 @@ public class XRRenderer implements PixelDrawPipe, PixelFillPipe, ShapeDrawPipe {
     }
 
     public void drawLine(SunGraphics2D sg2d, int x1, int y1, int x2, int y2) {
+        Region compClip = sg2d.getCompClip();
+        int transX1 = Region.clipAdd(x1, sg2d.transX);
+        int transY1 = Region.clipAdd(y1, sg2d.transY);
+        int transX2 = Region.clipAdd(x2, sg2d.transX);
+        int transY2 = Region.clipAdd(y2, sg2d.transY);
+
+        SunToolkit.awtLock();
         try {
-            SunToolkit.awtLock();
-
             validateSurface(sg2d);
-            int transx = sg2d.transX;
-            int transy = sg2d.transY;
-
-            XRSurfaceData xrsd = (XRSurfaceData) sg2d.surfaceData;
-
-            tileManager.addLine(x1 + transx, y1 + transy,
-                                x2 + transx, y2 + transy);
-            tileManager.fillMask(xrsd);
+            lineGen.rasterizeLine(rectBuffer, transX1, transY1,
+                    transX2, transY2, compClip.getLoX(), compClip.getLoY(),
+                    compClip.getHiX(), compClip.getHiY(), true, true);
+            tileManager.fillMask((XRSurfaceData) sg2d.surfaceData);
         } finally {
             SunToolkit.awtUnlock();
         }
@@ -109,20 +117,40 @@ public class XRRenderer implements PixelDrawPipe, PixelFillPipe, ShapeDrawPipe {
         draw(sg2d, new Polygon(xpoints, ypoints, npoints));
     }
 
-    public synchronized void fillRect(SunGraphics2D sg2d,
-                                      int x, int y, int width, int height) {
+    public void fillRect(SunGraphics2D sg2d, int x, int y, int width, int height) {
+        x = Region.clipAdd(x, sg2d.transX);
+        y = Region.clipAdd(y, sg2d.transY);
+
+        /*
+         * Limit x/y to signed short, width/height to unsigned short,
+         * to match the X11 coordinate limits for rectangles.
+         * Correct width/height in case x/y have been modified by clipping.
+         */
+        if (x > Short.MAX_VALUE || y > Short.MAX_VALUE) {
+            return;
+        }
+
+        int x2 = Region.dimAdd(x, width);
+        int y2 = Region.dimAdd(y, height);
+
+        if (x2 < Short.MIN_VALUE || y2 < Short.MIN_VALUE) {
+            return;
+        }
+
+        x = clampToShort(x);
+        y = clampToShort(y);
+        width = clampToUShort(x2 - x);
+        height = clampToUShort(y2 - y);
+
+        if (width == 0 || height == 0) {
+            return;
+        }
+
         SunToolkit.awtLock();
         try {
             validateSurface(sg2d);
-
-            XRSurfaceData xrsd = (XRSurfaceData) sg2d.surfaceData;
-
-            x += sg2d.transform.getTranslateX();
-            y += sg2d.transform.getTranslateY();
-
-            tileManager.addRect(x, y, width, height);
-            tileManager.fillMask(xrsd);
-
+            rectBuffer.pushRectValues(x, y, width, height);
+            tileManager.fillMask((XRSurfaceData) sg2d.surfaceData);
         } finally {
             SunToolkit.awtUnlock();
         }
@@ -172,11 +200,13 @@ public class XRRenderer implements PixelDrawPipe, PixelFillPipe, ShapeDrawPipe {
     }
 
     private class XRDrawHandler extends ProcessPath.DrawHandler {
+        DirtyRegion region;
 
         XRDrawHandler() {
             // these are bogus values; the caller will use validate()
             // to ensure that they are set properly prior to each usage
             super(0, 0, 0, 0);
+            this.region = new DirtyRegion();
         }
 
         /**
@@ -191,15 +221,32 @@ public class XRRenderer implements PixelDrawPipe, PixelFillPipe, ShapeDrawPipe {
         }
 
         public void drawLine(int x1, int y1, int x2, int y2) {
-            tileManager.addLine(x1, y1, x2, y2);
+            region.setDirtyLineRegion(x1, y1, x2, y2);
+            int xDiff = region.x2 - region.x;
+            int yDiff = region.y2 - region.y;
+
+            if (xDiff == 0 || yDiff == 0) {
+                // horizontal / diagonal lines can be represented by a single
+                // rectangle
+                rectBuffer.pushRectValues(region.x, region.y, region.x2 - region.x
+                        + 1, region.y2 - region.y + 1);
+            } else if (xDiff == 1 && yDiff == 1) {
+                // fast path for pattern commonly generated by
+                // ProcessPath.DrawHandler
+                rectBuffer.pushRectValues(x1, y1, 1, 1);
+                rectBuffer.pushRectValues(x2, y2, 1, 1);
+            } else {
+                lineGen.rasterizeLine(rectBuffer, x1, y1, x2, y2, 0, 0,
+                                      0, 0, false, false);
+            }
         }
 
         public void drawPixel(int x, int y) {
-            tileManager.addRect(x, y, 1, 1);
+            rectBuffer.pushRectValues(x, y, 1, 1);
         }
 
         public void drawScanline(int x1, int x2, int y) {
-            tileManager.addRect(x1, y, x2 - x1 + 1, 1);
+            rectBuffer.pushRectValues(x1, y, x2 - x1 + 1, 1);
         }
     }
 
@@ -236,7 +283,7 @@ public class XRRenderer implements PixelDrawPipe, PixelFillPipe, ShapeDrawPipe {
             validateSurface(sg2d);
             int[] spanBox = new int[4];
             while (si.nextSpan(spanBox)) {
-                tileManager.addRect(spanBox[0] + transx,
+                rectBuffer.pushRectValues(spanBox[0] + transx,
                                     spanBox[1] + transy,
                                     spanBox[2] - spanBox[0],
                                     spanBox[3] - spanBox[1]);

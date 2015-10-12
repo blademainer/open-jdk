@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,13 +57,17 @@ public class SocketAdaptor
     // Timeout "option" value for reads
     private volatile int timeout = 0;
 
-    // ## super will create a useless impl
-    private SocketAdaptor(SocketChannelImpl sc) {
+    private SocketAdaptor(SocketChannelImpl sc) throws SocketException {
+        super((SocketImpl) null);
         this.sc = sc;
     }
 
     public static Socket create(SocketChannelImpl sc) {
-        return new SocketAdaptor(sc);
+        try {
+            return new SocketAdaptor(sc);
+        } catch (SocketException e) {
+            throw new InternalError("Should not reach here");
+        }
     }
 
     public SocketChannel getChannel() {
@@ -93,25 +97,19 @@ public class SocketAdaptor
                     return;
                 }
 
-                // Implement timeout with a selector
-                SelectionKey sk = null;
-                Selector sel = null;
                 sc.configureBlocking(false);
                 try {
                     if (sc.connect(remote))
                         return;
-                    sel = Util.getTemporarySelector(sc);
-                    sk = sc.register(sel, SelectionKey.OP_CONNECT);
                     long to = timeout;
                     for (;;) {
                         if (!sc.isOpen())
                             throw new ClosedChannelException();
                         long st = System.currentTimeMillis();
-                        int ns = sel.select(to);
-                        if (ns > 0 &&
-                            sk.isConnectable() && sc.finishConnect())
+
+                        int result = sc.poll(PollArrayWrapper.POLLCONN, to);
+                        if (result > 0 && sc.finishConnect())
                             break;
-                        sel.selectedKeys().remove(sk);
                         to -= System.currentTimeMillis() - st;
                         if (to <= 0) {
                             try {
@@ -121,12 +119,8 @@ public class SocketAdaptor
                         }
                     }
                 } finally {
-                    if (sk != null)
-                        sk.cancel();
                     if (sc.isOpen())
                         sc.configureBlocking(true);
-                    if (sel != null)
-                        Util.releaseTemporarySelector(sel);
                 }
 
             } catch (Exception x) {
@@ -155,9 +149,10 @@ public class SocketAdaptor
 
     public InetAddress getLocalAddress() {
         if (sc.isOpen()) {
-            SocketAddress local = sc.localAddress();
-            if (local != null)
-                return ((InetSocketAddress)local).getAddress();
+            InetSocketAddress local = sc.localAddress();
+            if (local != null) {
+                return Net.getRevealedLocalAddress(local).getAddress();
+            }
         }
         return new InetSocketAddress(0).getAddress();
     }
@@ -195,39 +190,29 @@ public class SocketAdaptor
                     throw new IllegalBlockingModeException();
                 if (timeout == 0)
                     return sc.read(bb);
-
-                // Implement timeout with a selector
-                SelectionKey sk = null;
-                Selector sel = null;
                 sc.configureBlocking(false);
+
                 try {
                     int n;
                     if ((n = sc.read(bb)) != 0)
                         return n;
-                    sel = Util.getTemporarySelector(sc);
-                    sk = sc.register(sel, SelectionKey.OP_READ);
                     long to = timeout;
                     for (;;) {
                         if (!sc.isOpen())
                             throw new ClosedChannelException();
                         long st = System.currentTimeMillis();
-                        int ns = sel.select(to);
-                        if (ns > 0 && sk.isReadable()) {
+                        int result = sc.poll(PollArrayWrapper.POLLIN, to);
+                        if (result > 0) {
                             if ((n = sc.read(bb)) != 0)
                                 return n;
                         }
-                        sel.selectedKeys().remove(sk);
                         to -= System.currentTimeMillis() - st;
                         if (to <= 0)
                             throw new SocketTimeoutException();
                     }
                 } finally {
-                    if (sk != null)
-                        sk.cancel();
                     if (sc.isOpen())
                         sc.configureBlocking(true);
-                    if (sel != null)
-                        Util.releaseTemporarySelector(sel);
                 }
 
             }

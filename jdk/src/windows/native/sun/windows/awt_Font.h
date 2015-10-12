@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -242,7 +242,7 @@ public:
     */
 
 private:
-    /* The array of assocated font handles */
+    /* The array of associated font handles */
     HFONT* m_hFont;
     /* The number of handles. */
     int    m_hFontNum;

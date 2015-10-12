@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,24 +25,44 @@
  * @test
  * @bug 6371401
  * @summary Tests of shiftLeft and shiftRight on Integer.MIN_VALUE
+ * @run main/othervm -Xmx512m ExtremeShiftingTests
  * @author Joseph D. Darcy
  */
+import java.math.BigInteger;
 import static java.math.BigInteger.*;
 
 public class ExtremeShiftingTests {
     public static void main(String... args) {
+        BigInteger bi = ONE.shiftLeft(Integer.MIN_VALUE);
+        if (!bi.equals(ZERO))
+            throw new RuntimeException("1 << " + Integer.MIN_VALUE);
+
+        bi = ZERO.shiftLeft(Integer.MIN_VALUE);
+        if (!bi.equals(ZERO))
+            throw new RuntimeException("0 << " + Integer.MIN_VALUE);
+
+        bi = BigInteger.valueOf(-1);
+        bi = bi.shiftLeft(Integer.MIN_VALUE);
+        if (!bi.equals(BigInteger.valueOf(-1)))
+            throw new RuntimeException("-1 << " + Integer.MIN_VALUE);
+
         try {
-            ONE.shiftLeft(Integer.MIN_VALUE);
-            throw new RuntimeException("Should not reach here.");
+            ONE.shiftRight(Integer.MIN_VALUE);
+            throw new RuntimeException("1 >> " + Integer.MIN_VALUE);
         } catch (ArithmeticException ae) {
             ; // Expected
         }
 
+        bi = ZERO.shiftRight(Integer.MIN_VALUE);
+        if (!bi.equals(ZERO))
+            throw new RuntimeException("0 >> " + Integer.MIN_VALUE);
+
         try {
-            ONE.shiftRight(Integer.MIN_VALUE);
-            throw new RuntimeException("Should not reach here.");
+            BigInteger.valueOf(-1).shiftRight(Integer.MIN_VALUE);
+            throw new RuntimeException("-1 >> " + Integer.MIN_VALUE);
         } catch (ArithmeticException ae) {
             ; // Expected
         }
+
     }
 }

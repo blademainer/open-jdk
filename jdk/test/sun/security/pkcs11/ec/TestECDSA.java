@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,11 +27,10 @@
  * @summary basic test of SHA1withECDSA and NONEwithECDSA signing/verifying
  * @author Andreas Sterbenz
  * @library ..
+ * @library ../../../../java/security/testlibrary
  */
 
-import java.io.*;
 import java.util.*;
-import java.math.BigInteger;
 
 import java.security.*;
 import java.security.spec.*;
@@ -115,7 +114,18 @@ public class TestECDSA extends PKCS11Test {
             System.out.println("ECDSA not supported, skipping");
             return;
         }
-        Security.insertProviderAt(provider, 1);
+
+        if (isNSS(provider) && getNSSVersion() >= 3.11 &&
+                getNSSVersion() < 3.12) {
+            System.out.println("NSS 3.11 has a DER issue that recent " +
+                    "version do not.");
+            return;
+        }
+
+        /*
+         * PKCS11Test.main will remove this provider if needed
+         */
+        Providers.setAt(provider, 1);
 
         if (false) {
             KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC", provider);
@@ -131,12 +141,15 @@ public class TestECDSA extends PKCS11Test {
             return;
         }
 
-        test(provider, pub192, priv192, sig192);
-        test(provider, pub163, priv163, sig163);
+        if (getNSSECC() != ECCState.Basic) {
+            test(provider, pub192, priv192, sig192);
+            test(provider, pub163, priv163, sig163);
+            test(provider, pub571, priv571, sig571);
+        } else {
+            System.out.println("ECC Basic only, skipping 192, 163 and 571.");
+        }
         test(provider, pub521, priv521, sig521);
-        test(provider, pub571, priv571, sig571);
 
-        Security.removeProvider(provider.getName());
         long stop = System.currentTimeMillis();
         System.out.println("All tests passed (" + (stop - start) + " ms).");
     }
@@ -174,7 +187,6 @@ public class TestECDSA extends PKCS11Test {
         // sign random data using SHA1withECDSA and verify using
         // SHA1withECDSA and NONEwithECDSA
         Signature s = Signature.getInstance("SHA1withECDSA", provider);
-        s.initSign(privateKey);
         s.initSign(privateKey);
         s.update(data);
         byte[] s1 = s.sign();

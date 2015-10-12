@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,8 +35,7 @@
 #include <sys/time.h>
 #ifdef __solaris__
 #include <thread.h>
-#endif
-#ifdef __linux__
+#else
 #include <pthread.h>
 #include <sys/poll.h>
 #endif
@@ -50,9 +49,9 @@ dbgsysListen(int fd, int backlog) {
 }
 
 int
-dbgsysConnect(int fd, struct sockaddr *name, int namelen) {
+dbgsysConnect(int fd, struct sockaddr *name, socklen_t namelen) {
     int rv = connect(fd, name, namelen);
-    if (rv < 0 && errno == EINPROGRESS) {
+    if (rv < 0 && (errno == EINPROGRESS || errno == EINTR)) {
         return DBG_EINPROGRESS;
     } else {
         return rv;
@@ -60,7 +59,7 @@ dbgsysConnect(int fd, struct sockaddr *name, int namelen) {
 }
 
 int
-dbgsysFinishConnect(int fd, long timeout) {
+dbgsysFinishConnect(int fd, int timeout) {
     int rv = dbgsysPoll(fd, 0, 1, timeout);
     if (rv == 0) {
         return DBG_ETIMEOUT;
@@ -72,39 +71,59 @@ dbgsysFinishConnect(int fd, long timeout) {
 }
 
 int
-dbgsysAccept(int fd, struct sockaddr *name, int *namelen) {
+dbgsysAccept(int fd, struct sockaddr *name, socklen_t *namelen) {
     int rv;
     for (;;) {
         rv = accept(fd, name, namelen);
         if (rv >= 0) {
             return rv;
         }
-        if (errno != ECONNABORTED) {
+        if (errno != ECONNABORTED && errno != EINTR) {
             return rv;
         }
     }
 }
 
 int
-dbgsysRecvFrom(int fd, char *buf, int nBytes,
-                  int flags, struct sockaddr *from, int *fromlen) {
-    return recvfrom(fd, buf, nBytes, flags, from, fromlen);
+dbgsysRecvFrom(int fd, char *buf, size_t nBytes,
+                  int flags, struct sockaddr *from, socklen_t *fromlen) {
+    int rv;
+    do {
+        rv = recvfrom(fd, buf, nBytes, flags, from, fromlen);
+    } while (rv == -1 && errno == EINTR);
+
+    return rv;
 }
 
 int
-dbgsysSendTo(int fd, char *buf, int len,
-                int flags, struct sockaddr *to, int tolen) {
-    return sendto(fd, buf, len, flags, to, tolen);
+dbgsysSendTo(int fd, char *buf, size_t len,
+                int flags, struct sockaddr *to, socklen_t tolen) {
+    int rv;
+    do {
+        rv = sendto(fd, buf, len, flags, to, tolen);
+    } while (rv == -1 && errno == EINTR);
+
+    return rv;
 }
 
 int
-dbgsysRecv(int fd, char *buf, int nBytes, int flags) {
-    return recv(fd, buf, nBytes, flags);
+dbgsysRecv(int fd, char *buf, size_t nBytes, int flags) {
+    int rv;
+    do {
+        rv = recv(fd, buf, nBytes, flags);
+    } while (rv == -1 && errno == EINTR);
+
+    return rv;
 }
 
 int
-dbgsysSend(int fd, char *buf, int nBytes, int flags) {
-    return send(fd, buf, nBytes, flags);
+dbgsysSend(int fd, char *buf, size_t nBytes, int flags) {
+    int rv;
+    do {
+        rv = send(fd, buf, nBytes, flags);
+    } while (rv == -1 && errno == EINTR);
+
+    return rv;
 }
 
 struct hostent *
@@ -123,11 +142,16 @@ dbgsysSocket(int domain, int type, int protocol) {
 }
 
 int dbgsysSocketClose(int fd) {
-    return close(fd);
+    int rv;
+    do {
+        rv = close(fd);
+    } while (rv == -1 && errno == EINTR);
+
+    return rv;
 }
 
 int
-dbgsysBind(int fd, struct sockaddr *name, int namelen) {
+dbgsysBind(int fd, struct sockaddr *name, socklen_t namelen) {
     return bind(fd, name, namelen);
 }
 
@@ -147,7 +171,7 @@ dbgsysNetworkToHostShort(unsigned short netshort) {
 }
 
 int
-dbgsysGetSocketName(int fd, struct sockaddr *name, int *namelen) {
+dbgsysGetSocketName(int fd, struct sockaddr *name, socklen_t *namelen) {
     return getsockname(fd, name, namelen);
 }
 
@@ -281,9 +305,7 @@ dbgsysTlsGet(int index) {
     return r;
 }
 
-#endif
-
-#ifdef __linux__
+#else
 int
 dbgsysTlsAlloc() {
     pthread_key_t key;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,15 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+/*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
 
 /* This file contains all class, method and allocation event support functions,
  *   both JVMTI and BCI events.
@@ -186,7 +195,12 @@ event_call(JNIEnv *env, jthread thread, ClassIndex cnum, MethodIndex mnum)
 
     HPROF_ASSERT(env!=NULL);
     HPROF_ASSERT(thread!=NULL);
-    HPROF_ASSERT(cnum!=0 && cnum!=gdata->tracker_cnum);
+    if (cnum == 0 || cnum == gdata->tracker_cnum) {
+        jclass newExcCls = (*env)->FindClass(env, "java/lang/IllegalArgumentException");
+        (*env)->ThrowNew(env, newExcCls, "Illegal cnum.");
+
+        return;
+    }
 
     /* Prevent recursion into any BCI function for this thread (pstatus). */
     if ( tls_get_tracker_status(env, thread, JNI_FALSE,
@@ -195,8 +209,10 @@ event_call(JNIEnv *env, jthread thread, ClassIndex cnum, MethodIndex mnum)
 
         (*pstatus) = 1;
         method      = class_get_methodID(env, cnum, mnum);
-        HPROF_ASSERT(method!=NULL);
-        tls_push_method(tls_index, method);
+        if (method != NULL) {
+            tls_push_method(tls_index, method);
+        }
+
         (*pstatus) = 0;
     }
 }
@@ -239,7 +255,13 @@ event_return(JNIEnv *env, jthread thread, ClassIndex cnum, MethodIndex mnum)
 
     HPROF_ASSERT(env!=NULL);
     HPROF_ASSERT(thread!=NULL);
-    HPROF_ASSERT(cnum!=0 && cnum!=gdata->tracker_cnum);
+
+    if (cnum == 0 || cnum == gdata->tracker_cnum) {
+        jclass newExcCls = (*env)->FindClass(env, "java/lang/IllegalArgumentException");
+        (*env)->ThrowNew(env, newExcCls, "Illegal cnum.");
+
+        return;
+    }
 
     /* Prevent recursion into any BCI function for this thread (pstatus). */
     if ( tls_get_tracker_status(env, thread, JNI_FALSE,
@@ -248,8 +270,10 @@ event_return(JNIEnv *env, jthread thread, ClassIndex cnum, MethodIndex mnum)
 
         (*pstatus) = 1;
         method      = class_get_methodID(env, cnum, mnum);
-        HPROF_ASSERT(method!=NULL);
-        tls_pop_method(tls_index, thread, method);
+        if (method != NULL) {
+            tls_pop_method(tls_index, thread, method);
+        }
+
         (*pstatus) = 0;
     }
 }

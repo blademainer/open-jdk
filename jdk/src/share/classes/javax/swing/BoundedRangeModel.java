@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -71,8 +71,8 @@ import javax.swing.event.*;
  *
  * For an example of specifying custom bounded range models used by sliders,
  * see <a
- href="http://java.sun.com/docs/books/tutorial/uiswing/overview/anatomy.html">The Anatomy of a Swing-Based Program</a>
- * in <em>The Java Tutorial.</em>
+ href="http://www.oracle.com/technetwork/java/architecture-142923.html#separable">Separable model architecture</a>
+ * in <em>A Swing Architecture Overview.</em>
  *
  * @author Hans Muller
  * @see DefaultBoundedRangeModel

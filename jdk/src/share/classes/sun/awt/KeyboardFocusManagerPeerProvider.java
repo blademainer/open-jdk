@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,20 +25,19 @@
 
 package sun.awt;
 
-import java.awt.KeyboardFocusManager;
 import java.awt.peer.KeyboardFocusManagerPeer;
 
 /**
  * {@link KeyboardFocusManagerPeerProvider} is required to be implemented by
  * the currently used {@link java.awt.Toolkit} instance. In order to initialize
- * {@link java.awt.KeyboardFocusManager}, an instance of {@link KeyboardFocusManagerPeer}
- * is needed. To create that instance, the {@link #createKeyboardFocusManagerPeer}
+ * {@link java.awt.KeyboardFocusManager}, a singleton instance of {@link KeyboardFocusManagerPeer}
+ * is needed. To obtain that instance, the {@link #getKeyboardFocusManagerPeer}
  * method of the current toolkit is called.
  */
 public interface KeyboardFocusManagerPeerProvider {
 
     /**
-     * Creates a KeyboardFocusManagerPeer for the specified KeyboardFocusManager.
+     * Gets a singleton KeyboardFocusManagerPeer instance.
      */
-    KeyboardFocusManagerPeer createKeyboardFocusManagerPeer(KeyboardFocusManager manager);
+    KeyboardFocusManagerPeer getKeyboardFocusManagerPeer();
 }

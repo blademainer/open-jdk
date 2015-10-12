@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,15 +27,16 @@
 
 #include "code/codeBlob.hpp"
 #include "code/pcDesc.hpp"
+#include "oops/metadata.hpp"
 
 // This class is used internally by nmethods, to cache
 // exception/pc/handler information.
 
-class ExceptionCache : public CHeapObj {
+class ExceptionCache : public CHeapObj<mtCode> {
   friend class VMStructs;
  private:
   enum { cache_size = 16 };
-  klassOop _exception_type;
+  Klass*   _exception_type;
   address  _pc[cache_size];
   address  _handler[cache_size];
   int      _count;
@@ -52,8 +53,7 @@ class ExceptionCache : public CHeapObj {
 
   ExceptionCache(Handle exception, address pc, address handler);
 
-  klassOop  exception_type()                { return _exception_type; }
-  klassOop* exception_type_addr()           { return &_exception_type; }
+  Klass*    exception_type()                { return _exception_type; }
   ExceptionCache* next()                    { return _next; }
   void      set_next(ExceptionCache *ec)    { _next = ec; }
 
@@ -112,14 +112,13 @@ class nmethod : public CodeBlob {
   friend class CodeCache;  // scavengable oops
  private:
   // Shared fields for all nmethod's
-  methodOop _method;
+  Method*   _method;
   int       _entry_bci;        // != InvocationEntryBci if this nmethod is an on-stack replacement method
   jmethodID _jmethod_id;       // Cache of method()->jmethod_id()
 
   // To support simple linked-list chaining of nmethods:
-  nmethod*  _osr_link;         // from instanceKlass::osr_nmethods_head
+  nmethod*  _osr_link;         // from InstanceKlass::osr_nmethods_head
   nmethod*  _scavenge_root_link; // from CodeCache::scavenge_root_nmethods
-  nmethod*  _saved_nmethod_link; // from CodeCache::speculatively_disconnect
 
   static nmethod* volatile _oops_do_mark_nmethods;
   nmethod*        volatile _oops_do_mark_link;
@@ -148,6 +147,7 @@ class nmethod : public CodeBlob {
   int _consts_offset;
   int _stub_offset;
   int _oops_offset;                       // offset to where embedded oop table begins (inside data)
+  int _metadata_offset;                   // embedded meta data table
   int _scopes_data_offset;
   int _scopes_pcs_offset;
   int _dependencies_offset;
@@ -164,7 +164,6 @@ class nmethod : public CodeBlob {
 
   // protected by CodeCache_lock
   bool _has_flushed_dependencies;            // Used for maintenance of dependencies (CodeCache_lock)
-  bool _speculatively_disconnected;          // Marked for potential unload
 
   bool _marked_for_reclamation;              // Used by NMethodSweeper (set only by sweeper)
   bool _marked_for_deoptimization;           // Used for stack deoptimization
@@ -175,23 +174,24 @@ class nmethod : public CodeBlob {
   // set during construction
   unsigned int _has_unsafe_access:1;         // May fault due to unsafe access.
   unsigned int _has_method_handle_invokes:1; // Has this method MethodHandle invokes?
+  unsigned int _lazy_critical_native:1;      // Lazy JNI critical native
+  unsigned int _has_wide_vectors:1;          // Preserve wide vectors at safepoints
 
   // Protected by Patching_lock
-  unsigned char _state;                      // {alive, not_entrant, zombie, unloaded}
+  volatile unsigned char _state;             // {alive, not_entrant, zombie, unloaded}
 
 #ifdef ASSERT
   bool _oops_are_stale;  // indicates that it's no longer safe to access oops section
 #endif
 
-  enum { alive        = 0,
-         not_entrant  = 1, // uncommon trap has happened but activations may still exist
-         zombie       = 2,
-         unloaded     = 3 };
-
+  enum { in_use       = 0,   // executable nmethod
+         not_entrant  = 1,   // marked for deoptimization but activations may still exist,
+                             // will be transformed to zombie when all activations are gone
+         zombie       = 2,   // no activations exist, nmethod is ready for purge
+         unloaded     = 3 }; // there should be no activations, should not be called,
+                             // will be transformed to zombie immediately
 
   jbyte _scavenge_root_state;
-
-  NOT_PRODUCT(bool _has_debug_info; )
 
   // Nmethod Flushing lock. If non-zero, then the nmethod is not removed
   // and is not made into a zombie. However, once the nmethod is made into
@@ -201,10 +201,17 @@ class nmethod : public CodeBlob {
 
   // not_entrant method removal. Each mark_sweep pass will update
   // this mark to current sweep invocation count if it is seen on the
-  // stack.  An not_entrant method can be removed when there is no
+  // stack.  An not_entrant method can be removed when there are no
   // more activations, i.e., when the _stack_traversal_mark is less than
   // current sweep traversal index.
   long _stack_traversal_mark;
+
+  // The _hotness_counter indicates the hotness of a method. The higher
+  // the value the hotter the method. The hotness counter of a nmethod is
+  // set to [(ReservedCodeCacheSize / (1024 * 1024)) * 2] each time the method
+  // is active while stack scanning (mark_active_nmethods()). The hotness
+  // counter is decreased (by 1) while sweeping.
+  int _hotness_counter;
 
   ExceptionCache *_exception_cache;
   PcDescCache     _pc_desc_cache;
@@ -227,7 +234,7 @@ class nmethod : public CodeBlob {
   friend class nmethodLocker;
 
   // For native wrappers
-  nmethod(methodOop method,
+  nmethod(Method* method,
           int nmethod_size,
           int compile_id,
           CodeOffsets* offsets,
@@ -239,7 +246,7 @@ class nmethod : public CodeBlob {
 
 #ifdef HAVE_DTRACE_H
   // For native wrappers
-  nmethod(methodOop method,
+  nmethod(Method* method,
           int nmethod_size,
           CodeOffsets* offsets,
           CodeBuffer *code_buffer,
@@ -247,7 +254,7 @@ class nmethod : public CodeBlob {
 #endif // def HAVE_DTRACE_H
 
   // Creation support
-  nmethod(methodOop method,
+  nmethod(Method* method,
           int nmethod_size,
           int compile_id,
           int entry_bci,
@@ -264,7 +271,7 @@ class nmethod : public CodeBlob {
           int comp_level);
 
   // helper methods
-  void* operator new(size_t size, int nmethod_size);
+  void* operator new(size_t size, int nmethod_size) throw();
 
   const char* reloc_string_for(u_char* begin, u_char* end);
   // Returns true if this thread changed the state of the nmethod or
@@ -326,13 +333,8 @@ class nmethod : public CodeBlob {
 #endif // def HAVE_DTRACE_H
 
   // accessors
-  methodOop method() const                        { return _method; }
+  Method* method() const                          { return _method; }
   AbstractCompiler* compiler() const              { return _compiler; }
-
-#ifndef PRODUCT
-  bool has_debug_info() const                     { return _has_debug_info; }
-  void set_has_debug_info(bool f)                 { _has_debug_info = false; }
-#endif // NOT PRODUCT
 
   // type info
   bool is_nmethod() const                         { return true; }
@@ -356,7 +358,10 @@ class nmethod : public CodeBlob {
   address deopt_mh_handler_begin() const          { return           header_begin() + _deoptimize_mh_offset ; }
   address unwind_handler_begin  () const          { return _unwind_handler_offset != -1 ? (header_begin() + _unwind_handler_offset) : NULL; }
   oop*    oops_begin            () const          { return (oop*)   (header_begin() + _oops_offset)         ; }
-  oop*    oops_end              () const          { return (oop*)   (header_begin() + _scopes_data_offset)  ; }
+  oop*    oops_end              () const          { return (oop*)   (header_begin() + _metadata_offset)     ; }
+
+  Metadata** metadata_begin   () const            { return (Metadata**)  (header_begin() + _metadata_offset)     ; }
+  Metadata** metadata_end     () const            { return (Metadata**)  (header_begin() + _scopes_data_offset)  ; }
 
   address scopes_data_begin     () const          { return           header_begin() + _scopes_data_offset   ; }
   address scopes_data_end       () const          { return           header_begin() + _scopes_pcs_offset    ; }
@@ -374,6 +379,7 @@ class nmethod : public CodeBlob {
   int insts_size        () const                  { return            insts_end        () -            insts_begin        (); }
   int stub_size         () const                  { return            stub_end         () -            stub_begin         (); }
   int oops_size         () const                  { return (address)  oops_end         () - (address)  oops_begin         (); }
+  int metadata_size     () const                  { return (address)  metadata_end     () - (address)  metadata_begin     (); }
   int scopes_data_size  () const                  { return            scopes_data_end  () -            scopes_data_begin  (); }
   int scopes_pcs_size   () const                  { return (intptr_t) scopes_pcs_end   () - (intptr_t) scopes_pcs_begin   (); }
   int dependencies_size () const                  { return            dependencies_end () -            dependencies_begin (); }
@@ -382,11 +388,16 @@ class nmethod : public CodeBlob {
 
   int total_size        () const;
 
+  void dec_hotness_counter()        { _hotness_counter--; }
+  void set_hotness_counter(int val) { _hotness_counter = val; }
+  int  hotness_counter() const      { return _hotness_counter; }
+
   // Containment
   bool consts_contains       (address addr) const { return consts_begin       () <= addr && addr < consts_end       (); }
   bool insts_contains        (address addr) const { return insts_begin        () <= addr && addr < insts_end        (); }
   bool stub_contains         (address addr) const { return stub_begin         () <= addr && addr < stub_end         (); }
   bool oops_contains         (oop*    addr) const { return oops_begin         () <= addr && addr < oops_end         (); }
+  bool metadata_contains     (Metadata** addr) const   { return metadata_begin     () <= addr && addr < metadata_end     (); }
   bool scopes_data_contains  (address addr) const { return scopes_data_begin  () <= addr && addr < scopes_data_end  (); }
   bool scopes_pcs_contains   (PcDesc* addr) const { return scopes_pcs_begin   () <= addr && addr < scopes_pcs_end   (); }
   bool handler_table_contains(address addr) const { return handler_table_begin() <= addr && addr < handler_table_end(); }
@@ -397,8 +408,8 @@ class nmethod : public CodeBlob {
   address verified_entry_point() const            { return _verified_entry_point;    } // if klass is correct
 
   // flag accessing and manipulation
-  bool  is_in_use() const                         { return _state == alive; }
-  bool  is_alive() const                          { return _state == alive || _state == not_entrant; }
+  bool  is_in_use() const                         { return _state == in_use; }
+  bool  is_alive() const                          { return _state == in_use || _state == not_entrant; }
   bool  is_not_entrant() const                    { return _state == not_entrant; }
   bool  is_zombie() const                         { return _state == zombie; }
   bool  is_unloaded() const                       { return _state == unloaded;   }
@@ -407,8 +418,8 @@ class nmethod : public CodeBlob {
   // alive.  It is used when an uncommon trap happens.  Returns true
   // if this thread changed the state of the nmethod or false if
   // another thread performed the transition.
-  bool  make_not_entrant()                        { return make_not_entrant_or_zombie(not_entrant); }
-  bool  make_zombie()                             { return make_not_entrant_or_zombie(zombie); }
+  bool  make_not_entrant() { return make_not_entrant_or_zombie(not_entrant); }
+  bool  make_zombie()      { return make_not_entrant_or_zombie(zombie); }
 
   // used by jvmti to track if the unload event has been reported
   bool  unload_reported()                         { return _unload_reported; }
@@ -436,8 +447,11 @@ class nmethod : public CodeBlob {
   bool  has_method_handle_invokes() const         { return _has_method_handle_invokes; }
   void  set_has_method_handle_invokes(bool z)     { _has_method_handle_invokes = z; }
 
-  bool  is_speculatively_disconnected() const     { return _speculatively_disconnected; }
-  void  set_speculatively_disconnected(bool z)     { _speculatively_disconnected = z; }
+  bool  is_lazy_critical_native() const           { return _lazy_critical_native; }
+  void  set_lazy_critical_native(bool z)          { _lazy_critical_native = z; }
+
+  bool  has_wide_vectors() const                  { return _has_wide_vectors; }
+  void  set_has_wide_vectors(bool z)              { _has_wide_vectors = z; }
 
   int   comp_level() const                        { return _comp_level; }
 
@@ -451,7 +465,17 @@ class nmethod : public CodeBlob {
     return &oops_begin()[index - 1];
   }
 
-  void copy_oops(GrowableArray<jobject>* oops);
+  // Support for meta data in scopes and relocs:
+  // Note: index 0 is reserved for null.
+  Metadata*     metadata_at(int index) const      { return index == 0 ? NULL: *metadata_addr_at(index); }
+  Metadata**  metadata_addr_at(int index) const {  // for GC
+    // relocation indexes are biased by 1 (because 0 is reserved)
+    assert(index > 0 && index <= metadata_size(), "must be a valid non-zero index");
+    return &metadata_begin()[index - 1];
+  }
+
+  void copy_values(GrowableArray<jobject>* oops);
+  void copy_values(GrowableArray<Metadata*>* metadata);
 
   // Relocation support
 private:
@@ -481,9 +505,6 @@ public:
 #endif //PRODUCT
   nmethod* scavenge_root_link() const                  { return _scavenge_root_link; }
   void     set_scavenge_root_link(nmethod *n)          { _scavenge_root_link = n; }
-
-  nmethod* saved_nmethod_link() const                  { return _saved_nmethod_link; }
-  void     set_saved_nmethod_link(nmethod *n)          { _saved_nmethod_link = n; }
 
  public:
 
@@ -519,6 +540,9 @@ public:
     return (addr >= code_begin() && addr < verified_entry_point());
   }
 
+  // Check that all metadata is still alive
+  void verify_metadata_loaders(address low_boundary, BoolObjectClosure* is_alive);
+
   // unlink and deallocate this nmethod
   // Only NMethodSweeper class is expected to use this. NMethodSweeper is not
   // expected to use any other private methods/data in this class.
@@ -536,19 +560,17 @@ public:
   void mark_as_seen_on_stack();
   bool can_not_entrant_be_converted();
 
-  // Evolution support. We make old (discarded) compiled methods point to new methodOops.
-  void set_method(methodOop method) { _method = method; }
+  // Evolution support. We make old (discarded) compiled methods point to new Method*s.
+  void set_method(Method* method) { _method = method; }
 
   // GC support
-  void do_unloading(BoolObjectClosure* is_alive, OopClosure* keep_alive,
-                    bool unloading_occurred);
-  bool can_unload(BoolObjectClosure* is_alive, OopClosure* keep_alive,
-                  oop* root, bool unloading_occurred);
+  void do_unloading(BoolObjectClosure* is_alive, bool unloading_occurred);
+  bool can_unload(BoolObjectClosure* is_alive, oop* root, bool unloading_occurred);
 
   void preserve_callee_argument_oops(frame fr, const RegisterMap *reg_map,
                                      OopClosure* f);
   void oops_do(OopClosure* f) { oops_do(f, false); }
-  void oops_do(OopClosure* f, bool do_strong_roots_only);
+  void oops_do(OopClosure* f, bool allow_zombie);
   bool detect_scavenge_root_oops();
   void verify_scavenge_root_oops() PRODUCT_RETURN;
 
@@ -556,7 +578,7 @@ public:
   static void oops_do_marking_prologue();
   static void oops_do_marking_epilogue();
   static bool oops_do_marking_is_active() { return _oops_do_mark_nmethods != NULL; }
-  DEBUG_ONLY(bool test_oops_do_mark() { return _oops_do_mark_link != NULL; })
+  bool test_oops_do_mark() { return _oops_do_mark_link != NULL; }
 
   // ScopeDesc for an instruction
   ScopeDesc* scope_desc_at(address pc);
@@ -633,11 +655,11 @@ public:
   void log_state_change() const;
 
   // Prints block-level comments, including nmethod specific block labels:
-  virtual void print_block_comment(outputStream* stream, address block_begin) {
+  virtual void print_block_comment(outputStream* stream, address block_begin) const {
     print_nmethod_labels(stream, block_begin);
     CodeBlob::print_block_comment(stream, block_begin);
   }
-  void print_nmethod_labels(outputStream* stream, address block_begin);
+  void print_nmethod_labels(outputStream* stream, address block_begin) const;
 
   // Prints a comment for one native instruction (reloc info, pc desc)
   void print_code_comment_on(outputStream* st, int column, address begin, address end);
@@ -666,12 +688,12 @@ public:
   // Evolution support. Tells if this compiled method is dependent on any of
   // methods m() of class dependee, such that if m() in dependee is replaced,
   // this compiled method will have to be deoptimized.
-  bool is_evol_dependent_on(klassOop dependee);
+  bool is_evol_dependent_on(Klass* dependee);
 
   // Fast breakpoint support. Tells if this compiled method is
   // dependent on the given method. Returns true if this nmethod
   // corresponds to the given method as well.
-  bool is_dependent_on_method(methodOop dependee);
+  bool is_dependent_on_method(Method* dependee);
 
   // is it ok to patch at address?
   bool is_patchable_at(address instr_address);
@@ -689,6 +711,12 @@ public:
   static int osr_entry_point_offset()             { return offset_of(nmethod, _osr_entry_point); }
   static int entry_bci_offset()                   { return offset_of(nmethod, _entry_bci); }
 
+  // RedefineClasses support.   Mark metadata in nmethods as on_stack so that
+  // redefine classes doesn't purge it.
+  static void mark_on_stack(nmethod* nm) {
+    nm->metadata_do(Metadata::mark_on_stack);
+  }
+  void metadata_do(void f(Metadata*));
 };
 
 // Locks an nmethod so its code will not get removed and it will not

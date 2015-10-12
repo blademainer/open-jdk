@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,7 +29,6 @@
  */
 
 import java.beans.Beans;
-import sun.awt.SunToolkit;
 
 public class TestDesignTime implements Runnable {
     public static void main(String[] args) throws InterruptedException {
@@ -44,7 +43,6 @@ public class TestDesignTime implements Runnable {
     }
 
     public void run() {
-        SunToolkit.createNewAppContext();
         if (Beans.isDesignTime()) {
             throw new Error("shared DesignTime property");
         }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,10 +43,10 @@ void GraphKit::make_dtrace_method_entry_exit(ciMethod* method, bool is_entry) {
   const char     *call_name    = is_entry ? "dtrace_method_entry" : "dtrace_method_exit";
 
   // Get base of thread-local storage area
-  Node* thread = _gvn.transform( new (C, 1) ThreadLocalNode() );
+  Node* thread = _gvn.transform( new (C) ThreadLocalNode() );
 
   // Get method
-  const TypeInstPtr* method_type = TypeInstPtr::make(TypePtr::Constant, method->klass(), true, method, 0);
+  const TypePtr* method_type = TypeMetadataPtr::make(method);
   Node *method_node = _gvn.transform( ConNode::make(C, method_type) );
 
   kill_dead_locals();
@@ -71,20 +71,20 @@ void Parse::do_checkcast() {
   // Throw uncommon trap if class is not loaded or the value we are casting
   // _from_ is not loaded, and value is not null.  If the value _is_ NULL,
   // then the checkcast does nothing.
-  const TypeInstPtr *tp = _gvn.type(obj)->isa_instptr();
-  if (!will_link || (tp && !tp->is_loaded())) {
+  const TypeOopPtr *tp = _gvn.type(obj)->isa_oopptr();
+  if (!will_link || (tp && tp->klass() && !tp->klass()->is_loaded())) {
     if (C->log() != NULL) {
       if (!will_link) {
         C->log()->elem("assert_null reason='checkcast' klass='%d'",
                        C->log()->identify(klass));
       }
-      if (tp && !tp->is_loaded()) {
+      if (tp && tp->klass() && !tp->klass()->is_loaded()) {
         // %%% Cannot happen?
         C->log()->elem("assert_null reason='checkcast source' klass='%d'",
                        C->log()->identify(tp->klass()));
       }
     }
-    do_null_assert(obj, T_OBJECT);
+    null_assert(obj);
     assert( stopped() || _gvn.type(peek())->higher_equal(TypePtr::NULL_PTR), "what's left behind is null" );
     if (!stopped()) {
       profile_null_checkcast();
@@ -116,7 +116,7 @@ void Parse::do_instanceof() {
       C->log()->elem("assert_null reason='instanceof' klass='%d'",
                      C->log()->identify(klass));
     }
-    do_null_assert(peek(), T_OBJECT);
+    null_assert(peek());
     assert( stopped() || _gvn.type(peek())->higher_equal(TypePtr::NULL_PTR), "what's left behind is null" );
     if (!stopped()) {
       // The object is now known to be null.
@@ -128,7 +128,7 @@ void Parse::do_instanceof() {
   }
 
   // Push the bool result back on stack
-  Node* res = gen_instanceof(peek(), makecon(TypeKlassPtr::make(klass)));
+  Node* res = gen_instanceof(peek(), makecon(TypeKlassPtr::make(klass)), true);
 
   // Pop from stack AFTER gen_instanceof because it can uncommon trap.
   pop();
@@ -139,10 +139,10 @@ void Parse::do_instanceof() {
 // pull array from stack and check that the store is valid
 void Parse::array_store_check() {
 
-  // Shorthand access to array store elements
-  Node *obj = stack(_sp-1);
-  Node *idx = stack(_sp-2);
-  Node *ary = stack(_sp-3);
+  // Shorthand access to array store elements without popping them.
+  Node *obj = peek(0);
+  Node *idx = peek(1);
+  Node *ary = peek(2);
 
   if (_gvn.type(obj) == TypePtr::NULL_PTR) {
     // There's never a type check on null values.
@@ -175,8 +175,8 @@ void Parse::array_store_check() {
     // Make a constant out of the inexact array klass
     const TypeKlassPtr *extak = tak->cast_to_exactness(true)->is_klassptr();
     Node* con = makecon(extak);
-    Node* cmp = _gvn.transform(new (C, 3) CmpPNode( array_klass, con ));
-    Node* bol = _gvn.transform(new (C, 2) BoolNode( cmp, BoolTest::eq ));
+    Node* cmp = _gvn.transform(new (C) CmpPNode( array_klass, con ));
+    Node* bol = _gvn.transform(new (C) BoolNode( cmp, BoolTest::eq ));
     Node* ctrl= control();
     { BuildCutout unless(this, bol, PROB_MAX);
       uncommon_trap(Deoptimization::Reason_array_check,
@@ -200,7 +200,7 @@ void Parse::array_store_check() {
   // Come here for polymorphic array klasses
 
   // Extract the array element class
-  int element_klass_offset = objArrayKlass::element_klass_offset_in_bytes() + sizeof(oopDesc);
+  int element_klass_offset = in_bytes(ObjArrayKlass::element_klass_offset());
   Node *p2 = basic_plus_adr(array_klass, array_klass, element_klass_offset);
   Node *a_e_klass = _gvn.transform( LoadKlassNode::make(_gvn, immutable_memory(), p2, tak) );
 
@@ -215,12 +215,12 @@ void Parse::emit_guard_for_new(ciInstanceKlass* klass) {
   //   if (klass->_init_thread != current_thread ||
   //       klass->_init_state != being_initialized)
   //      uncommon_trap
-  Node* cur_thread = _gvn.transform( new (C, 1) ThreadLocalNode() );
-  Node* merge = new (C, 3) RegionNode(3);
+  Node* cur_thread = _gvn.transform( new (C) ThreadLocalNode() );
+  Node* merge = new (C) RegionNode(3);
   _gvn.set_type(merge, Type::CONTROL);
   Node* kls = makecon(TypeKlassPtr::make(klass));
 
-  Node* init_thread_offset = _gvn.MakeConX(instanceKlass::init_thread_offset_in_bytes() + klassOopDesc::klass_part_offset_in_bytes());
+  Node* init_thread_offset = _gvn.MakeConX(in_bytes(InstanceKlass::init_thread_offset()));
   Node* adr_node = basic_plus_adr(kls, kls, init_thread_offset);
   Node* init_thread = make_load(NULL, adr_node, TypeRawPtr::BOTTOM, T_ADDRESS);
   Node *tst   = Bool( CmpP( init_thread, cur_thread), BoolTest::eq);
@@ -228,10 +228,12 @@ void Parse::emit_guard_for_new(ciInstanceKlass* klass) {
   set_control(IfTrue(iff));
   merge->set_req(1, IfFalse(iff));
 
-  Node* init_state_offset = _gvn.MakeConX(instanceKlass::init_state_offset_in_bytes() + klassOopDesc::klass_part_offset_in_bytes());
+  Node* init_state_offset = _gvn.MakeConX(in_bytes(InstanceKlass::init_state_offset()));
   adr_node = basic_plus_adr(kls, kls, init_state_offset);
-  Node* init_state = make_load(NULL, adr_node, TypeInt::INT, T_INT);
-  Node* being_init = _gvn.intcon(instanceKlass::being_initialized);
+  // Use T_BOOLEAN for InstanceKlass::_init_state so the compiler
+  // can generate code to load it as unsigned byte.
+  Node* init_state = make_load(NULL, adr_node, TypeInt::UBYTE, T_BOOLEAN);
+  Node* being_init = _gvn.intcon(InstanceKlass::being_initialized);
   tst   = Bool( CmpI( init_state, being_init), BoolTest::eq);
   iff = create_and_map_if(control(), tst, PROB_ALWAYS, COUNT_UNKNOWN);
   set_control(IfTrue(iff));
@@ -282,6 +284,11 @@ void Parse::do_new() {
        klass == C->env()->StringBuffer_klass())) {
     C->set_has_stringbuilder(true);
   }
+
+  // Keep track of boxed values for EliminateAutoBox optimizations.
+  if (C->eliminate_boxing() && klass->is_box_klass()) {
+    C->set_has_boxed_value(true);
+  }
 }
 
 #ifndef PRODUCT
@@ -320,9 +327,9 @@ void Parse::test_counter_against_threshold(Node* cnt, int limit) {
 
   // Test invocation count vs threshold
   Node *threshold = makecon(TypeInt::make(limit));
-  Node *chk   = _gvn.transform( new (C, 3) CmpUNode( cnt, threshold) );
+  Node *chk   = _gvn.transform( new (C) CmpUNode( cnt, threshold) );
   BoolTest::mask btest = BoolTest::lt;
-  Node *tst   = _gvn.transform( new (C, 2) BoolNode( chk, btest) );
+  Node *tst   = _gvn.transform( new (C) BoolNode( chk, btest) );
   // Branch to failure if threshold exceeded
   { BuildCutout unless(this, tst, PROB_ALWAYS);
     uncommon_trap(Deoptimization::Reason_age,
@@ -334,26 +341,32 @@ void Parse::test_counter_against_threshold(Node* cnt, int limit) {
 void Parse::increment_and_test_invocation_counter(int limit) {
   if (!count_invocations()) return;
 
-  // Get the methodOop node.
-  const TypePtr* adr_type = TypeOopPtr::make_from_constant(method());
-  Node *methodOop_node = makecon(adr_type);
+  // Get the Method* node.
+  ciMethod* m = method();
+  MethodCounters* counters_adr = m->ensure_method_counters();
+  if (counters_adr == NULL) {
+    C->record_failure("method counters allocation failed");
+    return;
+  }
 
-  // Load the interpreter_invocation_counter from the methodOop.
-  int offset = methodOopDesc::interpreter_invocation_counter_offset_in_bytes();
-  Node* adr_node = basic_plus_adr(methodOop_node, methodOop_node, offset);
-  Node* cnt = make_load(NULL, adr_node, TypeInt::INT, T_INT, adr_type);
+  Node* ctrl = control();
+  const TypePtr* adr_type = TypeRawPtr::make((address) counters_adr);
+  Node *counters_node = makecon(adr_type);
+  Node* adr_iic_node = basic_plus_adr(counters_node, counters_node,
+    MethodCounters::interpreter_invocation_counter_offset_in_bytes());
+  Node* cnt = make_load(ctrl, adr_iic_node, TypeInt::INT, T_INT, adr_type);
 
   test_counter_against_threshold(cnt, limit);
 
   // Add one to the counter and store
-  Node* incr = _gvn.transform(new (C, 3) AddINode(cnt, _gvn.intcon(1)));
-  store_to_memory( NULL, adr_node, incr, T_INT, adr_type );
+  Node* incr = _gvn.transform(new (C) AddINode(cnt, _gvn.intcon(1)));
+  store_to_memory( ctrl, adr_iic_node, incr, T_INT, adr_type );
 }
 
 //----------------------------method_data_addressing---------------------------
 Node* Parse::method_data_addressing(ciMethodData* md, ciProfileData* data, ByteSize counter_offset, Node* idx, uint stride) {
-  // Get offset within methodDataOop of the data array
-  ByteSize data_offset = methodDataOopDesc::data_offset();
+  // Get offset within MethodData* of the data array
+  ByteSize data_offset = MethodData::data_offset();
 
   // Get cell offset of the ProfileData within data array
   int cell_offset = md->dp_to_di(data->dp());
@@ -361,14 +374,14 @@ Node* Parse::method_data_addressing(ciMethodData* md, ciProfileData* data, ByteS
   // Add in counter_offset, the # of bytes into the ProfileData of counter or flag
   int offset = in_bytes(data_offset) + cell_offset + in_bytes(counter_offset);
 
-  const TypePtr* adr_type = TypeOopPtr::make_from_constant(md);
+  const TypePtr* adr_type = TypeMetadataPtr::make(md);
   Node* mdo = makecon(adr_type);
   Node* ptr = basic_plus_adr(mdo, mdo, offset);
 
   if (stride != 0) {
     Node* str = _gvn.MakeConX(stride);
-    Node* scale = _gvn.transform( new (C, 3) MulXNode( idx, str ) );
-    ptr   = _gvn.transform( new (C, 4) AddPNode( mdo, ptr, scale ) );
+    Node* scale = _gvn.transform( new (C) MulXNode( idx, str ) );
+    ptr   = _gvn.transform( new (C) AddPNode( mdo, ptr, scale ) );
   }
 
   return ptr;
@@ -380,7 +393,7 @@ void Parse::increment_md_counter_at(ciMethodData* md, ciProfileData* data, ByteS
 
   const TypePtr* adr_type = _gvn.type(adr_node)->is_ptr();
   Node* cnt  = make_load(NULL, adr_node, TypeInt::INT, T_INT, adr_type);
-  Node* incr = _gvn.transform(new (C, 3) AddINode(cnt, _gvn.intcon(DataLayout::counter_increment)));
+  Node* incr = _gvn.transform(new (C) AddINode(cnt, _gvn.intcon(DataLayout::counter_increment)));
   store_to_memory(NULL, adr_node, incr, T_INT, adr_type );
 }
 
@@ -400,7 +413,7 @@ void Parse::set_md_flag_at(ciMethodData* md, ciProfileData* data, int flag_const
 
   const TypePtr* adr_type = _gvn.type(adr_node)->is_ptr();
   Node* flags = make_load(NULL, adr_node, TypeInt::BYTE, T_BYTE, adr_type);
-  Node* incr = _gvn.transform(new (C, 3) OrINode(flags, _gvn.intcon(flag_constant)));
+  Node* incr = _gvn.transform(new (C) OrINode(flags, _gvn.intcon(flag_constant)));
   store_to_memory(NULL, adr_node, incr, T_BYTE, adr_type);
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -326,18 +326,27 @@ public class WindowsInternalFrameTitlePane extends BasicInternalFrameTitlePane {
 
     protected void addSystemMenuItems(JPopupMenu menu) {
         JMenuItem mi = menu.add(restoreAction);
-        mi.setMnemonic('R');
+        mi.setMnemonic(getButtonMnemonic("restore"));
         mi = menu.add(moveAction);
-        mi.setMnemonic('M');
+        mi.setMnemonic(getButtonMnemonic("move"));
         mi = menu.add(sizeAction);
-        mi.setMnemonic('S');
+        mi.setMnemonic(getButtonMnemonic("size"));
         mi = menu.add(iconifyAction);
-        mi.setMnemonic('n');
+        mi.setMnemonic(getButtonMnemonic("minimize"));
         mi = menu.add(maximizeAction);
-        mi.setMnemonic('x');
-        systemPopupMenu.add(new JSeparator());
+        mi.setMnemonic(getButtonMnemonic("maximize"));
+        menu.add(new JSeparator());
         mi = menu.add(closeAction);
-        mi.setMnemonic('C');
+        mi.setMnemonic(getButtonMnemonic("close"));
+    }
+
+    private static int getButtonMnemonic(String button) {
+        try {
+            return Integer.parseInt(UIManager.getString(
+                    "InternalFrameTitlePane." + button + "Button.mnemonic"));
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     protected void showSystemMenu(){

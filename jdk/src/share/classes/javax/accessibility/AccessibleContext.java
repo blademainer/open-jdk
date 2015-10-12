@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -394,6 +394,8 @@ public abstract class AccessibleContext {
     private AccessibleRelationSet relationSet
         = new AccessibleRelationSet();
 
+    private Object nativeAXResource;
+
     /**
      * Gets the accessibleName property of this object.  The accessibleName
      * property of an object is a localized String that designates the purpose
@@ -478,7 +480,7 @@ public abstract class AccessibleContext {
      * a set of predefined roles.  This enables assistive technologies to
      * provide a consistent interface to various tweaked subclasses of
      * components (e.g., use AccessibleRole.PUSH_BUTTON for all components
-     * that act like a push button) as well as distinguish between sublasses
+     * that act like a push button) as well as distinguish between subclasses
      * that behave differently (e.g., AccessibleRole.CHECK_BOX for check boxes
      * and AccessibleRole.RADIO_BUTTON for radio buttons).
      * <p>Note that the AccessibleRole class is also extensible, so

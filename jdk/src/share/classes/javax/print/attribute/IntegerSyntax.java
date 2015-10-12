@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,9 +33,9 @@ import java.io.Serializable;
  * <P>
  * Under the hood, an integer attribute is just an integer. You can get an
  * integer attribute's integer value by calling {@link #getValue()
- * <CODE>getValue()</CODE>}. An integer attribute's integer value is
+ * getValue()}. An integer attribute's integer value is
  * established when it is constructed (see {@link #IntegerSyntax(int)
- * <CODE>IntegerSyntax(int)</CODE>}). Once constructed, an integer attribute's
+ * IntegerSyntax(int)}). Once constructed, an integer attribute's
  * value is immutable.
  * <P>
  *

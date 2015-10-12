@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,6 +32,8 @@ import java.util.Enumeration;
 import java.io.IOException;
 
 public class TestInterfaces {
+
+    static final boolean isWindows = System.getProperty("os.name").startsWith("Windows");
 
     public static void main(String args[]) throws Exception {
         int failures = 0;
@@ -84,6 +86,10 @@ public class TestInterfaces {
                         + " " + ioe.getMessage());
                 continue;
             }
+
+            // JDK-8022963, Skip (Windows) Teredo Tunneling seudo-Interface
+            if (isWindows && ni.getDisplayName().contains("Teredo"))
+                continue;
 
             NetworkInterface curr = soc.getNetworkInterface();
             if (!curr.equals(ni)) {

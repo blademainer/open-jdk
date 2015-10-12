@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -95,6 +95,7 @@ typedef struct {
     jint offsets[MAX_NUMBANDS];
     jint nBits[MAX_NUMBANDS];
     jint  maxBitSize;
+    jint isUsed; // flag to indicate whether the raster sample model is SPPSM
 } SPPSampleModelS_t;
 
 /* Struct that holds information for the Raster object */
@@ -187,13 +188,8 @@ void awt_freeParsedRaster(RasterS_t *rasterP, int freeRasterP);
 
 void awt_freeParsedImage(BufImageS_t *imageP, int freeImageP);
 
-int awt_getPixelByte(JNIEnv *env, int band, RasterS_t *rasterP,
-                     unsigned char *bufferP);
-int awt_setPixelByte(JNIEnv *env, int band, RasterS_t *rasterP,
-                     unsigned char *bufferP);
-int awt_getPixelShort(JNIEnv *env, int band, RasterS_t *rasterP,
-                     unsigned short *bufferP);
-int awt_setPixelShort(JNIEnv *env, int band, RasterS_t *rasterP,
-                      unsigned short *bufferP);
+int awt_getPixels(JNIEnv *env, RasterS_t *rasterP, void *bufferP);
+
+int awt_setPixels(JNIEnv *env, RasterS_t *rasterP, void *bufferP);
 
 #endif /* AWT_PARSE_IMAGE_H */

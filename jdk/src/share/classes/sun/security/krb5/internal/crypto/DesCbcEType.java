@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -94,7 +94,7 @@ abstract class DesCbcEType extends EType {
         byte[] new_data;
         byte pad;
         /*Data padding: using Kerberos 5 GSS-API mechanism (1.2.2.3), Jun 1996.
-         *Before encryption, plaintext data is padded to the next higest multiple of blocksize.
+         *Before encryption, plain text data is padded to the next highest multiple of blocksize.
          *by appending between 1 and 8 bytes, the value of each such byte being the total number
          *of pad bytes. For example, if new_size = 10, blockSize is 8, we should pad 2 bytes,
          *and the value of each byte is 2.

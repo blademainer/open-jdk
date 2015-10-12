@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,14 +36,14 @@ public class SystemDictionary {
   private static AddressField placeholdersField;
   private static AddressField loaderConstraintTableField;
   private static sun.jvm.hotspot.types.OopField javaSystemLoaderField;
-  private static int nofBuckets;
 
-  private static sun.jvm.hotspot.types.OopField objectKlassField;
-  private static sun.jvm.hotspot.types.OopField classLoaderKlassField;
-  private static sun.jvm.hotspot.types.OopField stringKlassField;
-  private static sun.jvm.hotspot.types.OopField systemKlassField;
-  private static sun.jvm.hotspot.types.OopField threadKlassField;
-  private static sun.jvm.hotspot.types.OopField threadGroupKlassField;
+  private static AddressField objectKlassField;
+  private static AddressField classLoaderKlassField;
+  private static AddressField stringKlassField;
+  private static AddressField systemKlassField;
+  private static AddressField threadKlassField;
+  private static AddressField threadGroupKlassField;
+  private static AddressField methodHandleKlassField;
 
   static {
     VM.registerVMInitializedObserver(new Observer() {
@@ -61,14 +61,14 @@ public class SystemDictionary {
     placeholdersField = type.getAddressField("_placeholders");
     loaderConstraintTableField = type.getAddressField("_loader_constraints");
     javaSystemLoaderField = type.getOopField("_java_system_loader");
-    nofBuckets = db.lookupIntConstant("SystemDictionary::_nof_buckets").intValue();
 
-    objectKlassField = type.getOopField(WK_KLASS("Object_klass"));
-    classLoaderKlassField = type.getOopField(WK_KLASS("ClassLoader_klass"));
-    stringKlassField = type.getOopField(WK_KLASS("String_klass"));
-    systemKlassField = type.getOopField(WK_KLASS("System_klass"));
-    threadKlassField = type.getOopField(WK_KLASS("Thread_klass"));
-    threadGroupKlassField = type.getOopField(WK_KLASS("ThreadGroup_klass"));
+    objectKlassField = type.getAddressField(WK_KLASS("Object_klass"));
+    classLoaderKlassField = type.getAddressField(WK_KLASS("ClassLoader_klass"));
+    stringKlassField = type.getAddressField(WK_KLASS("String_klass"));
+    systemKlassField = type.getAddressField(WK_KLASS("System_klass"));
+    threadKlassField = type.getAddressField(WK_KLASS("Thread_klass"));
+    threadGroupKlassField = type.getAddressField(WK_KLASS("ThreadGroup_klass"));
+    methodHandleKlassField = type.getAddressField(WK_KLASS("MethodHandle_klass"));
   }
 
   // This WK functions must follow the definitions in systemDictionary.hpp:
@@ -104,27 +104,31 @@ public class SystemDictionary {
   // few well known classes -- not all are added here.
   // add more if needed.
   public static InstanceKlass getThreadKlass() {
-    return (InstanceKlass) newOop(threadKlassField.getValue());
+    return (InstanceKlass)Metadata.instantiateWrapperFor(threadKlassField.getValue());
   }
 
   public static InstanceKlass getThreadGroupKlass() {
-    return (InstanceKlass) newOop(threadGroupKlassField.getValue());
+    return (InstanceKlass)Metadata.instantiateWrapperFor(threadGroupKlassField.getValue());
   }
 
   public static InstanceKlass getObjectKlass() {
-    return (InstanceKlass) newOop(objectKlassField.getValue());
+    return (InstanceKlass)Metadata.instantiateWrapperFor(objectKlassField.getValue());
   }
 
   public static InstanceKlass getStringKlass() {
-    return (InstanceKlass) newOop(stringKlassField.getValue());
+    return (InstanceKlass)Metadata.instantiateWrapperFor(stringKlassField.getValue());
   }
 
   public static InstanceKlass getClassLoaderKlass() {
-    return (InstanceKlass) newOop(classLoaderKlassField.getValue());
+    return (InstanceKlass)Metadata.instantiateWrapperFor(classLoaderKlassField.getValue());
   }
 
   public static InstanceKlass getSystemKlass() {
-    return (InstanceKlass) newOop(systemKlassField.getValue());
+    return (InstanceKlass)Metadata.instantiateWrapperFor(systemKlassField.getValue());
+  }
+
+  public static InstanceKlass getMethodHandleKlass() {
+    return (InstanceKlass)Metadata.instantiateWrapperFor(methodHandleKlassField.getValue());
   }
 
   public InstanceKlass getAbstractOwnableSynchronizerKlass() {
@@ -134,10 +138,6 @@ public class SystemDictionary {
 
   public static Oop javaSystemLoader() {
     return newOop(javaSystemLoaderField.getValue());
-  }
-
-  public static int getNumOfBuckets() {
-    return nofBuckets;
   }
 
   private static Oop newOop(OopHandle handle) {

@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2004, 2005, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2004, 2012, Oracle and/or its affiliates. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -90,7 +90,7 @@ ifeq ($(OSNAME), linux)
     OBJECTS=$(SOURCES:%.c=%.o)
     # Library name and options needed to build it
     LIBRARY=lib$(LIBNAME).so
-    LDFLAGS=-Wl,-soname=$(LIBRARY) -static-libgcc -mimpure-text
+    LDFLAGS=-Wl,-soname=$(LIBRARY) -static-libgcc
     # Libraries we are dependent on
     LIBRARIES=-lc
     # Building a shared library

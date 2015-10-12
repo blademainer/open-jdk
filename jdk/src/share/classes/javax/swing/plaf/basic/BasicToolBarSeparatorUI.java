@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,7 +37,7 @@ import javax.swing.plaf.basic.BasicSeparatorUI;
 
 
 /**
- * A Basic L&F implementation of ToolBarSeparatorUI.  This implementation
+ * A Basic L&amp;F implementation of ToolBarSeparatorUI.  This implementation
  * is a "combined" view/controller.
  * <p>
  *

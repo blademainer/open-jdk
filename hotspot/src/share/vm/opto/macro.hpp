@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -52,7 +52,7 @@ private:
     return basic_plus_adr(base, base, offset);
   }
   Node* basic_plus_adr(Node* base, Node* ptr, Node* offset) {
-    Node* adr = new (C, 4) AddPNode(base, ptr, offset);
+    Node* adr = new (C) AddPNode(base, ptr, offset);
     return transform_later(adr);
   }
   Node* transform_later(Node* n) {
@@ -86,12 +86,14 @@ private:
   Node *value_from_mem(Node *mem, BasicType ft, const Type *ftype, const TypeOopPtr *adr_t, Node *alloc);
   Node *value_from_mem_phi(Node *mem, BasicType ft, const Type *ftype, const TypeOopPtr *adr_t, Node *alloc, Node_Stack *value_phis, int level);
 
+  bool eliminate_boxing_node(CallStaticJavaNode *boxing);
   bool eliminate_allocate_node(AllocateNode *alloc);
   bool can_eliminate_allocation(AllocateNode *alloc, GrowableArray <SafePointNode *>& safepoints);
   bool scalar_replacement(AllocateNode *alloc, GrowableArray <SafePointNode *>& safepoints_done);
-  void process_users_of_allocation(AllocateNode *alloc);
+  void process_users_of_allocation(CallNode *alloc);
 
   void eliminate_card_mark(Node *cm);
+  void mark_eliminated_box(Node* box, Node* obj);
   void mark_eliminated_locking_nodes(AbstractLockNode *alock);
   bool eliminate_locking_node(AbstractLockNode *alock);
   void expand_lock_node(LockNode *lock);
@@ -119,6 +121,7 @@ public:
   PhaseMacroExpand(PhaseIterGVN &igvn) : Phase(Macro_Expand), _igvn(igvn) {
     _igvn.set_delay_transform(true);
   }
+  void eliminate_macro_nodes();
   bool expand_macro_nodes();
 
 };

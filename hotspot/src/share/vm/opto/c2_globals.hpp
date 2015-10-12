@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,12 +44,21 @@
 #ifdef TARGET_OS_FAMILY_windows
 # include "c2_globals_windows.hpp"
 #endif
+#ifdef TARGET_OS_FAMILY_bsd
+# include "c2_globals_bsd.hpp"
+#endif
 
 //
 // Defines all globals flags used by the server compiler.
 //
 
 #define C2_FLAGS(develop, develop_pd, product, product_pd, diagnostic, experimental, notproduct) \
+                                                                            \
+  develop(bool, StressLCM, false,                                           \
+          "Randomize instruction scheduling in LCM")                        \
+                                                                            \
+  develop(bool, StressGCM, false,                                           \
+          "Randomize instruction scheduling in GCM")                        \
                                                                             \
   notproduct(intx, CompileZapFirst, 0,                                      \
           "If +ZapDeadCompiledLocals, "                                     \
@@ -78,6 +87,13 @@
   product(intx, MaxLoopPad, (OptoLoopAlignment-1),                          \
           "Align a loop if padding size in bytes is less or equal to this value") \
                                                                             \
+  product(intx, MaxVectorSize, 32,                                          \
+          "Max vector size in bytes, "                                      \
+          "actual size could be less depending on elements type")           \
+                                                                            \
+  product(bool, AlignVector, true,                                          \
+          "Perform vector store/load alignment in loop")                    \
+                                                                            \
   product(intx, NumberOfLoopInstrToAlign, 4,                                \
           "Number of first instructions in a loop to align")                \
                                                                             \
@@ -104,6 +120,12 @@
                                                                             \
   notproduct(bool, VerifyOpto, false,                                       \
           "Apply more time consuming verification during compilation")      \
+                                                                            \
+  notproduct(bool, VerifyIdealNodeCount, false,                             \
+          "Verify that tracked dead ideal node count is accurate")          \
+                                                                            \
+  notproduct(bool, PrintIdealNodeCount, false,                              \
+          "Print liveness counts of ideal nodes")                           \
                                                                             \
   notproduct(bool, VerifyOptoOopOffsets, false,                             \
           "Check types of base addresses in field references")              \
@@ -157,6 +179,9 @@
   product_pd(intx,  LoopUnrollLimit,                                        \
           "Unroll loop bodies with node count less than this")              \
                                                                             \
+  product(intx,  LoopMaxUnroll, 16,                                         \
+          "Maximum number of unrolls for main loop")                        \
+                                                                            \
   product(intx,  LoopUnrollMin, 4,                                          \
           "Minimum number of unroll loop bodies before checking progress"   \
           "of rounds of unroll,optimize,..")                                \
@@ -198,7 +223,7 @@
   diagnostic(bool, UnrollLimitCheck, true,                                  \
           "Additional overflow checks during loop unroll")                  \
                                                                             \
-  product(bool, OptimizeFill, false,                                        \
+  product(bool, OptimizeFill, true,                                         \
           "convert fill/copy loops into intrinsic")                         \
                                                                             \
   develop(bool, TraceOptimizeFill, false,                                   \
@@ -289,8 +314,11 @@
   develop(bool, SuperWordRTDepCheck, false,                                 \
           "Enable runtime dependency checks.")                              \
                                                                             \
-  product(bool, TraceSuperWord, false,                                      \
+  notproduct(bool, TraceSuperWord, false,                                   \
           "Trace superword transforms")                                     \
+                                                                            \
+  notproduct(bool, TraceNewVectors, false,                                  \
+          "Trace creation of Vector nodes")                                 \
                                                                             \
   product_pd(bool, OptoBundling,                                            \
           "Generate nops to fill i-cache lines")                            \
@@ -340,26 +368,8 @@
   develop(bool, StressRecompilation, false,                                 \
           "Recompile each compiled method without subsuming loads or escape analysis.") \
                                                                             \
-  /* controls for tier 1 compilations */                                    \
-                                                                            \
-  develop(bool, Tier1CountInvocations, true,                                \
-          "Generate code, during tier 1, to update invocation counter")     \
-                                                                            \
-  product(intx, Tier1Inline, false,                                         \
-          "enable inlining during tier 1")                                  \
-                                                                            \
-  product(intx, Tier1MaxInlineSize, 8,                                      \
-          "maximum bytecode size of a method to be inlined, during tier 1") \
-                                                                            \
-  product(intx, Tier1FreqInlineSize, 35,                                    \
-          "max bytecode size of a frequent method to be inlined, tier 1")   \
-                                                                            \
   develop(intx, ImplicitNullCheckThreshold, 3,                              \
           "Don't do implicit null checks if NPE's in a method exceeds limit") \
-                                                                            \
- /* controls for loop optimization */                                       \
-  product(intx, Tier1LoopOptsCount, 0,                                      \
-          "Set level of loop optimization for tier 1 compiles")             \
                                                                             \
   product(intx, LoopOptsCount, 43,                                          \
           "Set level of loop optimization for tier 1 compiles")             \
@@ -399,10 +409,10 @@
   develop(intx, WarmCallMaxSize, 999999,                                    \
           "size of the largest inlinable method")                           \
                                                                             \
-  product(intx, MaxNodeLimit, 65000,                                        \
+  product(intx, MaxNodeLimit, 80000,                                        \
           "Maximum number of nodes")                                        \
                                                                             \
-  product(intx, NodeLimitFudgeFactor, 1000,                                 \
+  product(intx, NodeLimitFudgeFactor, 2000,                                 \
           "Fudge Factor for certain optimizations")                         \
                                                                             \
   product(bool, UseJumpTables, true,                                        \
@@ -411,7 +421,7 @@
   product(bool, UseDivMod, true,                                            \
           "Use combined DivMod instruction if available")                   \
                                                                             \
-  product(intx, MinJumpTableSize, 18,                                       \
+  product_pd(intx, MinJumpTableSize,                                        \
           "Minimum number of targets in a generated jump table")            \
                                                                             \
   product(intx, MaxJumpTableSize, 65000,                                    \
@@ -423,6 +433,9 @@
   product(bool, EliminateLocks, true,                                       \
           "Coarsen locks when possible")                                    \
                                                                             \
+  product(bool, EliminateNestedLocks, true,                                 \
+          "Eliminate nested locks of the same object when possible")        \
+                                                                            \
   notproduct(bool, PrintLockStatistics, false,                              \
           "Print precise statistics on the dynamic lock usage")             \
                                                                             \
@@ -432,14 +445,23 @@
   notproduct(bool, PrintEliminateLocks, false,                              \
           "Print out when locks are eliminated")                            \
                                                                             \
-  diagnostic(bool, EliminateAutoBox, false,                                 \
-          "Private flag to control optimizations for autobox elimination")  \
+  product(bool, EliminateAutoBox, false,                                    \
+          "Control optimizations for autobox elimination")                  \
+                                                                            \
+  experimental(bool, UseImplicitStableValues, false,                        \
+          "Mark well-known stable fields as such (e.g. String.value)")      \
                                                                             \
   product(intx, AutoBoxCacheMax, 128,                                       \
           "Sets max value cached by the java.lang.Integer autobox cache")   \
                                                                             \
+  experimental(bool, AggressiveUnboxing, false,                             \
+          "Control optimizations for aggressive boxing elimination")        \
+                                                                            \
   product(bool, DoEscapeAnalysis, true,                                     \
           "Perform escape analysis")                                        \
+                                                                            \
+  develop(bool, ExitEscapeAnalysisOnTimeout, true,                          \
+          "Exit or throw assert in EA when it reaches time limit")          \
                                                                             \
   notproduct(bool, PrintEscapeAnalysis, false,                              \
           "Print the results of escape analysis")                           \
@@ -453,10 +475,19 @@
   product(intx, EliminateAllocationArraySizeLimit, 64,                      \
           "Array size (number of elements) limit for scalar replacement")   \
                                                                             \
+  product(bool, OptimizePtrCompare, true,                                   \
+          "Use escape analysis to optimize pointers compare")               \
+                                                                            \
+  notproduct(bool, PrintOptimizePtrCompare, false,                          \
+          "Print information about optimized pointers compare")             \
+                                                                            \
+  notproduct(bool, VerifyConnectionGraph , true,                            \
+          "Verify Connection Graph construction in Escape Analysis")        \
+                                                                            \
   product(bool, UseOptoBiasInlining, true,                                  \
           "Generate biased locking code in C2 ideal graph")                 \
                                                                             \
-  product(bool, OptimizeStringConcat, false,                                \
+  product(bool, OptimizeStringConcat, true,                                 \
           "Optimize the construction of Strings by StringBuilder")          \
                                                                             \
   notproduct(bool, PrintOptimizeStringConcat, false,                        \
@@ -480,6 +511,140 @@
                                                                             \
   product(bool, BlockLayoutRotateLoops, true,                               \
           "Allow back branches to be fall throughs in the block layour")    \
+                                                                            \
+  develop(bool, InlineReflectionGetCallerClass, true,                       \
+          "inline sun.reflect.Reflection.getCallerClass(), known to be part "\
+          "of base library DLL")                                            \
+                                                                            \
+  develop(bool, InlineObjectCopy, true,                                     \
+          "inline Object.clone and Arrays.copyOf[Range] intrinsics")        \
+                                                                            \
+  develop(bool, SpecialStringCompareTo, true,                               \
+          "special version of string compareTo")                            \
+                                                                            \
+  develop(bool, SpecialStringIndexOf, true,                                 \
+          "special version of string indexOf")                              \
+                                                                            \
+  develop(bool, SpecialStringEquals, true,                                  \
+          "special version of string equals")                               \
+                                                                            \
+  develop(bool, SpecialArraysEquals, true,                                  \
+          "special version of Arrays.equals(char[],char[])")                \
+                                                                            \
+  product(bool, SpecialEncodeISOArray, true,                                \
+          "special version of ISO_8859_1$Encoder.encodeISOArray")           \
+                                                                            \
+  develop(bool, BailoutToInterpreterForThrows, false,                       \
+          "Compiled methods which throws/catches exceptions will be "       \
+          "deopt and intp.")                                                \
+                                                                            \
+  develop(bool, ConvertCmpD2CmpF, true,                                     \
+          "Convert cmpD to cmpF when one input is constant in float range") \
+                                                                            \
+  develop(bool, ConvertFloat2IntClipping, true,                             \
+          "Convert float2int clipping idiom to integer clipping")           \
+                                                                            \
+  develop(bool, Use24BitFPMode, true,                                       \
+          "Set 24-bit FPU mode on a per-compile basis ")                    \
+                                                                            \
+  develop(bool, Use24BitFP, true,                                           \
+          "use FP instructions that produce 24-bit precise results")        \
+                                                                            \
+  develop(bool, MonomorphicArrayCheck, true,                                \
+          "Uncommon-trap array store checks that require full type check")  \
+                                                                            \
+  notproduct(bool, TracePhaseCCP, false,                                    \
+          "Print progress during Conditional Constant Propagation")         \
+                                                                            \
+  develop(bool, PrintDominators, false,                                     \
+          "Print out dominator trees for GVN")                              \
+                                                                            \
+  notproduct(bool, TraceSpilling, false,                                    \
+          "Trace spilling")                                                 \
+                                                                            \
+  diagnostic(bool, TraceTypeProfile, false,                                 \
+          "Trace type profile")                                             \
+                                                                            \
+  develop(bool, PoisonOSREntry, true,                                       \
+           "Detect abnormal calls to OSR code")                             \
+                                                                            \
+  product(bool, UseCondCardMark, false,                                     \
+          "Check for already marked card before updating card table")       \
+                                                                            \
+  develop(bool, SoftMatchFailure, trueInProduct,                            \
+          "If the DFA fails to match a node, print a message and bail out") \
+                                                                            \
+  develop(bool, InlineAccessors, true,                                      \
+          "inline accessor methods (get/set)")                              \
+                                                                            \
+  product(intx, TypeProfileMajorReceiverPercent, 90,                        \
+          "% of major receiver type to all profiled receivers")             \
+                                                                            \
+  notproduct(bool, TimeCompiler2, false,                                    \
+          "detailed time the compiler (requires +TimeCompiler)")            \
+                                                                            \
+  diagnostic(bool, PrintIntrinsics, false,                                  \
+          "prints attempted and successful inlining of intrinsics")         \
+                                                                            \
+  diagnostic(ccstrlist, DisableIntrinsic, "",                               \
+          "do not expand intrinsics whose (internal) names appear here")    \
+                                                                            \
+  develop(bool, StressReflectiveCode, false,                                \
+          "Use inexact types at allocations, etc., to test reflection")     \
+                                                                            \
+  diagnostic(bool, DebugInlinedCalls, true,                                 \
+         "If false, restricts profiled locations to the root method only")  \
+                                                                            \
+  notproduct(bool, VerifyLoopOptimizations, false,                          \
+          "verify major loop optimizations")                                \
+                                                                            \
+  diagnostic(bool, ProfileDynamicTypes, true,                               \
+          "do extra type profiling and use it more aggressively")           \
+                                                                            \
+  develop(bool, TraceIterativeGVN, false,                                   \
+          "Print progress during Iterative Global Value Numbering")         \
+                                                                            \
+  develop(bool, VerifyIterativeGVN, false,                                  \
+          "Verify Def-Use modifications during sparse Iterative Global "    \
+          "Value Numbering")                                                \
+                                                                            \
+  notproduct(bool, TraceCISCSpill, false,                                   \
+          "Trace allocators use of cisc spillable instructions")            \
+                                                                            \
+  product(bool, SplitIfBlocks, true,                                        \
+          "Clone compares and control flow through merge points to fold "   \
+          "some branches")                                                  \
+                                                                            \
+  develop(intx, FreqCountInvocations,  1,                                   \
+          "Scaling factor for branch frequencies (deprecated)")             \
+                                                                            \
+  product(intx, AliasLevel,     3,                                          \
+          "0 for no aliasing, 1 for oop/field/static/array split, "         \
+          "2 for class split, 3 for unique instances")                      \
+                                                                            \
+  develop(bool, VerifyAliases, false,                                       \
+          "perform extra checks on the results of alias analysis")          \
+                                                                            \
+  product(bool, IncrementalInline, true,                                    \
+          "do post parse inlining")                                         \
+                                                                            \
+  develop(bool, AlwaysIncrementalInline, false,                             \
+          "do all inlining incrementally")                                  \
+                                                                            \
+  product(intx, LiveNodeCountInliningCutoff, 20000,                         \
+          "max number of live nodes in a method")                           \
+                                                                            \
+  diagnostic(bool, OptimizeExpensiveOps, true,                              \
+          "Find best control for expensive operations")                     \
+                                                                            \
+  experimental(bool, UseMathExactIntrinsics, false,                         \
+          "Enables intrinsification of various java.lang.Math functions")   \
+                                                                            \
+  experimental(bool, ReplaceInParentMaps, false,                            \
+          "Propagate type improvements in callers of inlinee if possible")  \
+                                                                            \
+  experimental(bool, UseTypeSpeculation, false,                             \
+          "Speculatively propagate types from profiles")
 
 C2_FLAGS(DECLARE_DEVELOPER_FLAG, DECLARE_PD_DEVELOPER_FLAG, DECLARE_PRODUCT_FLAG, DECLARE_PD_PRODUCT_FLAG, DECLARE_DIAGNOSTIC_FLAG, DECLARE_EXPERIMENTAL_FLAG, DECLARE_NOTPRODUCT_FLAG)
 

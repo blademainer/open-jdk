@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -51,7 +51,7 @@ esac
 
 KSFILE=ns7.jks
 
-KT="${TESTJAVA}${FS}bin${FS}keytool -keystore ns7.jks -storepass changeit -keypass changeit"
+KT="${TESTJAVA}${FS}bin${FS}keytool -keystore ns7.jks -storepass changeit -keypass changeit -keyalg rsa"
 JAR="${TESTJAVA}${FS}bin${FS}jar"
 JS="${TESTJAVA}${FS}bin${FS}jarsigner -keystore ns7.jks -storepass changeit"
 

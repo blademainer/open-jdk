@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,7 +41,7 @@ class GradientPaintContext implements PaintContext {
         new DirectColorModel(24, 0x000000ff, 0x0000ff00, 0x00ff0000);
 
     static ColorModel cachedModel;
-    static WeakReference cached;
+    static WeakReference<Raster> cached;
 
     static synchronized Raster getCachedRaster(ColorModel cm, int w, int h) {
         if (cm == cachedModel) {
@@ -76,7 +76,7 @@ class GradientPaintContext implements PaintContext {
             }
         }
         cachedModel = cm;
-        cached = new WeakReference(ras);
+        cached = new WeakReference<>(ras);
     }
 
     double x1;

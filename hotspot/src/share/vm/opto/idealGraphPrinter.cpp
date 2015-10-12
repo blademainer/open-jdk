@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -130,15 +130,15 @@ IdealGraphPrinter::IdealGraphPrinter() {
       } else {
         st.print("%s%d", PrintIdealGraphFile, _file_count);
       }
-      fileStream *stream = new (ResourceObj::C_HEAP) fileStream(st.as_string());
+      fileStream *stream = new (ResourceObj::C_HEAP, mtCompiler) fileStream(st.as_string());
       _output = stream;
     } else {
-      fileStream *stream = new (ResourceObj::C_HEAP) fileStream(PrintIdealGraphFile);
+      fileStream *stream = new (ResourceObj::C_HEAP, mtCompiler) fileStream(PrintIdealGraphFile);
       _output = stream;
     }
     _file_count++;
   } else {
-    _stream = new (ResourceObj::C_HEAP) networkStream();
+    _stream = new (ResourceObj::C_HEAP, mtCompiler) networkStream();
 
     // Try to connect to visualizer
     if (_stream->connect(PrintIdealGraphAddress, PrintIdealGraphPort)) {
@@ -155,12 +155,12 @@ IdealGraphPrinter::IdealGraphPrinter() {
     } else {
       // It would be nice if we could shut down cleanly but it should
       // be an error if we can't connect to the visualizer.
-      fatal(err_msg("Couldn't connect to visualizer at %s:%d",
-                    PrintIdealGraphAddress, PrintIdealGraphPort));
+      fatal(err_msg_res("Couldn't connect to visualizer at %s:%d",
+                        PrintIdealGraphAddress, PrintIdealGraphPort));
     }
   }
 
-  _xml = new (ResourceObj::C_HEAP) xmlStream(_output);
+  _xml = new (ResourceObj::C_HEAP, mtCompiler) xmlStream(_output);
 
   head(TOP_ELEMENT);
 }
@@ -375,9 +375,9 @@ intptr_t IdealGraphPrinter::get_node_id(Node *n) {
   return (intptr_t)(n);
 }
 
-void IdealGraphPrinter::visit_node(Node *n, void *param) {
+void IdealGraphPrinter::visit_node(Node *n, bool edges, VectorSet* temp_set) {
 
-  if(param) {
+  if (edges) {
 
     // Output edge
     intptr_t dest_id = get_node_id(n);
@@ -407,16 +407,16 @@ void IdealGraphPrinter::visit_node(Node *n, void *param) {
     node->_in_dump_cnt++;
     print_prop(NODE_NAME_PROPERTY, (const char *)node->Name());
     const Type *t = node->bottom_type();
-    print_prop("type", (const char *)Type::msg[t->base()]);
+    print_prop("type", t->msg());
     print_prop("idx", node->_idx);
 #ifdef ASSERT
     print_prop("debug_idx", node->_debug_idx);
 #endif
 
-    if(C->cfg() != NULL) {
-      Block *block = C->cfg()->_bbs[node->_idx];
-      if(block == NULL) {
-        print_prop("block", C->cfg()->_blocks[0]->_pre_order);
+    if (C->cfg() != NULL) {
+      Block* block = C->cfg()->get_block_for_node(node);
+      if (block == NULL) {
+        print_prop("block", C->cfg()->get_block(0)->_pre_order);
       } else {
         print_prop("block", block->_pre_order);
       }
@@ -425,9 +425,6 @@ void IdealGraphPrinter::visit_node(Node *n, void *param) {
     const jushort flags = node->flags();
     if (flags & Node::Flag_is_Copy) {
       print_prop("is_copy", "true");
-    }
-    if (flags & Node::Flag_is_Call) {
-      print_prop("is_call", "true");
     }
     if (flags & Node::Flag_rematerialize) {
       print_prop("rematerialize", "true");
@@ -444,26 +441,14 @@ void IdealGraphPrinter::visit_node(Node *n, void *param) {
     if (flags & Node::Flag_is_cisc_alternate) {
       print_prop("is_cisc_alternate", "true");
     }
-    if (flags & Node::Flag_is_Branch) {
-      print_prop("is_branch", "true");
-    }
-    if (flags & Node::Flag_is_block_start) {
-      print_prop("is_block_start", "true");
-    }
-    if (flags & Node::Flag_is_Goto) {
-      print_prop("is_goto", "true");
-    }
     if (flags & Node::Flag_is_dead_loop_safe) {
       print_prop("is_dead_loop_safe", "true");
     }
     if (flags & Node::Flag_may_be_short_branch) {
       print_prop("may_be_short_branch", "true");
     }
-    if (flags & Node::Flag_is_safepoint_node) {
-      print_prop("is_safepoint_node", "true");
-    }
-    if (flags & Node::Flag_is_pc_relative) {
-      print_prop("is_pc_relative", "true");
+    if (flags & Node::Flag_has_call) {
+      print_prop("has_call", "true");
     }
 
     if (C->matcher() != NULL) {
@@ -562,7 +547,7 @@ void IdealGraphPrinter::visit_node(Node *n, void *param) {
 
         // max. 2 chars allowed
         if (value >= -9 && value <= 99) {
-          sprintf(buffer, INT64_FORMAT, value);
+          sprintf(buffer, JLONG_FORMAT, value);
           print_prop(short_name, buffer);
         } else {
           print_prop(short_name, "L");
@@ -617,16 +602,11 @@ void IdealGraphPrinter::visit_node(Node *n, void *param) {
 
 #ifdef ASSERT
     if (node->debug_orig() != NULL) {
+      temp_set->Clear();
       stringStream dorigStream;
       Node* dorig = node->debug_orig();
-      if (dorig) {
+      while (dorig && temp_set->test_set(dorig->_idx)) {
         dorigStream.print("%d ", dorig->_idx);
-        Node* first = dorig;
-        dorig = first->debug_orig();
-        while (dorig && dorig != first) {
-          dorigStream.print("%d ", dorig->_idx);
-          dorig = dorig->debug_orig();
-        }
       }
       print_prop("debug_orig", dorigStream.as_string());
     }
@@ -636,7 +616,11 @@ void IdealGraphPrinter::visit_node(Node *n, void *param) {
       buffer[0] = 0;
       _chaitin->dump_register(node, buffer);
       print_prop("reg", buffer);
-      print_prop("lrg", _chaitin->n2lidx(node));
+      uint lrg_id = 0;
+      if (node->_idx < _chaitin->_lrg_map.size()) {
+        lrg_id = _chaitin->_lrg_map.live_range_id(node);
+      }
+      print_prop("lrg", lrg_id);
     }
 
     node->_in_dump_cnt--;
@@ -647,7 +631,7 @@ void IdealGraphPrinter::visit_node(Node *n, void *param) {
   }
 }
 
-void IdealGraphPrinter::walk_nodes(Node *start, void *param) {
+void IdealGraphPrinter::walk_nodes(Node *start, bool edges, VectorSet* temp_set) {
 
 
   VectorSet visited(Thread::current()->resource_area());
@@ -657,10 +641,10 @@ void IdealGraphPrinter::walk_nodes(Node *start, void *param) {
   if (C->cfg() != NULL) {
     // once we have a CFG there are some nodes that aren't really
     // reachable but are in the CFG so add them here.
-    for (uint i = 0; i < C->cfg()->_blocks.size(); i++) {
-      Block *b = C->cfg()->_blocks[i];
-      for (uint s = 0; s < b->_nodes.size(); s++) {
-        nodeStack.push(b->_nodes[s]);
+    for (uint i = 0; i < C->cfg()->number_of_blocks(); i++) {
+      Block* block = C->cfg()->get_block(i);
+      for (uint s = 0; s < block->number_of_nodes(); s++) {
+        nodeStack.push(block->get_node(s));
       }
     }
   }
@@ -668,7 +652,7 @@ void IdealGraphPrinter::walk_nodes(Node *start, void *param) {
   while(nodeStack.length() > 0) {
 
     Node *n = nodeStack.pop();
-    visit_node(n, param);
+    visit_node(n, edges, temp_set);
 
     if (_traverse_outs) {
       for (DUIterator i = n->outs(); n->has_out(i); i++) {
@@ -707,33 +691,35 @@ void IdealGraphPrinter::print(Compile* compile, const char *name, Node *node, in
   print_attr(GRAPH_NAME_PROPERTY, (const char *)name);
   end_head();
 
+  VectorSet temp_set(Thread::current()->resource_area());
+
   head(NODES_ELEMENT);
-  walk_nodes(node, NULL);
+  walk_nodes(node, false, &temp_set);
   tail(NODES_ELEMENT);
 
   head(EDGES_ELEMENT);
-  walk_nodes(node, (void *)1);
+  walk_nodes(node, true, &temp_set);
   tail(EDGES_ELEMENT);
   if (C->cfg() != NULL) {
     head(CONTROL_FLOW_ELEMENT);
-    for (uint i = 0; i < C->cfg()->_blocks.size(); i++) {
-      Block *b = C->cfg()->_blocks[i];
+    for (uint i = 0; i < C->cfg()->number_of_blocks(); i++) {
+      Block* block = C->cfg()->get_block(i);
       begin_head(BLOCK_ELEMENT);
-      print_attr(BLOCK_NAME_PROPERTY, b->_pre_order);
+      print_attr(BLOCK_NAME_PROPERTY, block->_pre_order);
       end_head();
 
       head(SUCCESSORS_ELEMENT);
-      for (uint s = 0; s < b->_num_succs; s++) {
+      for (uint s = 0; s < block->_num_succs; s++) {
         begin_elem(SUCCESSOR_ELEMENT);
-        print_attr(BLOCK_NAME_PROPERTY, b->_succs[s]->_pre_order);
+        print_attr(BLOCK_NAME_PROPERTY, block->_succs[s]->_pre_order);
         end_elem();
       }
       tail(SUCCESSORS_ELEMENT);
 
       head(NODES_ELEMENT);
-      for (uint s = 0; s < b->_nodes.size(); s++) {
+      for (uint s = 0; s < block->number_of_nodes(); s++) {
         begin_elem(NODE_ELEMENT);
-        print_attr(NODE_ID_PROPERTY, get_node_id(b->_nodes[s]));
+        print_attr(NODE_ID_PROPERTY, get_node_id(block->get_node(s)));
         end_elem();
       }
       tail(NODES_ELEMENT);

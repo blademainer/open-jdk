@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@ import java.beans.*;
 
 
 /**
- * Provides the Synth L&F UI delegate for a minimized internal frame on a desktop.
+ * Provides the Synth L&amp;F UI delegate for a minimized internal frame on a desktop.
  *
  * @author Joshua Outwater
  * @since 1.7
@@ -55,7 +55,7 @@ public class SynthDesktopIconUI extends BasicDesktopIconUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void installComponents() {
@@ -82,7 +82,7 @@ public class SynthDesktopIconUI extends BasicDesktopIconUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void installListeners() {
@@ -96,7 +96,7 @@ public class SynthDesktopIconUI extends BasicDesktopIconUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void uninstallListeners() {
@@ -109,7 +109,7 @@ public class SynthDesktopIconUI extends BasicDesktopIconUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void installDefaults() {
@@ -123,7 +123,7 @@ public class SynthDesktopIconUI extends BasicDesktopIconUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void uninstallDefaults() {
@@ -134,7 +134,7 @@ public class SynthDesktopIconUI extends BasicDesktopIconUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public SynthContext getContext(JComponent c) {
@@ -202,7 +202,7 @@ public class SynthDesktopIconUI extends BasicDesktopIconUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public void paintBorder(SynthContext context, Graphics g, int x,

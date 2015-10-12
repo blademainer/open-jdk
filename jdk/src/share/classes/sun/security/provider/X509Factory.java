@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,7 +35,7 @@ import sun.security.provider.certpath.X509CertPath;
 import sun.security.provider.certpath.X509CertificatePair;
 import sun.security.util.DerValue;
 import sun.security.util.Cache;
-import sun.misc.BASE64Decoder;
+import java.util.Base64;
 import sun.security.pkcs.ParsingException;
 
 /**
@@ -64,8 +64,10 @@ public class X509Factory extends CertificateFactorySpi {
 
     private static final int ENC_MAX_LENGTH = 4096 * 1024; // 4 MB MAX
 
-    private static final Cache certCache = Cache.newSoftMemoryCache(750);
-    private static final Cache crlCache = Cache.newSoftMemoryCache(750);
+    private static final Cache<Object, X509CertImpl> certCache
+        = Cache.newSoftMemoryCache(750);
+    private static final Cache<Object, X509CRLImpl> crlCache
+        = Cache.newSoftMemoryCache(750);
 
     /**
      * Generates an X.509 certificate object and initializes it with
@@ -90,7 +92,7 @@ public class X509Factory extends CertificateFactorySpi {
         try {
             byte[] encoding = readOneBlock(is);
             if (encoding != null) {
-                X509CertImpl cert = (X509CertImpl)getFromCache(certCache, encoding);
+                X509CertImpl cert = getFromCache(certCache, encoding);
                 if (cert != null) {
                     return cert;
                 }
@@ -151,7 +153,7 @@ public class X509Factory extends CertificateFactorySpi {
         } else {
             encoding = c.getEncoded();
         }
-        X509CertImpl newC = (X509CertImpl)getFromCache(certCache, encoding);
+        X509CertImpl newC = getFromCache(certCache, encoding);
         if (newC != null) {
             return newC;
         }
@@ -181,7 +183,7 @@ public class X509Factory extends CertificateFactorySpi {
         } else {
             encoding = c.getEncoded();
         }
-        X509CRLImpl newC = (X509CRLImpl)getFromCache(crlCache, encoding);
+        X509CRLImpl newC = getFromCache(crlCache, encoding);
         if (newC != null) {
             return newC;
         }
@@ -198,18 +200,17 @@ public class X509Factory extends CertificateFactorySpi {
     /**
      * Get the X509CertImpl or X509CRLImpl from the cache.
      */
-    private static synchronized Object getFromCache(Cache cache,
+    private static synchronized <K,V> V getFromCache(Cache<K,V> cache,
             byte[] encoding) {
         Object key = new Cache.EqualByteArray(encoding);
-        Object value = cache.get(key);
-        return value;
+        return cache.get(key);
     }
 
     /**
      * Add the X509CertImpl or X509CRLImpl to the cache.
      */
-    private static synchronized void addToCache(Cache cache, byte[] encoding,
-            Object value) {
+    private static synchronized <V> void addToCache(Cache<Object, V> cache,
+            byte[] encoding, V value) {
         if (encoding.length > ENC_MAX_LENGTH) {
             return;
         }
@@ -361,7 +362,7 @@ public class X509Factory extends CertificateFactorySpi {
         try {
             byte[] encoding = readOneBlock(is);
             if (encoding != null) {
-                X509CRLImpl crl = (X509CRLImpl)getFromCache(crlCache, encoding);
+                X509CRLImpl crl = getFromCache(crlCache, encoding);
                 if (crl != null) {
                     return crl;
                 }
@@ -511,7 +512,7 @@ public class X509Factory extends CertificateFactorySpi {
                     hyphen = 0;
                     last = next;
                 }
-                if (hyphen == 5 && (last==-1 || last=='\r' || last=='\n')) {
+                if (hyphen == 5 && (last == -1 || last == '\r' || last == '\n')) {
                     break;
                 }
             }
@@ -574,8 +575,7 @@ public class X509Factory extends CertificateFactorySpi {
 
             checkHeaderFooter(header.toString(), footer.toString());
 
-            BASE64Decoder decoder = new BASE64Decoder();
-            return decoder.decodeBuffer(new String(data, 0, pos));
+            return Base64.getMimeDecoder().decode(new String(data, 0, pos));
         }
     }
 
@@ -669,6 +669,23 @@ public class X509Factory extends CertificateFactorySpi {
                 bout.write(midByte);
                 bout.write(lowByte);
                 length = (highByte << 16) | (midByte << 8) | lowByte;
+            } else if (n == 0x84) {
+                int highByte = is.read();
+                int nextByte = is.read();
+                int midByte = is.read();
+                int lowByte = is.read();
+                if (lowByte == -1) {
+                    throw new IOException("Incomplete BER/DER length info");
+                }
+                if (highByte > 127) {
+                    throw new IOException("Invalid BER/DER data (a little huge?)");
+                }
+                bout.write(highByte);
+                bout.write(nextByte);
+                bout.write(midByte);
+                bout.write(lowByte);
+                length = (highByte << 24 ) | (nextByte << 16) |
+                        (midByte << 8) | lowByte;
             } else { // ignore longer length forms
                 throw new IOException("Invalid BER/DER data (too huge?)");
             }

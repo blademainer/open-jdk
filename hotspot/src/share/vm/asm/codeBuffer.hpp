@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,17 +25,15 @@
 #ifndef SHARE_VM_ASM_CODEBUFFER_HPP
 #define SHARE_VM_ASM_CODEBUFFER_HPP
 
-#include "asm/assembler.hpp"
 #include "code/oopRecorder.hpp"
 #include "code/relocInfo.hpp"
 
-class  CodeComments;
-class  AbstractAssembler;
-class  MacroAssembler;
-class  PhaseCFG;
-class  Compile;
-class  BufferBlob;
-class  CodeBuffer;
+class CodeStrings;
+class PhaseCFG;
+class Compile;
+class BufferBlob;
+class CodeBuffer;
+class Label;
 
 class CodeOffsets: public StackObj {
 public:
@@ -194,10 +192,14 @@ class CodeSection VALUE_OBJ_CLASS_SPEC {
   }
 
   // Code emission
-  void emit_int8 (int8_t  x) { *((int8_t*)  end()) = x; set_end(end() + 1); }
-  void emit_int16(int16_t x) { *((int16_t*) end()) = x; set_end(end() + 2); }
-  void emit_int32(int32_t x) { *((int32_t*) end()) = x; set_end(end() + 4); }
-  void emit_int64(int64_t x) { *((int64_t*) end()) = x; set_end(end() + 8); }
+  void emit_int8 ( int8_t  x)  { *((int8_t*)  end()) = x; set_end(end() + sizeof(int8_t)); }
+  void emit_int16( int16_t x)  { *((int16_t*) end()) = x; set_end(end() + sizeof(int16_t)); }
+  void emit_int32( int32_t x)  { *((int32_t*) end()) = x; set_end(end() + sizeof(int32_t)); }
+  void emit_int64( int64_t x)  { *((int64_t*) end()) = x; set_end(end() + sizeof(int64_t)); }
+
+  void emit_float( jfloat  x)  { *((jfloat*)  end()) = x; set_end(end() + sizeof(jfloat)); }
+  void emit_double(jdouble x)  { *((jdouble*) end()) = x; set_end(end() + sizeof(jdouble)); }
+  void emit_address(address x) { *((address*) end()) = x; set_end(end() + sizeof(address)); }
 
   // Share a scratch buffer for relocinfo.  (Hacky; saves a resource allocation.)
   void initialize_shared_locs(relocInfo* buf, int length);
@@ -238,26 +240,30 @@ class CodeSection VALUE_OBJ_CLASS_SPEC {
 #endif //PRODUCT
 };
 
-class CodeComment;
-class CodeComments VALUE_OBJ_CLASS_SPEC {
+class CodeString;
+class CodeStrings VALUE_OBJ_CLASS_SPEC {
 private:
 #ifndef PRODUCT
-  CodeComment* _comments;
+  CodeString* _strings;
 #endif
 
+  CodeString* find(intptr_t offset) const;
+  CodeString* find_last(intptr_t offset) const;
+
 public:
-  CodeComments() {
+  CodeStrings() {
 #ifndef PRODUCT
-    _comments = NULL;
+    _strings = NULL;
 #endif
   }
 
+  const char* add_string(const char * string) PRODUCT_RETURN_(return NULL;);
+
   void add_comment(intptr_t offset, const char * comment) PRODUCT_RETURN;
-  void print_block_comment(outputStream* stream, intptr_t offset)  PRODUCT_RETURN;
-  void assign(CodeComments& other)  PRODUCT_RETURN;
+  void print_block_comment(outputStream* stream, intptr_t offset) const PRODUCT_RETURN;
+  void assign(CodeStrings& other)  PRODUCT_RETURN;
   void free() PRODUCT_RETURN;
 };
-
 
 // A CodeBuffer describes a memory space into which assembly
 // code is generated.  This memory space usually occupies the
@@ -290,8 +296,8 @@ class CodeBuffer: public StackObj {
   // CodeBuffers must be allocated on the stack except for a single
   // special case during expansion which is handled internally.  This
   // is done to guarantee proper cleanup of resources.
-  void* operator new(size_t size) { return ResourceObj::operator new(size); }
-  void  operator delete(void* p)  { ShouldNotCallThis(); }
+  void* operator new(size_t size) throw() { return ResourceObj::operator new(size); }
+  void  operator delete(void* p)          { ShouldNotCallThis(); }
 
  public:
   typedef int csize_t;  // code size type; would be size_t except for history
@@ -324,7 +330,7 @@ class CodeBuffer: public StackObj {
   csize_t      _total_size;     // size in bytes of combined memory buffer
 
   OopRecorder* _oop_recorder;
-  CodeComments _comments;
+  CodeStrings  _strings;
   OopRecorder  _default_oop_recorder;  // override with initialize_oop_recorder
   Arena*       _overflow_arena;
 
@@ -362,10 +368,8 @@ class CodeBuffer: public StackObj {
   // helper for CodeBuffer::expand()
   void take_over_code_from(CodeBuffer* cs);
 
-#ifdef ASSERT
   // ensure sections are disjoint, ordered, and contained in the blob
-  bool verify_section_allocation();
-#endif
+  void verify_section_allocation();
 
   // copies combined relocations to the blob, returns bytes copied
   // (if target is null, it is a dry run only, just for sizing)
@@ -393,7 +397,7 @@ class CodeBuffer: public StackObj {
     assert(code_start != NULL, "sanity");
     initialize_misc("static buffer");
     initialize(code_start, code_size);
-    assert(verify_section_allocation(), "initial use of buffer OK");
+    verify_section_allocation();
   }
 
   // (2) CodeBuffer referring to pre-allocated CodeBlob.
@@ -453,6 +457,9 @@ class CodeBuffer: public StackObj {
   int        locator(address addr) const;
   address    locator_address(int locator) const;
 
+  // Heuristic for pre-packing the taken/not-taken bit of a predicted branch.
+  bool is_backward_branch(Label& L);
+
   // Properties
   const char* name() const                  { return _name; }
   CodeBuffer* before_expand() const         { return _before_expand; }
@@ -488,6 +495,9 @@ class CodeBuffer: public StackObj {
   bool insts_contains(address pc) const  { return _insts.contains(pc); }
   bool insts_contains2(address pc) const { return _insts.contains2(pc); }
 
+  // Record any extra oops required to keep embedded metadata alive
+  void finalize_oop_references(methodHandle method);
+
   // Allocated size in all sections, when aligned and concatenated
   // (this is the eventual state of the content in its final
   // CodeBlob).
@@ -506,6 +516,12 @@ class CodeBuffer: public StackObj {
     return (recorder == NULL)? 0: recorder->oop_size();
   }
 
+  // allocated size of any and all recorded metadata
+  csize_t total_metadata_size() const {
+    OopRecorder* recorder = oop_recorder();
+    return (recorder == NULL)? 0: recorder->metadata_size();
+  }
+
   // Configuration functions, called immediately after the CB is constructed.
   // The section sizes are subtracted from the original insts section.
   // Note:  Call them in reverse section order, because each steals from insts.
@@ -515,7 +531,7 @@ class CodeBuffer: public StackObj {
   void initialize_oop_recorder(OopRecorder* r);
 
   OopRecorder* oop_recorder() const   { return _oop_recorder; }
-  CodeComments& comments()            { return _comments; }
+  CodeStrings& strings()              { return _strings; }
 
   // Code generation
   void relocate(address at, RelocationHolder const& rspec, int format = 0) {
@@ -534,9 +550,9 @@ class CodeBuffer: public StackObj {
     copy_relocations_to(blob);
     copy_code_to(blob);
   }
-  void copy_oops_to(nmethod* nm) {
+  void copy_values_to(nmethod* nm) {
     if (!oop_recorder()->is_unused()) {
-      oop_recorder()->copy_to(nm);
+      oop_recorder()->copy_values_to(nm);
     }
   }
 
@@ -544,6 +560,10 @@ class CodeBuffer: public StackObj {
   address transform_address(const CodeBuffer &cb, address addr) const;
 
   void block_comment(intptr_t offset, const char * comment) PRODUCT_RETURN;
+  const char* code_string(const char* str) PRODUCT_RETURN_(return NULL;);
+
+  // Log a little info about section usage in the CodeBuffer
+  void log_section_sizes(const char* name);
 
 #ifndef PRODUCT
  public:

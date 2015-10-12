@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -59,15 +59,10 @@ typedef double             mlib_d64;
 
 #if defined(__SUNPRO_C) || defined(__SUNPRO_CC) || defined(__GNUC__)
 
-#if defined(__linux__)
-#include <stdint.h>                     /* for uintptr_t */
-#include <malloc.h>                     /* for ptrdiff_t */
-#else
-#include <link.h>                       /* for uintptr_t */
-#include <stddef.h>                     /* for ptrdiff_t */
-#endif  /* __linux__ */
+#include <stdint.h>
+#include <stddef.h>
 
-#ifdef MLIB_OS64BIT
+#if defined(MLIB_OS64BIT) || (defined(MACOSX) && defined(_LP64))
 
 typedef long               mlib_s64;
 typedef unsigned long      mlib_u64;

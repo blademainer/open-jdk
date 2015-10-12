@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -106,7 +106,7 @@ public class TrueTypeFont extends FileFont {
 
     private static Map<String, Short> lcidMap;
 
-    class DirectoryEntry {
+    static class DirectoryEntry {
         int tag;
         int offset;
         int length;
@@ -547,6 +547,17 @@ public class TrueTypeFont extends FileFont {
                     throw new FontFormatException("bad table, tag="+table.tag);
                 }
             }
+
+            if (getDirectoryEntry(headTag) == null) {
+                throw new FontFormatException("missing head table");
+            }
+            if (getDirectoryEntry(maxpTag) == null) {
+                throw new FontFormatException("missing maxp table");
+            }
+            if (getDirectoryEntry(hmtxTag) != null
+                    && getDirectoryEntry(hheaTag) == null) {
+                throw new FontFormatException("missing hhea table");
+            }
             initNames();
         } catch (Exception e) {
             if (FontUtilities.isLogging()) {
@@ -619,7 +630,7 @@ public class TrueTypeFont extends FileFont {
      * only one of these ranges then we need to distinguish based on
      * country. So far this only seems to matter for zh.
      * REMIND: Unicode locales such as Hindi do not have a code page so
-     * this whole mechansim needs to be revised to map languages to
+     * this whole mechanism needs to be revised to map languages to
      * the Unicode ranges either when this fails, or as an additional
      * validating test. Basing it on Unicode ranges should get us away
      * from needing to map to this small and incomplete set of Windows
@@ -1037,6 +1048,9 @@ public class TrueTypeFont extends FileFont {
             if (head_Table != null && head_Table.capacity() >= 18) {
                 ShortBuffer sb = head_Table.asShortBuffer();
                 upem = sb.get(9) & 0xffff;
+                if (upem < 16 || upem > 16384) {
+                    upem = 2048;
+                }
             }
 
             ByteBuffer os2_Table = getTableBuffer(os_2Tag);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -195,7 +195,7 @@ void CompressedWriteStream::write_int_mb(jint value) {
 // for this block (a matching directive turns it back on later).
 // These directives can be removed once the MS VS.NET 2005
 // compiler stack overflow is fixed.
-#if _MSC_VER >=1400 && !defined(_WIN64)
+#if defined(_MSC_VER) && _MSC_VER >=1400 && !defined(_WIN64)
 #pragma optimize("", off)
 #pragma warning(disable: 4748)
 #endif
@@ -276,7 +276,7 @@ void test_compressed_stream(int trace) {
   guarantee(fails == 0, "test failures");
 }
 
-#if _MSC_VER >=1400 && !defined(_WIN64)
+#if defined(_MSC_VER) &&_MSC_VER >=1400 && !defined(_WIN64)
 #pragma warning(default: 4748)
 #pragma optimize("", on)
 #endif

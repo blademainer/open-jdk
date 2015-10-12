@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,6 +57,8 @@ const char* InstructionPrinter::cond_name(If::Condition cond) {
     case If::leq: return "<=";
     case If::gtr: return ">";
     case If::geq: return ">=";
+    case If::aeq: return "|>=|";
+    case If::beq: return "|<=|";
   }
   ShouldNotReachHere();
   return NULL;
@@ -133,16 +135,17 @@ void InstructionPrinter::print_object(Value obj) {
       output()->print("null");
     } else if (!value->is_loaded()) {
       output()->print("<unloaded object " PTR_FORMAT ">", value);
-    } else if (value->is_method()) {
-      ciMethod* m = (ciMethod*)value;
-      output()->print("<method %s.%s>", m->holder()->name()->as_utf8(), m->name()->as_utf8());
     } else {
-      output()->print("<object " PTR_FORMAT ">", value->constant_encoding());
+      output()->print("<object " PTR_FORMAT " klass=", value->constant_encoding());
+      print_klass(value->klass());
+      output()->print(">");
     }
   } else if (type->as_InstanceConstant() != NULL) {
     ciInstance* value = type->as_InstanceConstant()->value();
     if (value->is_loaded()) {
-      output()->print("<instance " PTR_FORMAT ">", value->constant_encoding());
+      output()->print("<instance " PTR_FORMAT " klass=", value->constant_encoding());
+      print_klass(value->klass());
+      output()->print(">");
     } else {
       output()->print("<unloaded instance " PTR_FORMAT ">", value);
     }
@@ -155,6 +158,9 @@ void InstructionPrinter::print_object(Value obj) {
     }
     output()->print("class ");
     print_klass(klass);
+  } else if (type->as_MethodConstant() != NULL) {
+    ciMethod* m = type->as_MethodConstant()->value();
+    output()->print("<method %s.%s>", m->holder()->name()->as_utf8(), m->name()->as_utf8());
   } else {
     output()->print("???");
   }
@@ -177,6 +183,11 @@ void InstructionPrinter::print_indexed(AccessIndexed* indexed) {
   output()->put('[');
   print_value(indexed->index());
   output()->put(']');
+  if (indexed->length() != NULL) {
+    output()->put('(');
+    print_value(indexed->length());
+    output()->put(')');
+  }
 }
 
 
@@ -356,7 +367,7 @@ void InstructionPrinter::do_Constant(Constant* x) {
   ValueType* t = x->type();
   switch (t->tag()) {
     case intTag    : output()->print("%d"  , t->as_IntConstant   ()->value());    break;
-    case longTag   : output()->print(os::jlong_format_specifier(), t->as_LongConstant()->value()); output()->print("L"); break;
+    case longTag   : output()->print(JLONG_FORMAT, t->as_LongConstant()->value()); output()->print("L"); break;
     case floatTag  : output()->print("%g"  , t->as_FloatConstant ()->value());    break;
     case doubleTag : output()->print("%gD" , t->as_DoubleConstant()->value());    break;
     case objectTag : print_object(x);                                        break;
@@ -369,6 +380,7 @@ void InstructionPrinter::do_Constant(Constant* x) {
 void InstructionPrinter::do_LoadField(LoadField* x) {
   print_field(x);
   output()->print(" (%c)", type2char(x->field()->type()->basic_type()));
+  output()->print(" %s", x->field()->name()->as_utf8());
 }
 
 
@@ -377,6 +389,7 @@ void InstructionPrinter::do_StoreField(StoreField* x) {
   output()->print(" := ");
   print_value(x->value());
   output()->print(" (%c)", type2char(x->field()->type()->basic_type()));
+  output()->print(" %s", x->field()->name()->as_utf8());
 }
 
 
@@ -389,6 +402,9 @@ void InstructionPrinter::do_ArrayLength(ArrayLength* x) {
 void InstructionPrinter::do_LoadIndexed(LoadIndexed* x) {
   print_indexed(x);
   output()->print(" (%c)", type2char(x->elt_type()));
+  if (x->check_flag(Instruction::NeedsRangeCheckFlag)) {
+    output()->print(" [rc]");
+  }
 }
 
 
@@ -397,6 +413,9 @@ void InstructionPrinter::do_StoreIndexed(StoreIndexed* x) {
   output()->print(" := ");
   print_value(x->value());
   output()->print(" (%c)", type2char(x->elt_type()));
+  if (x->check_flag(Instruction::NeedsRangeCheckFlag)) {
+    output()->print(" [rc]");
+  }
 }
 
 void InstructionPrinter::do_NegateOp(NegateOp* x) {
@@ -450,6 +469,17 @@ void InstructionPrinter::do_NullCheck(NullCheck* x) {
   if (!x->can_trap()) {
     output()->print(" (eliminated)");
   }
+}
+
+
+void InstructionPrinter::do_TypeCast(TypeCast* x) {
+  output()->print("type_cast(");
+  print_value(x->obj());
+  output()->print(") ");
+  if (x->declared_type()->is_klass())
+    print_klass(x->declared_type()->as_klass());
+  else
+    output()->print(type2name(x->declared_type()->basic_type()));
 }
 
 
@@ -816,12 +846,39 @@ void InstructionPrinter::do_UnsafePutObject(UnsafePutObject* x) {
   output()->put(')');
 }
 
+void InstructionPrinter::do_UnsafeGetAndSetObject(UnsafeGetAndSetObject* x) {
+  print_unsafe_object_op(x, x->is_add()?"UnsafeGetAndSetObject (add)":"UnsafeGetAndSetObject");
+  output()->print(", value ");
+  print_value(x->value());
+  output()->put(')');
+}
 
 void InstructionPrinter::do_UnsafePrefetchRead(UnsafePrefetchRead* x) {
   print_unsafe_object_op(x, "UnsafePrefetchRead");
   output()->put(')');
 }
 
+void InstructionPrinter::do_RangeCheckPredicate(RangeCheckPredicate* x) {
+
+  if (x->x() != NULL && x->y() != NULL) {
+    output()->print("if ");
+    print_value(x->x());
+    output()->print(" %s ", cond_name(x->cond()));
+    print_value(x->y());
+    output()->print(" then deoptimize!");
+  } else {
+    output()->print("always deoptimize!");
+  }
+}
+
+#ifdef ASSERT
+void InstructionPrinter::do_Assert(Assert* x) {
+  output()->print("assert ");
+  print_value(x->x());
+  output()->print(" %s ", cond_name(x->cond()));
+  print_value(x->y());
+}
+#endif
 
 void InstructionPrinter::do_UnsafePrefetchWrite(UnsafePrefetchWrite* x) {
   print_unsafe_object_op(x, "UnsafePrefetchWrite");
@@ -835,10 +892,24 @@ void InstructionPrinter::do_ProfileCall(ProfileCall* x) {
   if (x->known_holder() != NULL) {
     output()->print(", ");
     print_klass(x->known_holder());
+    output()->print(" ");
+  }
+  for (int i = 0; i < x->nb_profiled_args(); i++) {
+    if (i > 0) output()->print(", ");
+    print_value(x->profiled_arg_at(i));
+    if (x->arg_needs_null_check(i)) {
+      output()->print(" [NC]");
+    }
   }
   output()->put(')');
 }
 
+void InstructionPrinter::do_ProfileReturnType(ProfileReturnType* x) {
+  output()->print("profile ret type ");
+  print_value(x->ret());
+  output()->print(" %s.%s", x->method()->holder()->name()->as_utf8(), x->method()->name()->as_utf8());
+  output()->put(')');
+}
 void InstructionPrinter::do_ProfileInvoke(ProfileInvoke* x) {
   output()->print("profile_invoke ");
   output()->print(" %s.%s", x->inlinee()->holder()->name()->as_utf8(), x->inlinee()->name()->as_utf8());
@@ -853,6 +924,22 @@ void InstructionPrinter::do_RuntimeCall(RuntimeCall* x) {
     print_value(x->argument_at(i));
   }
   output()->put(')');
+}
+
+void InstructionPrinter::do_MemBar(MemBar* x) {
+  if (os::is_MP()) {
+    LIR_Code code = x->code();
+    switch (code) {
+      case lir_membar_acquire   : output()->print("membar_acquire"); break;
+      case lir_membar_release   : output()->print("membar_release"); break;
+      case lir_membar           : output()->print("membar"); break;
+      case lir_membar_loadload  : output()->print("membar_loadload"); break;
+      case lir_membar_storestore: output()->print("membar_storestore"); break;
+      case lir_membar_loadstore : output()->print("membar_loadstore"); break;
+      case lir_membar_storeload : output()->print("membar_storeload"); break;
+      default                   : ShouldNotReachHere(); break;
+    }
+  }
 }
 
 #endif // PRODUCT

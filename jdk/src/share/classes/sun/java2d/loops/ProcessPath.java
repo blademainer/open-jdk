@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -744,7 +744,7 @@ public class ProcessPath {
 
             /* Checking that we are not running out of the endpoint and bounding
              * violating coordinate.  The check is pretty simple because the
-             * curve passed to the DrawCubic already splitted into the
+             * curve passed to the DrawCubic already split into the
              * monotonic in X and Y pieces
              */
 
@@ -1105,7 +1105,7 @@ public class ProcessPath {
 
                 /* Checking that we are not running out of the endpoint and
                  * bounding violating coordinate.  The check is pretty simple
-                 * because the curve passed to the DrawCubic already splitted
+                 * because the curve passed to the DrawCubic already split
                  * into the monotonic in X and Y pieces
                  */
 

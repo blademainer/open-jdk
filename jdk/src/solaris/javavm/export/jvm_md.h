@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,7 +41,14 @@
 #define JNI_ONUNLOAD_SYMBOLS {"JNI_OnUnload"}
 
 #define JNI_LIB_PREFIX "lib"
+#ifdef __APPLE__
+#define JNI_LIB_SUFFIX ".dylib"
+#define VERSIONED_JNI_LIB_NAME(NAME, VERSION) JNI_LIB_PREFIX NAME "." VERSION JNI_LIB_SUFFIX
+#else
 #define JNI_LIB_SUFFIX ".so"
+#define VERSIONED_JNI_LIB_NAME(NAME, VERSION) JNI_LIB_PREFIX NAME JNI_LIB_SUFFIX "." VERSION
+#endif
+#define JNI_LIB_NAME(NAME) JNI_LIB_PREFIX NAME JNI_LIB_SUFFIX
 
 #define JVM_MAXPATHLEN MAXPATHLEN
 

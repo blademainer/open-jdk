@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -71,7 +71,7 @@ public abstract class SurfaceDataProxy
 
     static {
         cachingAllowed = true;
-        String manimg = (String)AccessController.doPrivileged(
+        String manimg = AccessController.doPrivileged(
             new GetPropertyAction("sun.java2d.managedimages"));
         if (manimg != null && manimg.equals("false")) {
             cachingAllowed = false;
@@ -79,7 +79,7 @@ public abstract class SurfaceDataProxy
         }
 
         defaultThreshold = 1;
-        String num = (String)AccessController.doPrivileged(
+        String num = AccessController.doPrivileged(
             new GetPropertyAction("sun.java2d.accthreshold"));
         if (num != null) {
             try {
@@ -368,7 +368,7 @@ public abstract class SurfaceDataProxy
      * be useful given the operational parameters.
      * This method checks any preexisting cached copy for being "up to date"
      * and tries to update it if it is stale or non-existant and the
-     * appropriate number of accesses have occured since it last was stale.
+     * appropriate number of accesses have occurred since it last was stale.
      * <p>
      * An outline of the process is as follows:
      * <ol>

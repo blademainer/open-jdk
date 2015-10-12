@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -67,7 +67,7 @@
 
 // ------------------------------------------------------------------
 // ciField::ciField
-ciField::ciField(ciInstanceKlass* klass, int index): _known_to_link_with(NULL) {
+ciField::ciField(ciInstanceKlass* klass, int index): _known_to_link_with_put(NULL), _known_to_link_with_get(NULL) {
   ASSERT_IN_VM;
   CompilerThread *thread = CompilerThread::current();
 
@@ -75,7 +75,6 @@ ciField::ciField(ciInstanceKlass* klass, int index): _known_to_link_with(NULL) {
 
   assert(klass->get_instanceKlass()->is_linked(), "must be linked before using its constan-pool");
 
-  _cp_index = index;
   constantPoolHandle cpool(thread, klass->get_instanceKlass()->constants());
 
   // Get the field's name, signature, and type.
@@ -116,7 +115,7 @@ ciField::ciField(ciInstanceKlass* klass, int index): _known_to_link_with(NULL) {
   // The declared holder of this field may not have been loaded.
   // Bail out with partial field information.
   if (!holder_is_accessible) {
-    // _cp_index and _type have already been set.
+    // _type has already been set.
     // The default values for _flags and _constant_value will suffice.
     // We need values for _holder, _offset,  and _is_constant,
     _holder = declared_holder;
@@ -125,11 +124,11 @@ ciField::ciField(ciInstanceKlass* klass, int index): _known_to_link_with(NULL) {
     return;
   }
 
-  instanceKlass* loaded_decl_holder = declared_holder->get_instanceKlass();
+  InstanceKlass* loaded_decl_holder = declared_holder->get_instanceKlass();
 
   // Perform the field lookup.
   fieldDescriptor field_desc;
-  klassOop canonical_holder =
+  Klass* canonical_holder =
     loaded_decl_holder->find_field(name, signature, &field_desc);
   if (canonical_holder == NULL) {
     // Field lookup failed.  Will be detected by will_link.
@@ -143,10 +142,8 @@ ciField::ciField(ciInstanceKlass* klass, int index): _known_to_link_with(NULL) {
   initialize_from(&field_desc);
 }
 
-ciField::ciField(fieldDescriptor *fd): _known_to_link_with(NULL) {
+ciField::ciField(fieldDescriptor *fd): _known_to_link_with_put(NULL), _known_to_link_with_get(NULL) {
   ASSERT_IN_VM;
-
-  _cp_index = -1;
 
   // Get the field's name, signature, and type.
   ciEnv* env = CURRENT_ENV;
@@ -186,15 +183,17 @@ void ciField::initialize_from(fieldDescriptor* fd) {
   // Get the flags, offset, and canonical holder of the field.
   _flags = ciFlags(fd->access_flags());
   _offset = fd->offset();
-  _holder = CURRENT_ENV->get_object(fd->field_holder())->as_instance_klass();
+  _holder = CURRENT_ENV->get_instance_klass(fd->field_holder());
 
   // Check to see if the field is constant.
-  if (_holder->is_initialized() && this->is_final()) {
+  bool is_final = this->is_final();
+  bool is_stable = FoldStableValues && this->is_stable();
+  if (_holder->is_initialized() && (is_final || is_stable)) {
     if (!this->is_static()) {
       // A field can be constant if it's a final static field or if
       // it's a final non-static field of a trusted class (classes in
       // java.lang.invoke and sun.invoke packages and subpackages).
-      if (trust_final_non_static_fields(_holder)) {
+      if (is_stable || trust_final_non_static_fields(_holder)) {
         _is_constant = true;
         return;
       }
@@ -213,7 +212,7 @@ void ciField::initialize_from(fieldDescriptor* fd) {
     //    may change.  The three examples are java.lang.System.in,
     //    java.lang.System.out, and java.lang.System.err.
 
-    KlassHandle k = _holder->get_klassOop();
+    KlassHandle k = _holder->get_Klass();
     assert( SystemDictionary::System_klass() != NULL, "Check once per vm");
     if( k() == SystemDictionary::System_klass() ) {
       // Check offsets for case 2: System.in, System.out, or System.err
@@ -227,7 +226,6 @@ void ciField::initialize_from(fieldDescriptor* fd) {
 
     Handle mirror = k->java_mirror();
 
-    _is_constant = true;
     switch(type()->basic_type()) {
     case T_BYTE:
       _constant_value = ciConstant(type()->basic_type(), mirror->byte_field(_offset));
@@ -273,6 +271,12 @@ void ciField::initialize_from(fieldDescriptor* fd) {
         }
       }
     }
+    if (is_stable && _constant_value.is_null_or_zero()) {
+      // It is not a constant after all; treat it as uninitialized.
+      _is_constant = false;
+    } else {
+      _is_constant = true;
+    }
   } else {
     _is_constant = false;
   }
@@ -315,6 +319,10 @@ ciType* ciField::compute_type_impl() {
 bool ciField::will_link(ciInstanceKlass* accessing_klass,
                         Bytecodes::Code bc) {
   VM_ENTRY_MARK;
+  assert(bc == Bytecodes::_getstatic || bc == Bytecodes::_putstatic ||
+         bc == Bytecodes::_getfield  || bc == Bytecodes::_putfield,
+         "unexpected bytecode");
+
   if (_offset == -1) {
     // at creation we couldn't link to our holder so we need to
     // maintain that stance, otherwise there's no safe way to use this
@@ -322,20 +330,38 @@ bool ciField::will_link(ciInstanceKlass* accessing_klass,
     return false;
   }
 
-  if (_known_to_link_with == accessing_klass) {
-    return true;
+  // Check for static/nonstatic mismatch
+  bool is_static = (bc == Bytecodes::_getstatic || bc == Bytecodes::_putstatic);
+  if (is_static != this->is_static()) {
+    return false;
   }
 
-  FieldAccessInfo result;
-  constantPoolHandle c_pool(THREAD,
-                         accessing_klass->get_instanceKlass()->constants());
-  LinkResolver::resolve_field(result, c_pool, _cp_index,
-                              Bytecodes::java_code(bc),
-                              true, false, KILL_COMPILE_ON_FATAL_(false));
+  // Get and put can have different accessibility rules
+  bool is_put    = (bc == Bytecodes::_putfield  || bc == Bytecodes::_putstatic);
+  if (is_put) {
+    if (_known_to_link_with_put == accessing_klass) {
+      return true;
+    }
+  } else {
+    if (_known_to_link_with_get == accessing_klass) {
+      return true;
+    }
+  }
+
+  fieldDescriptor result;
+  LinkResolver::resolve_field(result, _holder->get_instanceKlass(),
+                              _name->get_symbol(), _signature->get_symbol(),
+                              accessing_klass->get_Klass(), bc, true, false,
+                              KILL_COMPILE_ON_FATAL_(false));
 
   // update the hit-cache, unless there is a problem with memory scoping:
-  if (accessing_klass->is_shared() || !is_shared())
-    _known_to_link_with = accessing_klass;
+  if (accessing_klass->is_shared() || !is_shared()) {
+    if (is_put) {
+      _known_to_link_with_put = accessing_klass;
+    } else {
+      _known_to_link_with_get = accessing_klass;
+    }
+  }
 
   return true;
 }
@@ -343,13 +369,18 @@ bool ciField::will_link(ciInstanceKlass* accessing_klass,
 // ------------------------------------------------------------------
 // ciField::print
 void ciField::print() {
-  tty->print("<ciField ");
+  tty->print("<ciField name=");
   _holder->print_name();
   tty->print(".");
   _name->print_symbol();
+  tty->print(" signature=");
+  _signature->print_symbol();
   tty->print(" offset=%d type=", _offset);
-  if (_type != NULL) _type->print_name();
-  else               tty->print("(reference)");
+  if (_type != NULL)
+    _type->print_name();
+  else
+    tty->print("(reference)");
+  tty->print(" flags=%04x", flags().as_int());
   tty->print(" is_constant=%s", bool_to_str(_is_constant));
   if (_is_constant && is_static()) {
     tty->print(" constant_value=");

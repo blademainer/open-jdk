@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -284,7 +284,7 @@ public class Utils {
      */
     public static Object newStringConstructor(String type, String param)
             throws Exception {
-        Constructor c = Utils.getClass(type).getConstructor(String.class);
+        Constructor<?> c = Utils.getClass(type).getConstructor(String.class);
         try {
             return c.newInstance(param);
         } catch (InvocationTargetException e) {
@@ -352,7 +352,7 @@ public class Utils {
             result = new Character(value.charAt(0));
         } else if (Number.class.isAssignableFrom(Utils.getClass(type))) {
             result = createNumberFromStringValue(value);
-        } else if (value == null || value.toString().equals("null")) {
+        } else if (value == null || value.equals("null")) {
             // hack for null value
             result = null;
         } else {

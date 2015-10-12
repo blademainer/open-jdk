@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,21 +24,20 @@
 
 #include "precompiled.hpp"
 #include "classfile/systemDictionary.hpp"
+#include "gc_implementation/shared/gcHeapSummary.hpp"
+#include "gc_implementation/shared/gcTrace.hpp"
+#include "gc_implementation/shared/gcTraceTime.hpp"
+#include "gc_implementation/shared/gcWhen.hpp"
 #include "gc_implementation/shared/vmGCOperations.hpp"
+#include "gc_interface/allocTracer.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "gc_interface/collectedHeap.inline.hpp"
+#include "memory/metaspace.hpp"
 #include "oops/oop.inline.hpp"
+#include "oops/instanceMirrorKlass.hpp"
 #include "runtime/init.hpp"
+#include "runtime/thread.inline.hpp"
 #include "services/heapDumper.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
 
 
 #ifdef ASSERT
@@ -47,16 +46,109 @@ int CollectedHeap::_fire_out_of_memory_count = 0;
 
 size_t CollectedHeap::_filler_array_max_size = 0;
 
+template <>
+void EventLogBase<GCMessage>::print(outputStream* st, GCMessage& m) {
+  st->print_cr("GC heap %s", m.is_before ? "before" : "after");
+  st->print_raw(m);
+}
+
+void GCHeapLog::log_heap(bool before) {
+  if (!should_log()) {
+    return;
+  }
+
+  double timestamp = fetch_timestamp();
+  MutexLockerEx ml(&_mutex, Mutex::_no_safepoint_check_flag);
+  int index = compute_log_index();
+  _records[index].thread = NULL; // Its the GC thread so it's not that interesting.
+  _records[index].timestamp = timestamp;
+  _records[index].data.is_before = before;
+  stringStream st(_records[index].data.buffer(), _records[index].data.size());
+  if (before) {
+    Universe::print_heap_before_gc(&st, true);
+  } else {
+    Universe::print_heap_after_gc(&st, true);
+  }
+}
+
+VirtualSpaceSummary CollectedHeap::create_heap_space_summary() {
+  size_t capacity_in_words = capacity() / HeapWordSize;
+
+  return VirtualSpaceSummary(
+    reserved_region().start(), reserved_region().start() + capacity_in_words, reserved_region().end());
+}
+
+GCHeapSummary CollectedHeap::create_heap_summary() {
+  VirtualSpaceSummary heap_space = create_heap_space_summary();
+  return GCHeapSummary(heap_space, used());
+}
+
+MetaspaceSummary CollectedHeap::create_metaspace_summary() {
+  const MetaspaceSizes meta_space(
+      MetaspaceAux::allocated_capacity_bytes(),
+      MetaspaceAux::allocated_used_bytes(),
+      MetaspaceAux::reserved_bytes());
+  const MetaspaceSizes data_space(
+      MetaspaceAux::allocated_capacity_bytes(Metaspace::NonClassType),
+      MetaspaceAux::allocated_used_bytes(Metaspace::NonClassType),
+      MetaspaceAux::reserved_bytes(Metaspace::NonClassType));
+  const MetaspaceSizes class_space(
+      MetaspaceAux::allocated_capacity_bytes(Metaspace::ClassType),
+      MetaspaceAux::allocated_used_bytes(Metaspace::ClassType),
+      MetaspaceAux::reserved_bytes(Metaspace::ClassType));
+
+  return MetaspaceSummary(meta_space, data_space, class_space);
+}
+
+void CollectedHeap::print_heap_before_gc() {
+  if (PrintHeapAtGC) {
+    Universe::print_heap_before_gc();
+  }
+  if (_gc_heap_log != NULL) {
+    _gc_heap_log->log_heap_before();
+  }
+}
+
+void CollectedHeap::print_heap_after_gc() {
+  if (PrintHeapAtGC) {
+    Universe::print_heap_after_gc();
+  }
+  if (_gc_heap_log != NULL) {
+    _gc_heap_log->log_heap_after();
+  }
+}
+
+void CollectedHeap::register_nmethod(nmethod* nm) {
+  assert_locked_or_safepoint(CodeCache_lock);
+}
+
+void CollectedHeap::unregister_nmethod(nmethod* nm) {
+  assert_locked_or_safepoint(CodeCache_lock);
+}
+
+void CollectedHeap::trace_heap(GCWhen::Type when, GCTracer* gc_tracer) {
+  const GCHeapSummary& heap_summary = create_heap_summary();
+  const MetaspaceSummary& metaspace_summary = create_metaspace_summary();
+  gc_tracer->report_gc_heap_summary(when, heap_summary, metaspace_summary);
+}
+
+void CollectedHeap::trace_heap_before_gc(GCTracer* gc_tracer) {
+  trace_heap(GCWhen::BeforeGC, gc_tracer);
+}
+
+void CollectedHeap::trace_heap_after_gc(GCTracer* gc_tracer) {
+  trace_heap(GCWhen::AfterGC, gc_tracer);
+}
+
 // Memory state functions.
 
 
 CollectedHeap::CollectedHeap() : _n_par_threads(0)
-
 {
   const size_t max_len = size_t(arrayOopDesc::max_array_length(T_INT));
   const size_t elements_per_word = HeapWordSize / sizeof(jint);
   _filler_array_max_size = align_object_size(filler_array_hdr_size() +
-                                             max_len * elements_per_word);
+                                             max_len / elements_per_word);
 
   _barrier_set = NULL;
   _is_gc_active = false;
@@ -77,6 +169,38 @@ CollectedHeap::CollectedHeap() : _n_par_threads(0)
                              80, GCCause::to_string(_gc_lastcause), CHECK);
   }
   _defer_initial_card_mark = false; // strengthened by subclass in pre_initialize() below.
+  // Create the ring log
+  if (LogEvents) {
+    _gc_heap_log = new GCHeapLog();
+  } else {
+    _gc_heap_log = NULL;
+  }
+}
+
+// This interface assumes that it's being called by the
+// vm thread. It collects the heap assuming that the
+// heap lock is already held and that we are executing in
+// the context of the vm thread.
+void CollectedHeap::collect_as_vm_thread(GCCause::Cause cause) {
+  assert(Thread::current()->is_VM_thread(), "Precondition#1");
+  assert(Heap_lock->is_locked(), "Precondition#2");
+  GCCauseSetter gcs(this, cause);
+  switch (cause) {
+    case GCCause::_heap_inspection:
+    case GCCause::_heap_dump:
+    case GCCause::_metadata_GC_threshold : {
+      HandleMark hm;
+      do_full_collection(false);        // don't clear all soft refs
+      break;
+    }
+    case GCCause::_last_ditch_collection: {
+      HandleMark hm;
+      do_full_collection(true);         // do clear all soft refs
+      break;
+    }
+    default:
+      ShouldNotReachHere(); // Unexpected use of this function
+  }
 }
 
 void CollectedHeap::pre_initialize() {
@@ -129,7 +253,7 @@ void CollectedHeap::check_for_valid_allocation_state() {
 }
 #endif
 
-HeapWord* CollectedHeap::allocate_from_tlab_slow(Thread* thread, size_t size) {
+HeapWord* CollectedHeap::allocate_from_tlab_slow(KlassHandle klass, Thread* thread, size_t size) {
 
   // Retain tlab and allocate object in shared space if
   // the amount free in the tlab is too large to discard.
@@ -153,12 +277,21 @@ HeapWord* CollectedHeap::allocate_from_tlab_slow(Thread* thread, size_t size) {
   if (obj == NULL) {
     return NULL;
   }
+
+  AllocTracer::send_allocation_in_new_tlab_event(klass, new_tlab_size * HeapWordSize, size * HeapWordSize);
+
   if (ZeroTLAB) {
     // ..and clear it.
     Copy::zero_to_words(obj, new_tlab_size);
   } else {
-    // ...and clear just the allocated object.
-    Copy::zero_to_words(obj, size);
+    // ...and zap just allocated object.
+#ifdef ASSERT
+    // Skip mangling the space corresponding to the object header to
+    // ensure that the returned space is not considered parsable by
+    // any concurrent GC thread.
+    size_t hdr_size = oopDesc::header_size();
+    Copy::fill_to_words(obj + hdr_size, new_tlab_size - hdr_size, badHeapWordVal);
+#endif // ASSERT
   }
   thread->tlab().fill(obj, obj + size, new_tlab_size);
   return obj;
@@ -174,9 +307,7 @@ void CollectedHeap::flush_deferred_store_barrier(JavaThread* thread) {
       assert(is_in(old_obj), "Not in allocated heap");
       assert(!can_elide_initializing_store_barrier(old_obj),
              "Else should have been filtered in new_store_pre_barrier()");
-      assert(!is_in_permanent(old_obj), "Sanity: not expected");
       assert(old_obj->is_oop(true), "Not an oop");
-      assert(old_obj->is_parsable(), "Will not be concurrently parsable");
       assert(deferred.word_size() == (size_t)(old_obj->size()),
              "Mismatch: multiple objects?");
     }
@@ -262,10 +393,6 @@ size_t CollectedHeap::filler_array_min_size() {
   return align_object_size(filler_array_hdr_size()); // align to MinObjAlignment
 }
 
-size_t CollectedHeap::filler_array_max_size() {
-  return _filler_array_max_size;
-}
-
 #ifdef ASSERT
 void CollectedHeap::fill_args_check(HeapWord* start, size_t words)
 {
@@ -292,10 +419,11 @@ CollectedHeap::fill_with_array(HeapWord* start, size_t words, bool zap)
 
   const size_t payload_size = words - filler_array_hdr_size();
   const size_t len = payload_size * HeapWordSize / sizeof(jint);
+  assert((int)len >= 0, err_msg("size too large " SIZE_FORMAT " becomes %d", words, (int)len));
 
   // Set the length first for concurrent GC.
   ((arrayOop)start)->set_length((int)len);
-  post_allocation_setup_common(Universe::intArrayKlassObj(), start, words);
+  post_allocation_setup_common(Universe::intArrayKlassObj(), start);
   DEBUG_ONLY(zap_filler_array(start, words, zap);)
 }
 
@@ -308,8 +436,7 @@ CollectedHeap::fill_with_object_impl(HeapWord* start, size_t words, bool zap)
     fill_with_array(start, words, zap);
   } else if (words > 0) {
     assert(words == min_fill_size(), "unaligned size");
-    post_allocation_setup_common(SystemDictionary::Object_klass(), start,
-                                 words);
+    post_allocation_setup_common(SystemDictionary::Object_klass(), start);
   }
 }
 
@@ -340,6 +467,10 @@ void CollectedHeap::fill_with_objects(HeapWord* start, size_t words, bool zap)
 #endif
 
   fill_with_object_impl(start, words, zap);
+}
+
+void CollectedHeap::post_initialize() {
+  collector_policy()->post_heap_initialize();
 }
 
 HeapWord* CollectedHeap::allocate_new_tlab(size_t size) {
@@ -402,28 +533,85 @@ void CollectedHeap::resize_all_tlabs() {
   }
 }
 
-void CollectedHeap::pre_full_gc_dump() {
+void CollectedHeap::pre_full_gc_dump(GCTimer* timer) {
   if (HeapDumpBeforeFullGC) {
-    TraceTime tt("Heap Dump: ", PrintGCDetails, false, gclog_or_tty);
+    GCTraceTime tt("Heap Dump (before full gc): ", PrintGCDetails, false, timer);
     // We are doing a "major" collection and a heap dump before
     // major collection has been requested.
     HeapDumper::dump_heap();
   }
   if (PrintClassHistogramBeforeFullGC) {
-    TraceTime tt("Class Histogram: ", PrintGCDetails, true, gclog_or_tty);
-    VM_GC_HeapInspection inspector(gclog_or_tty, false /* ! full gc */, false /* ! prologue */);
+    GCTraceTime tt("Class Histogram (before full gc): ", PrintGCDetails, true, timer);
+    VM_GC_HeapInspection inspector(gclog_or_tty, false /* ! full gc */);
     inspector.doit();
   }
 }
 
-void CollectedHeap::post_full_gc_dump() {
+void CollectedHeap::post_full_gc_dump(GCTimer* timer) {
   if (HeapDumpAfterFullGC) {
-    TraceTime tt("Heap Dump", PrintGCDetails, false, gclog_or_tty);
+    GCTraceTime tt("Heap Dump (after full gc): ", PrintGCDetails, false, timer);
     HeapDumper::dump_heap();
   }
   if (PrintClassHistogramAfterFullGC) {
-    TraceTime tt("Class Histogram", PrintGCDetails, true, gclog_or_tty);
-    VM_GC_HeapInspection inspector(gclog_or_tty, false /* ! full gc */, false /* ! prologue */);
+    GCTraceTime tt("Class Histogram (after full gc): ", PrintGCDetails, true, timer);
+    VM_GC_HeapInspection inspector(gclog_or_tty, false /* ! full gc */);
     inspector.doit();
   }
 }
+
+oop CollectedHeap::Class_obj_allocate(KlassHandle klass, int size, KlassHandle real_klass, TRAPS) {
+  debug_only(check_for_valid_allocation_state());
+  assert(!Universe::heap()->is_gc_active(), "Allocation during gc not allowed");
+  assert(size >= 0, "int won't convert to size_t");
+  HeapWord* obj;
+    assert(ScavengeRootsInCode > 0, "must be");
+    obj = common_mem_allocate_init(real_klass, size, CHECK_NULL);
+  post_allocation_setup_common(klass, obj);
+  assert(Universe::is_bootstrapping() ||
+         !((oop)obj)->is_array(), "must not be an array");
+  NOT_PRODUCT(Universe::heap()->check_for_bad_heap_word_value(obj, size));
+  oop mirror = (oop)obj;
+
+  java_lang_Class::set_oop_size(mirror, size);
+
+  // Setup indirections
+  if (!real_klass.is_null()) {
+    java_lang_Class::set_klass(mirror, real_klass());
+    real_klass->set_java_mirror(mirror);
+  }
+
+  InstanceMirrorKlass* mk = InstanceMirrorKlass::cast(mirror->klass());
+  assert(size == mk->instance_size(real_klass), "should have been set");
+
+  // notify jvmti and dtrace
+  post_allocation_notify(klass, (oop)obj);
+
+  return mirror;
+}
+
+/////////////// Unit tests ///////////////
+
+#ifndef PRODUCT
+void CollectedHeap::test_is_in() {
+  CollectedHeap* heap = Universe::heap();
+
+  uintptr_t epsilon    = (uintptr_t) MinObjAlignment;
+  uintptr_t heap_start = (uintptr_t) heap->_reserved.start();
+  uintptr_t heap_end   = (uintptr_t) heap->_reserved.end();
+
+  // Test that NULL is not in the heap.
+  assert(!heap->is_in(NULL), "NULL is unexpectedly in the heap");
+
+  // Test that a pointer to before the heap start is reported as outside the heap.
+  assert(heap_start >= ((uintptr_t)NULL + epsilon), "sanity");
+  void* before_heap = (void*)(heap_start - epsilon);
+  assert(!heap->is_in(before_heap),
+      err_msg("before_heap: " PTR_FORMAT " is unexpectedly in the heap", before_heap));
+
+  // Test that a pointer to after the heap end is reported as outside the heap.
+  assert(heap_end <= ((uintptr_t)-1 - epsilon), "sanity");
+  void* after_heap = (void*)(heap_end + epsilon);
+  assert(!heap->is_in(after_heap),
+      err_msg("after_heap: " PTR_FORMAT " is unexpectedly in the heap", after_heap));
+}
+#endif

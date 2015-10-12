@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -348,6 +348,21 @@ int VectorSet::hash() const
   for( uint i = 0; i < lim; i++ )
     _xor ^= data[i];
   return (int)_xor;
+}
+
+//------------------------------iterate----------------------------------------
+// Used by Set::print().
+class VSetI_ : public SetI_ {
+  VectorSetI vsi;
+public:
+  VSetI_( const VectorSet *vset, uint &elem ) : vsi(vset) { elem = vsi.elem; }
+
+  uint next(void) { ++vsi; return vsi.elem; }
+  int  test(void) { return vsi.test(); }
+};
+
+SetI_ *VectorSet::iterate(uint &elem) const {
+  return new(ResourceObj::C_HEAP, mtInternal) VSetI_(this, elem);
 }
 
 //=============================================================================

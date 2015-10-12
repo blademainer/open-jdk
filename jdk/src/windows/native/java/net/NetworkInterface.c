@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -66,15 +66,12 @@ jfieldID ni_nameID;         /* NetworkInterface.name */
 jfieldID ni_displayNameID;  /* NetworkInterface.displayName */
 jfieldID ni_childsID;       /* NetworkInterface.childs */
 jclass ni_iacls;            /* InetAddress */
-jfieldID ni_iaAddr;         /* InetAddress.address */
 
 jclass ni_ia4cls;           /* Inet4Address */
 jmethodID ni_ia4Ctor;       /* Inet4Address() */
 
 jclass ni_ia6cls;           /* Inet6Address */
 jmethodID ni_ia6ctrID;      /* Inet6Address() */
-jfieldID ni_ia6ipaddressID;
-jfieldID ni_ia6ipaddressID;
 
 jclass ni_ibcls;            /* InterfaceAddress */
 jmethodID ni_ibctrID;       /* InterfaceAddress() */
@@ -124,32 +121,44 @@ MIB_IFROW *getIF(jint index) {
      */
     size = sizeof(MIB_IFTABLE);
     tableP = (MIB_IFTABLE *)malloc(size);
+    if(tableP == NULL)
+        return NULL;
+
     count = GetIfTable(tableP, &size, TRUE);
     if (count == ERROR_INSUFFICIENT_BUFFER || count == ERROR_BUFFER_OVERFLOW) {
-        tableP = (MIB_IFTABLE *)realloc(tableP, size);
+        MIB_IFTABLE* newTableP =  (MIB_IFTABLE *)realloc(tableP, size);
+        if (newTableP == NULL) {
+            free(tableP);
+            return NULL;
+        }
+        tableP = newTableP;
+
         count = GetIfTable(tableP, &size, TRUE);
     }
 
     if (count != NO_ERROR) {
-        if (tableP != NULL)
-            free(tableP);
+        free(tableP);
         return NULL;
     }
 
-    if (tableP != NULL) {
-      ifrowP = tableP->table;
-      for (i=0; i<tableP->dwNumEntries; i++) {
-        /*
-         * Warning the real index is obtained by GetFriendlyIfIndex()
-         */
+    {
+    ifrowP = tableP->table;
+    for (i=0; i<tableP->dwNumEntries; i++) {
+    /*
+     * Warning: the real index is obtained by GetFriendlyIfIndex()
+    */
         ifindex = GetFriendlyIfIndex(ifrowP->dwIndex);
         if (ifindex == index) {
           /*
            * Create a copy of the entry so that we can free the table.
            */
-          ret = (MIB_IFROW *) malloc(sizeof(MIB_IFROW));
-          memcpy(ret, ifrowP, sizeof(MIB_IFROW));
-          break;
+            ret = (MIB_IFROW *) malloc(sizeof(MIB_IFROW));
+            if (ret == NULL) {
+                free(tableP);
+                return NULL;
+            }
+            memcpy(ret, ifrowP, sizeof(MIB_IFROW));
+            break;
         }
 
         /* onto the next interface */
@@ -178,22 +187,32 @@ int enumInterfaces(JNIEnv *env, netif **netifPP)
     int count;
     netif *netifP;
     DWORD i;
-    int lo=0, eth=0, tr=0, fddi=0, ppp=0, sl=0, net=0;
+    int lo=0, eth=0, tr=0, fddi=0, ppp=0, sl=0, wlan=0, net=0, wlen=0;
 
     /*
      * Ask the IP Helper library to enumerate the adapters
      */
     size = sizeof(MIB_IFTABLE);
     tableP = (MIB_IFTABLE *)malloc(size);
+    if (tableP == NULL) {
+        JNU_ThrowOutOfMemoryError(env, "Native heap allocation failure");
+        return -1;
+    }
+
     ret = GetIfTable(tableP, &size, TRUE);
     if (ret == ERROR_INSUFFICIENT_BUFFER || ret == ERROR_BUFFER_OVERFLOW) {
-        tableP = (MIB_IFTABLE *)realloc(tableP, size);
+        MIB_IFTABLE * newTableP = (MIB_IFTABLE *)realloc(tableP, size);
+        if (newTableP == NULL) {
+            free(tableP);
+            JNU_ThrowOutOfMemoryError(env, "Native heap allocation failure");
+            return -1;
+        }
+        tableP = newTableP;
         ret = GetIfTable(tableP, &size, TRUE);
     }
 
     if (ret != NO_ERROR) {
-        if (tableP != NULL)
-            free(tableP);
+        free(tableP);
 
         JNU_ThrowByName(env, "java/lang/Error",
                 "IP Helper Library GetIfTable function failed");
@@ -218,15 +237,15 @@ int enumInterfaces(JNIEnv *env, netif **netifPP)
          */
         switch (ifrowP->dwType) {
             case MIB_IF_TYPE_ETHERNET:
-                sprintf(dev_name, "eth%d", eth++);
+                _snprintf_s(dev_name, 8, _TRUNCATE, "eth%d", eth++);
                 break;
 
             case MIB_IF_TYPE_TOKENRING:
-                sprintf(dev_name, "tr%d", tr++);
+                _snprintf_s(dev_name, 8, _TRUNCATE, "tr%d", tr++);
                 break;
 
             case MIB_IF_TYPE_FDDI:
-                sprintf(dev_name, "fddi%d", fddi++);
+                _snprintf_s(dev_name, 8, _TRUNCATE, "fddi%d", fddi++);
                 break;
 
             case MIB_IF_TYPE_LOOPBACK:
@@ -234,20 +253,24 @@ int enumInterfaces(JNIEnv *env, netif **netifPP)
                 if (lo > 0) {
                     continue;
                 }
-                strcpy(dev_name, "lo");
+                strncpy_s(dev_name, 8, "lo", _TRUNCATE);
                 lo++;
                 break;
 
             case MIB_IF_TYPE_PPP:
-                sprintf(dev_name, "ppp%d", ppp++);
+                _snprintf_s(dev_name, 8, _TRUNCATE, "ppp%d", ppp++);
                 break;
 
             case MIB_IF_TYPE_SLIP:
-                sprintf(dev_name, "sl%d", sl++);
+                _snprintf_s(dev_name, 8, _TRUNCATE, "sl%d", sl++);
+                break;
+
+            case IF_TYPE_IEEE80211:
+                _snprintf_s(dev_name, 8, _TRUNCATE, "wlan%d", wlan++);
                 break;
 
             default:
-                sprintf(dev_name, "net%d", net++);
+                _snprintf_s(dev_name, 8, _TRUNCATE, "net%d", net++);
         }
 
         /*
@@ -256,8 +279,17 @@ int enumInterfaces(JNIEnv *env, netif **netifPP)
          */
         curr = (netif *)calloc(1, sizeof(netif));
         if (curr != NULL) {
+            wlen = MultiByteToWideChar(CP_OEMCP, 0, ifrowP->bDescr,
+                       ifrowP->dwDescrLen, NULL, 0);
+            if(wlen == 0) {
+                // MultiByteToWideChar should not fail
+                // But in rare case it fails, we allow 'char' to be displayed
+                curr->displayName = (char *)malloc(ifrowP->dwDescrLen + 1);
+            } else {
+                curr->displayName = (wchar_t *)malloc(wlen*(sizeof(wchar_t))+1);
+            }
+
             curr->name = (char *)malloc(strlen(dev_name) + 1);
-            curr->displayName = (char *)malloc(ifrowP->dwDescrLen + 1);
 
             if (curr->name == NULL || curr->displayName == NULL) {
                 if (curr->name) free(curr->name);
@@ -266,7 +298,7 @@ int enumInterfaces(JNIEnv *env, netif **netifPP)
             }
         }
         if (curr == NULL) {
-            JNU_ThrowOutOfMemoryError(env, "heap allocation failure");
+            JNU_ThrowOutOfMemoryError(env, "Native heap allocation failure");
             free_netif(netifP);
             free(tableP);
             return -1;
@@ -278,8 +310,29 @@ int enumInterfaces(JNIEnv *env, netif **netifPP)
          * 32-bit numbers as index values.
          */
         strcpy(curr->name, dev_name);
-        strncpy(curr->displayName, ifrowP->bDescr, ifrowP->dwDescrLen);
-        curr->displayName[ifrowP->dwDescrLen] = '\0';
+        if (wlen == 0) {
+            // display char type in case of MultiByteToWideChar failure
+            strncpy(curr->displayName, ifrowP->bDescr, ifrowP->dwDescrLen);
+            curr->displayName[ifrowP->dwDescrLen] = '\0';
+        } else {
+            // call MultiByteToWideChar again to fill curr->displayName
+            // it should not fail, because we have called it once before
+            if (MultiByteToWideChar(CP_OEMCP, 0, ifrowP->bDescr,
+                   ifrowP->dwDescrLen, curr->displayName, wlen) == 0) {
+                JNU_ThrowByName(env, "java/lang/Error",
+                       "Cannot get multibyte char for interface display name");
+                free_netif(netifP);
+                free(tableP);
+                free(curr->name);
+                free(curr->displayName);
+                free(curr);
+                return -1;
+            } else {
+                curr->displayName[wlen*(sizeof(wchar_t))] = '\0';
+                curr->dNameIsUnicode = TRUE;
+            }
+        }
+
         curr->dwIndex = ifrowP->dwIndex;
         curr->ifType = ifrowP->dwType;
         curr->index = GetFriendlyIfIndex(ifrowP->dwIndex);
@@ -337,10 +390,21 @@ int enumAddresses_win(JNIEnv *env, netif *netifP, netaddr **netaddrPP)
      */
     size = sizeof(MIB_IPADDRTABLE);
     tableP = (MIB_IPADDRTABLE *)malloc(size);
+    if (tableP == NULL) {
+        JNU_ThrowOutOfMemoryError(env, "Native heap allocation failure");
+        return -1;
+    }
 
     ret = GetIpAddrTable(tableP, &size, FALSE);
     if (ret == ERROR_INSUFFICIENT_BUFFER || ret == ERROR_BUFFER_OVERFLOW) {
-        tableP = (MIB_IPADDRTABLE *)realloc(tableP, size);
+        MIB_IPADDRTABLE * newTableP = (MIB_IPADDRTABLE *)realloc(tableP, size);
+        if (newTableP == NULL) {
+            free(tableP);
+            JNU_ThrowOutOfMemoryError(env, "Native heap allocation failure");
+            return -1;
+        }
+        tableP = newTableP;
+
         ret = GetIpAddrTable(tableP, &size, FALSE);
     }
     if (ret != NO_ERROR) {
@@ -366,7 +430,7 @@ int enumAddresses_win(JNIEnv *env, netif *netifP, netaddr **netaddrPP)
 
             netaddr *curr = (netaddr *)malloc(sizeof(netaddr));
             if (curr == NULL) {
-                JNU_ThrowOutOfMemoryError(env, "heap allocation failure");
+                JNU_ThrowOutOfMemoryError(env, "Native heap allocation failure");
                 free_netaddr(netaddrP);
                 free(tableP);
                 return -1;
@@ -382,6 +446,7 @@ int enumAddresses_win(JNIEnv *env, netif *netifP, netaddr **netaddrPP)
             case MIB_IF_TYPE_TOKENRING:
             case MIB_IF_TYPE_FDDI:
             case MIB_IF_TYPE_LOOPBACK:
+            case IF_TYPE_IEEE80211:
               /**
                * Contrary to what it seems to indicate, dwBCastAddr doesn't
                * contain the broadcast address but 0 or 1 depending on whether
@@ -435,34 +500,52 @@ Java_java_net_NetworkInterface_init(JNIEnv *env, jclass cls)
      * Get the various JNI ids that we require
      */
     ni_class = (*env)->NewGlobalRef(env, cls);
+    CHECK_NULL(ni_class);
     ni_nameID = (*env)->GetFieldID(env, ni_class, "name", "Ljava/lang/String;");
+    CHECK_NULL(ni_nameID);
     ni_displayNameID = (*env)->GetFieldID(env, ni_class, "displayName", "Ljava/lang/String;");
+    CHECK_NULL(ni_displayNameID);
     ni_indexID = (*env)->GetFieldID(env, ni_class, "index", "I");
+    CHECK_NULL(ni_indexID);
     ni_addrsID = (*env)->GetFieldID(env, ni_class, "addrs", "[Ljava/net/InetAddress;");
+    CHECK_NULL(ni_addrsID);
     ni_bindsID = (*env)->GetFieldID(env, ni_class, "bindings", "[Ljava/net/InterfaceAddress;");
+    CHECK_NULL(ni_bindsID);
     ni_childsID = (*env)->GetFieldID(env, ni_class, "childs", "[Ljava/net/NetworkInterface;");
+    CHECK_NULL(ni_childsID);
     ni_ctor = (*env)->GetMethodID(env, ni_class, "<init>", "()V");
+    CHECK_NULL(ni_ctor);
 
     ni_iacls = (*env)->FindClass(env, "java/net/InetAddress");
+    CHECK_NULL(ni_iacls);
     ni_iacls = (*env)->NewGlobalRef(env, ni_iacls);
-    ni_iaAddr = (*env)->GetFieldID(env, ni_iacls, "address", "I");
+    CHECK_NULL(ni_iacls);
 
     ni_ia4cls = (*env)->FindClass(env, "java/net/Inet4Address");
+    CHECK_NULL(ni_ia4cls);
     ni_ia4cls = (*env)->NewGlobalRef(env, ni_ia4cls);
+    CHECK_NULL(ni_ia4cls);
     ni_ia4Ctor = (*env)->GetMethodID(env, ni_ia4cls, "<init>", "()V");
+    CHECK_NULL(ni_ia4Ctor);
 
     ni_ia6cls = (*env)->FindClass(env, "java/net/Inet6Address");
+    CHECK_NULL(ni_ia6cls);
     ni_ia6cls = (*env)->NewGlobalRef(env, ni_ia6cls);
+    CHECK_NULL(ni_ia6cls);
     ni_ia6ctrID = (*env)->GetMethodID(env, ni_ia6cls, "<init>", "()V");
-    ni_ia6ipaddressID = (*env)->GetFieldID(env, ni_ia6cls, "ipaddress", "[B");
+    CHECK_NULL(ni_ia6ctrID);
 
     ni_ibcls = (*env)->FindClass(env, "java/net/InterfaceAddress");
+    CHECK_NULL(ni_ibcls);
     ni_ibcls = (*env)->NewGlobalRef(env, ni_ibcls);
+    CHECK_NULL(ni_ibcls);
     ni_ibctrID = (*env)->GetMethodID(env, ni_ibcls, "<init>", "()V");
+    CHECK_NULL(ni_ibctrID);
     ni_ibaddressID = (*env)->GetFieldID(env, ni_ibcls, "address", "Ljava/net/InetAddress;");
+    CHECK_NULL(ni_ibaddressID);
     ni_ibbroadcastID = (*env)->GetFieldID(env, ni_ibcls, "broadcast", "Ljava/net/Inet4Address;");
+    CHECK_NULL(ni_ibbroadcastID);
     ni_ibmaskID = (*env)->GetFieldID(env, ni_ibcls, "maskLength", "S");
-
 }
 
 /*
@@ -504,8 +587,7 @@ jobject createNetworkInterface
      */
     if (netaddrCount < 0) {
         netaddrCount = enumAddresses_win(env, ifs, &netaddrP);
-        if ((*env)->ExceptionOccurred(env)) {
-            free_netaddr(netaddrP);
+        if (netaddrCount == -1) {
             return NULL;
         }
     }
@@ -534,7 +616,7 @@ jobject createNetworkInterface
             }
             /* default ctor will set family to AF_INET */
 
-            (*env)->SetIntField(env, iaObj, ni_iaAddr, ntohl(addrs->addr.him4.sin_addr.s_addr));
+            setInetAddress_addr(env, iaObj, ntohl(addrs->addr.him4.sin_addr.s_addr));
             if (addrs->mask != -1) {
               ibObj = (*env)->NewObject(env, ni_ibcls, ni_ibctrID);
               if (ibObj == NULL) {
@@ -547,8 +629,7 @@ jobject createNetworkInterface
                 free_netaddr(netaddrP);
                 return NULL;
               }
-              (*env)->SetIntField(env, ia2Obj, ni_iaAddr,
-                                  ntohl(addrs->brdcast.him4.sin_addr.s_addr));
+              setInetAddress_addr(env, ia2Obj, ntohl(addrs->brdcast.him4.sin_addr.s_addr));
               (*env)->SetObjectField(env, ibObj, ni_ibbroadcastID, ia2Obj);
               (*env)->SetShortField(env, ibObj, ni_ibmaskID, addrs->mask);
               (*env)->SetObjectArrayElement(env, bindsArr, bind_index++, ibObj);
@@ -557,19 +638,16 @@ jobject createNetworkInterface
             int scope;
             iaObj = (*env)->NewObject(env, ni_ia6cls, ni_ia6ctrID);
             if (iaObj) {
-                jbyteArray ipaddress = (*env)->NewByteArray(env, 16);
-                if (ipaddress == NULL) {
+                int ret = setInet6Address_ipaddress(env, iaObj,  (jbyte *)&(addrs->addr.him6.sin6_addr.s6_addr));
+                if (ret == JNI_FALSE) {
                     return NULL;
                 }
-                (*env)->SetByteArrayRegion(env, ipaddress, 0, 16,
-                    (jbyte *)&(addrs->addr.him6.sin6_addr.s6_addr));
+
                 scope = addrs->addr.him6.sin6_scope_id;
                 if (scope != 0) { /* zero is default value, no need to set */
-                    (*env)->SetIntField(env, iaObj, ia6_scopeidID, scope);
-                    (*env)->SetBooleanField(env, iaObj, ia6_scopeidsetID, JNI_TRUE);
-                    (*env)->SetObjectField(env, iaObj, ia6_scopeifnameID, netifObj);
+                    setInet6Address_scopeid(env, iaObj, scope);
+                    setInet6Address_scopeifname(env, iaObj, netifObj);
                 }
-                (*env)->SetObjectField(env, iaObj, ni_ia6ipaddressID, ipaddress);
                 ibObj = (*env)->NewObject(env, ni_ibcls, ni_ibctrID);
                 if (ibObj == NULL) {
                   free_netaddr(netaddrP);
@@ -702,7 +780,7 @@ JNIEXPORT jobject JNICALL Java_java_net_NetworkInterface_getByInetAddress0
     (JNIEnv *env, jclass cls, jobject iaObj)
 {
     netif *ifList, *curr;
-    jint addr = (*env)->GetIntField(env, iaObj, ni_iaAddr);
+    jint addr = getInetAddress_addr(env, iaObj);
     jobject netifObj = NULL;
 
     // Retained for now to support IPv4 only stack, java.net.preferIPv4Stack
@@ -836,7 +914,7 @@ JNIEXPORT jboolean JNICALL Java_java_net_NetworkInterface_isUp0
     MIB_IFROW *ifRowP;
     ifRowP = getIF(index);
     if (ifRowP != NULL) {
-      ret = ifRowP->dwAdminStatus == 1 &&
+      ret = ifRowP->dwAdminStatus == MIB_IF_ADMIN_STATUS_UP &&
             (ifRowP->dwOperStatus == MIB_IF_OPER_STATUS_OPERATIONAL ||
              ifRowP->dwOperStatus == MIB_IF_OPER_STATUS_CONNECTED);
       free(ifRowP);
@@ -929,6 +1007,7 @@ JNIEXPORT jbyteArray JNICALL Java_java_net_NetworkInterface_getMacAddr0
       case MIB_IF_TYPE_ETHERNET:
       case MIB_IF_TYPE_TOKENRING:
       case MIB_IF_TYPE_FDDI:
+      case IF_TYPE_IEEE80211:
         len = ifRowP->dwPhysAddrLen;
         ret = (*env)->NewByteArray(env, len);
         if (!IS_NULL(ret)) {

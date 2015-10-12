@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -96,7 +96,7 @@ public abstract class AbstractDelegateHttpsURLConnection extends
         http = HttpsClient.New (getSSLSocketFactory(),
                                 url,
                                 getHostnameVerifier(),
-                                useCache);
+                                useCache, this);
         ((HttpsClient)http).afterConnect();
     }
 
@@ -149,7 +149,7 @@ public abstract class AbstractDelegateHttpsURLConnection extends
         http = HttpsClient.New (getSSLSocketFactory(),
                                 url,
                                 getHostnameVerifier(),
-                                proxyHost, proxyPort, useCache);
+                                proxyHost, proxyPort, useCache, this);
         connected = true;
     }
 
@@ -189,7 +189,8 @@ public abstract class AbstractDelegateHttpsURLConnection extends
     protected HttpClient getNewHttpClient(URL url, Proxy p, int connectTimeout)
         throws IOException {
         return HttpsClient.New(getSSLSocketFactory(), url,
-                               getHostnameVerifier(), p, true, connectTimeout);
+                               getHostnameVerifier(), p, true, connectTimeout,
+                               this);
     }
 
     // will open new connection
@@ -198,7 +199,7 @@ public abstract class AbstractDelegateHttpsURLConnection extends
         throws IOException {
         return HttpsClient.New(getSSLSocketFactory(), url,
                                getHostnameVerifier(), p,
-                               useCache, connectTimeout);
+                               useCache, connectTimeout, this);
     }
 
     /**
@@ -221,11 +222,11 @@ public abstract class AbstractDelegateHttpsURLConnection extends
      */
     public java.security.cert.Certificate[] getLocalCertificates() {
         if (cachedResponse != null) {
-            List l = ((SecureCacheResponse)cachedResponse).getLocalCertificateChain();
+            List<java.security.cert.Certificate> l = ((SecureCacheResponse)cachedResponse).getLocalCertificateChain();
             if (l == null) {
                 return null;
             } else {
-                return (java.security.cert.Certificate[])l.toArray();
+                return l.toArray(new java.security.cert.Certificate[0]);
             }
         }
         if (http == null) {
@@ -243,11 +244,11 @@ public abstract class AbstractDelegateHttpsURLConnection extends
     public java.security.cert.Certificate[] getServerCertificates()
             throws SSLPeerUnverifiedException {
         if (cachedResponse != null) {
-            List l = ((SecureCacheResponse)cachedResponse).getServerCertificateChain();
+            List<java.security.cert.Certificate> l = ((SecureCacheResponse)cachedResponse).getServerCertificateChain();
             if (l == null) {
                 return null;
             } else {
-                return (java.security.cert.Certificate[])l.toArray();
+                return l.toArray(new java.security.cert.Certificate[0]);
             }
         }
 

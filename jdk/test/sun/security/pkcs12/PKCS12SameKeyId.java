@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,8 @@
  * @test
  * @bug 6958026
  * @summary Problem with PKCS12 keystore
+ * @compile -XDignore.symbol.file PKCS12SameKeyId.java
+ * @run main PKCS12SameKeyId
  */
 
 import java.io.File;
@@ -40,7 +42,6 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.PBEParameterSpec;
 import sun.security.pkcs.EncryptedPrivateKeyInfo;
-import sun.security.tools.KeyTool;
 import sun.security.util.ObjectIdentifier;
 import sun.security.x509.AlgorithmId;
 import sun.security.x509.X500Name;
@@ -59,9 +60,9 @@ public class PKCS12SameKeyId {
         for (int i=0; i<SIZE; i++) {
             System.err.print(".");
             String cmd = "-keystore " + JKSFILE
-                    + " -storepass changeit -keypass changeit "
+                    + " -storepass changeit -keypass changeit -keyalg rsa "
                     + "-genkeypair -alias p" + i + " -dname CN=" + i;
-            KeyTool.main(cmd.split(" "));
+            sun.security.tools.keytool.Main.main(cmd.split(" "));
         }
 
         // Prepare EncryptedPrivateKeyInfo parameters, copied from various
@@ -86,7 +87,9 @@ public class PKCS12SameKeyId {
 
         // Reads from JKS keystore and pre-calculate
         KeyStore ks = KeyStore.getInstance("jks");
-        ks.load(new FileInputStream(JKSFILE), PASSWORD);
+        try (FileInputStream fis = new FileInputStream(JKSFILE)) {
+            ks.load(fis, PASSWORD);
+        }
         for (int i=0; i<SIZE; i++) {
             aliases[i] = "p" + i;
             byte[] enckey = cipher.doFinal(
@@ -103,11 +106,15 @@ public class PKCS12SameKeyId {
         for (int i=0; i<SIZE; i++) {
             p12.setKeyEntry(aliases[i], keys[i], certChains[i]);
         }
-        p12.store(new FileOutputStream(P12FILE), PASSWORD);
+        try (FileOutputStream fos = new FileOutputStream(P12FILE)) {
+            p12.store(fos, PASSWORD);
+        }
 
         // Check private keys still match certs
         p12 = KeyStore.getInstance("pkcs12");
-        p12.load(new FileInputStream(P12FILE), PASSWORD);
+        try (FileInputStream fis = new FileInputStream(P12FILE)) {
+            p12.load(fis, PASSWORD);
+        }
         for (int i=0; i<SIZE; i++) {
             String a = "p" + i;
             X509Certificate x = (X509Certificate)p12.getCertificate(a);

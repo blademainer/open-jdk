@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,8 +23,11 @@
  * questions.
  */
 
+#include <string.h>
+
 #include "jni.h"
 #include "jni_util.h"
+#include "dlfcn.h"
 
 jstring nativeNewStringPlatform(JNIEnv *env, const char *str) {
     return NULL;
@@ -33,3 +36,26 @@ jstring nativeNewStringPlatform(JNIEnv *env, const char *str) {
 char* nativeGetStringPlatformChars(JNIEnv *env, jstring jstr, jboolean *isCopy) {
     return NULL;
 }
+
+void* getProcessHandle() {
+    static void *procHandle = NULL;
+    if (procHandle != NULL) {
+        return procHandle;
+    }
+#ifdef __APPLE__
+    procHandle = (void*)dlopen(NULL, RTLD_FIRST);
+#else
+    procHandle = (void*)dlopen(NULL, RTLD_LAZY);
+#endif
+    return procHandle;
+}
+
+void buildJniFunctionName(const char *sym, const char *cname,
+                          char *jniEntryName) {
+    strcpy(jniEntryName, sym);
+    if (cname != NULL) {
+        strcat(jniEntryName, "_");
+        strcat(jniEntryName, cname);
+    }
+}
+

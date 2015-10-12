@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,8 @@
 #include "runtime/java.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "runtime/virtualspace.hpp"
+#include "services/memTracker.hpp"
+#include "utilities/macros.hpp"
 #ifdef COMPILER1
 #include "c1/c1_LIR.hpp"
 #include "c1/c1_LIRGenerator.hpp"
@@ -78,18 +80,17 @@ CardTableModRefBS::CardTableModRefBS(MemRegion whole_heap,
 
   _covered   = new MemRegion[max_covered_regions];
   _committed = new MemRegion[max_covered_regions];
-  if (_covered == NULL || _committed == NULL)
+  if (_covered == NULL || _committed == NULL) {
     vm_exit_during_initialization("couldn't alloc card table covered region set.");
-  int i;
-  for (i = 0; i < max_covered_regions; i++) {
-    _covered[i].set_word_size(0);
-    _committed[i].set_word_size(0);
   }
-  _cur_covered_regions = 0;
 
+  _cur_covered_regions = 0;
   const size_t rs_align = _page_size == (size_t) os::vm_page_size() ? 0 :
     MAX2(_page_size, (size_t) os::vm_allocation_granularity());
   ReservedSpace heap_rs(_byte_map_size, rs_align, false);
+
+  MemTracker::record_virtual_memory_type((address)heap_rs.base(), mtGC);
+
   os::trace_page_sizes("card table", _guard_index + 1, _guard_index + 1,
                        _page_size, heap_rs.base(), heap_rs.size());
   if (!heap_rs.is_reserved()) {
@@ -109,26 +110,24 @@ CardTableModRefBS::CardTableModRefBS(MemRegion whole_heap,
   jbyte* guard_card = &_byte_map[_guard_index];
   uintptr_t guard_page = align_size_down((uintptr_t)guard_card, _page_size);
   _guard_region = MemRegion((HeapWord*)guard_page, _page_size);
-  if (!os::commit_memory((char*)guard_page, _page_size, _page_size)) {
-    // Do better than this for Merlin
-    vm_exit_out_of_memory(_page_size, "card table last card");
-  }
+  os::commit_memory_or_exit((char*)guard_page, _page_size, _page_size,
+                            !ExecMem, "card table last card");
   *guard_card = last_card;
 
    _lowest_non_clean =
-    NEW_C_HEAP_ARRAY(CardArr, max_covered_regions);
+    NEW_C_HEAP_ARRAY(CardArr, max_covered_regions, mtGC);
   _lowest_non_clean_chunk_size =
-    NEW_C_HEAP_ARRAY(size_t, max_covered_regions);
+    NEW_C_HEAP_ARRAY(size_t, max_covered_regions, mtGC);
   _lowest_non_clean_base_chunk_index =
-    NEW_C_HEAP_ARRAY(uintptr_t, max_covered_regions);
+    NEW_C_HEAP_ARRAY(uintptr_t, max_covered_regions, mtGC);
   _last_LNC_resizing_collection =
-    NEW_C_HEAP_ARRAY(int, max_covered_regions);
+    NEW_C_HEAP_ARRAY(int, max_covered_regions, mtGC);
   if (_lowest_non_clean == NULL
       || _lowest_non_clean_chunk_size == NULL
       || _lowest_non_clean_base_chunk_index == NULL
       || _last_LNC_resizing_collection == NULL)
     vm_exit_during_initialization("couldn't allocate an LNC array.");
-  for (i = 0; i < max_covered_regions; i++) {
+  for (int i = 0; i < max_covered_regions; i++) {
     _lowest_non_clean[i] = NULL;
     _lowest_non_clean_chunk_size[i] = 0;
     _last_LNC_resizing_collection[i] = -1;
@@ -144,6 +143,33 @@ CardTableModRefBS::CardTableModRefBS(MemRegion whole_heap,
     gclog_or_tty->print_cr("  "
                   "  byte_map_base: " INTPTR_FORMAT,
                   byte_map_base);
+  }
+}
+
+CardTableModRefBS::~CardTableModRefBS() {
+  if (_covered) {
+    delete[] _covered;
+    _covered = NULL;
+  }
+  if (_committed) {
+    delete[] _committed;
+    _committed = NULL;
+  }
+  if (_lowest_non_clean) {
+    FREE_C_HEAP_ARRAY(CardArr, _lowest_non_clean, mtGC);
+    _lowest_non_clean = NULL;
+  }
+  if (_lowest_non_clean_chunk_size) {
+    FREE_C_HEAP_ARRAY(size_t, _lowest_non_clean_chunk_size, mtGC);
+    _lowest_non_clean_chunk_size = NULL;
+  }
+  if (_lowest_non_clean_base_chunk_index) {
+    FREE_C_HEAP_ARRAY(uintptr_t, _lowest_non_clean_base_chunk_index, mtGC);
+    _lowest_non_clean_base_chunk_index = NULL;
+  }
+  if (_last_LNC_resizing_collection) {
+    FREE_C_HEAP_ARRAY(int, _last_LNC_resizing_collection, mtGC);
+    _last_LNC_resizing_collection = NULL;
   }
 }
 
@@ -283,12 +309,9 @@ void CardTableModRefBS::resize_covered_region(MemRegion new_region) {
         MemRegion(cur_committed.end(), new_end_for_commit);
 
       assert(!new_committed.is_empty(), "Region should not be empty here");
-      if (!os::commit_memory((char*)new_committed.start(),
-                             new_committed.byte_size(), _page_size)) {
-        // Do better than this for Merlin
-        vm_exit_out_of_memory(new_committed.byte_size(),
-                "card table expansion");
-      }
+      os::commit_memory_or_exit((char*)new_committed.start(),
+                                new_committed.byte_size(), _page_size,
+                                !ExecMem, "card table expansion");
     // Use new_end_aligned (as opposed to new_end_for_commit) because
     // the cur_committed region may include the guard region.
     } else if (new_end_aligned < cur_committed.end()) {
@@ -389,7 +412,7 @@ void CardTableModRefBS::resize_covered_region(MemRegion new_region) {
   }
   // Touch the last card of the covered region to show that it
   // is committed (or SEGV).
-  debug_only(*byte_for(_covered[ind].last());)
+  debug_only((void) (*byte_for(_covered[ind].last()));)
   debug_only(verify_guard();)
 }
 
@@ -400,73 +423,53 @@ void CardTableModRefBS::write_ref_field_work(void* field, oop newVal) {
   inline_write_ref_field(field, newVal);
 }
 
-/*
-   Claimed and deferred bits are used together in G1 during the evacuation
-   pause. These bits can have the following state transitions:
-   1. The claimed bit can be put over any other card state. Except that
-      the "dirty -> dirty and claimed" transition is checked for in
-      G1 code and is not used.
-   2. Deferred bit can be set only if the previous state of the card
-      was either clean or claimed. mark_card_deferred() is wait-free.
-      We do not care if the operation is be successful because if
-      it does not it will only result in duplicate entry in the update
-      buffer because of the "cache-miss". So it's not worth spinning.
- */
-
-
-bool CardTableModRefBS::claim_card(size_t card_index) {
-  jbyte val = _byte_map[card_index];
-  assert(val != dirty_card_val(), "Shouldn't claim a dirty card");
-  while (val == clean_card_val() ||
-         (val & (clean_card_mask_val() | claimed_card_val())) != claimed_card_val()) {
-    jbyte new_val = val;
-    if (val == clean_card_val()) {
-      new_val = (jbyte)claimed_card_val();
-    } else {
-      new_val = val | (jbyte)claimed_card_val();
-    }
-    jbyte res = Atomic::cmpxchg(new_val, &_byte_map[card_index], val);
-    if (res == val) {
-      return true;
-    }
-    val = res;
-  }
-  return false;
-}
-
-bool CardTableModRefBS::mark_card_deferred(size_t card_index) {
-  jbyte val = _byte_map[card_index];
-  // It's already processed
-  if ((val & (clean_card_mask_val() | deferred_card_val())) == deferred_card_val()) {
-    return false;
-  }
-  // Cached bit can be installed either on a clean card or on a claimed card.
-  jbyte new_val = val;
-  if (val == clean_card_val()) {
-    new_val = (jbyte)deferred_card_val();
-  } else {
-    if (val & claimed_card_val()) {
-      new_val = val | (jbyte)deferred_card_val();
-    }
-  }
-  if (new_val != val) {
-    Atomic::cmpxchg(new_val, &_byte_map[card_index], val);
-  }
-  return true;
-}
 
 void CardTableModRefBS::non_clean_card_iterate_possibly_parallel(Space* sp,
                                                                  MemRegion mr,
                                                                  OopsInGenClosure* cl,
                                                                  CardTableRS* ct) {
   if (!mr.is_empty()) {
-    int n_threads = SharedHeap::heap()->n_par_threads();
-    if (n_threads > 0) {
-#ifndef SERIALGC
+    // Caller (process_strong_roots()) claims that all GC threads
+    // execute this call.  With UseDynamicNumberOfGCThreads now all
+    // active GC threads execute this call.  The number of active GC
+    // threads needs to be passed to par_non_clean_card_iterate_work()
+    // to get proper partitioning and termination.
+    //
+    // This is an example of where n_par_threads() is used instead
+    // of workers()->active_workers().  n_par_threads can be set to 0 to
+    // turn off parallelism.  For example when this code is called as
+    // part of verification and SharedHeap::process_strong_roots() is being
+    // used, then n_par_threads() may have been set to 0.  active_workers
+    // is not overloaded with the meaning that it is a switch to disable
+    // parallelism and so keeps the meaning of the number of
+    // active gc workers.  If parallelism has not been shut off by
+    // setting n_par_threads to 0, then n_par_threads should be
+    // equal to active_workers.  When a different mechanism for shutting
+    // off parallelism is used, then active_workers can be used in
+    // place of n_par_threads.
+    //  This is an example of a path where n_par_threads is
+    // set to 0 to turn off parallism.
+    //  [7] CardTableModRefBS::non_clean_card_iterate()
+    //  [8] CardTableRS::younger_refs_in_space_iterate()
+    //  [9] Generation::younger_refs_in_space_iterate()
+    //  [10] OneContigSpaceCardGeneration::younger_refs_iterate()
+    //  [11] CompactingPermGenGen::younger_refs_iterate()
+    //  [12] CardTableRS::younger_refs_iterate()
+    //  [13] SharedHeap::process_strong_roots()
+    //  [14] G1CollectedHeap::verify()
+    //  [15] Universe::verify()
+    //  [16] G1CollectedHeap::do_collection_pause_at_safepoint()
+    //
+    int n_threads =  SharedHeap::heap()->n_par_threads();
+    bool is_par = n_threads > 0;
+    if (is_par) {
+#if INCLUDE_ALL_GCS
+      assert(SharedHeap::heap()->n_par_threads() ==
+             SharedHeap::heap()->workers()->active_workers(), "Mismatch");
       non_clean_card_iterate_parallel_work(sp, mr, cl, ct, n_threads);
-#else  // SERIALGC
+#else  // INCLUDE_ALL_GCS
       fatal("Parallel gc not supported here.");
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
     } else {
       // We do not call the non_clean_card_iterate_serial() version below because
       // we want to clear the cards (which non_clean_card_iterate_serial() does not
@@ -489,6 +492,10 @@ void CardTableModRefBS::non_clean_card_iterate_possibly_parallel(Space* sp,
 // change their values in any manner.
 void CardTableModRefBS::non_clean_card_iterate_serial(MemRegion mr,
                                                       MemRegionClosure* cl) {
+  bool is_par = (SharedHeap::heap()->n_par_threads() > 0);
+  assert(!is_par ||
+          (SharedHeap::heap()->n_par_threads() ==
+          SharedHeap::heap()->workers()->active_workers()), "Mismatch");
   for (int i = 0; i < _cur_covered_regions; i++) {
     MemRegion mri = mr.intersection(_covered[i]);
     if (mri.word_size() > 0) {
@@ -624,23 +631,6 @@ MemRegion CardTableModRefBS::dirty_card_range_after_reset(MemRegion mr,
   return MemRegion(mr.end(), mr.end());
 }
 
-// Set all the dirty cards in the given region to "precleaned" state.
-void CardTableModRefBS::preclean_dirty_cards(MemRegion mr) {
-  for (int i = 0; i < _cur_covered_regions; i++) {
-    MemRegion mri = mr.intersection(_covered[i]);
-    if (!mri.is_empty()) {
-      jbyte *cur_entry, *limit;
-      for (cur_entry = byte_for(mri.start()), limit = byte_for(mri.last());
-           cur_entry <= limit;
-           cur_entry++) {
-        if (*cur_entry == dirty_card) {
-          *cur_entry = precleaned_card;
-        }
-      }
-    }
-  }
-}
-
 uintx CardTableModRefBS::ct_max_alignment_constraint() {
   return card_size * os::vm_page_size();
 }
@@ -667,7 +657,7 @@ void CardTableModRefBS::verify_region(MemRegion mr,
     if (failed) {
       if (!failures) {
         tty->cr();
-        tty->print_cr("== CT verification failed: ["PTR_FORMAT","PTR_FORMAT"]");
+        tty->print_cr("== CT verification failed: ["PTR_FORMAT","PTR_FORMAT"]", start, end);
         tty->print_cr("==   %sexpecting value: %d",
                       (val_equals) ? "" : "not ", val);
         failures = true;
@@ -689,6 +679,11 @@ void CardTableModRefBS::verify_dirty_region(MemRegion mr) {
   verify_region(mr, dirty_card, true /* val_equals */);
 }
 #endif
+
+void CardTableModRefBS::print_on(outputStream* st) const {
+  st->print_cr("Card table byte_map: [" INTPTR_FORMAT "," INTPTR_FORMAT "] byte_map_base: " INTPTR_FORMAT,
+               _byte_map, _byte_map + _byte_map_size, byte_map_base);
+}
 
 bool CardTableModRefBSForCTRS::card_will_be_scanned(jbyte cv) {
   return

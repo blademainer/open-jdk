@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -52,6 +52,7 @@ import javax.management.openmbean.CompositeData;
  * @author Mandy Chung
  * @since 1.6
  */
+@jdk.Exported
 public class VMOption {
     private String name;
     private String value;
@@ -64,6 +65,7 @@ public class VMOption {
      *
      * @since 1.6
      */
+    @jdk.Exported
     public enum Origin {
         /**
          * The VM option has not been set and its value
@@ -178,7 +180,7 @@ public class VMOption {
         return "VM option: " + getName() +
                " value: " + value + " " +
                " origin: " + origin + " " +
-               (writeable ? "(read-only)" : "(read-write)");
+               (writeable ? "(read-write)" : "(read-only)");
     }
 
     /**

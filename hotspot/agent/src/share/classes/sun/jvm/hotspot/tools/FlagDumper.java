@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,18 @@
 package sun.jvm.hotspot.tools;
 
 import java.io.PrintStream;
+import sun.jvm.hotspot.debugger.JVMDebugger;
 import sun.jvm.hotspot.runtime.*;
 
 public class FlagDumper extends Tool {
+
+    public FlagDumper() {
+        super();
+    }
+
+    public FlagDumper(JVMDebugger d) {
+        super(d);
+    }
 
    public void run() {
       VM.Flag[] flags = VM.getVM().getCommandLineFlags();
@@ -45,7 +54,6 @@ public class FlagDumper extends Tool {
 
    public static void main(String[] args) {
       FlagDumper fd = new FlagDumper();
-      fd.start(args);
-      fd.stop();
+      fd.execute(args);
    }
 }

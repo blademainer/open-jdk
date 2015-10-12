@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -291,7 +291,7 @@ public class GSSException extends Exception {
      * this exception to be thrown. Major error codes are
      * defined at the mechanism independent GSS-API level in this
      * class. Mechanism specific error codes that might provide more
-     * information aer set as the minor error code.
+     * information are set as the minor error code.
      *
      * @return int the GSS-API level major error code causing this exception
      * @see #getMajorString

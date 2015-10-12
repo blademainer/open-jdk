@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 
 package sun.awt;
 
+import java.awt.AWTError;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
@@ -93,7 +94,12 @@ public class Win32GraphicsEnvironment
     protected native int getDefaultScreen();
 
     public GraphicsDevice getDefaultScreenDevice() {
-        return getScreenDevices()[getDefaultScreen()];
+        GraphicsDevice[] screens = getScreenDevices();
+        if (screens.length == 0) {
+            throw new AWTError("no screen devices");
+        }
+        int index = getDefaultScreen();
+        return screens[0 < index && index < screens.length ? index : 0];
     }
 
     /**

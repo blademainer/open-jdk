@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -528,7 +528,7 @@ public void setCharacterSet(String name)
             try {
                 translationTable = (char[])getCharacterSet("ansi");
             } catch (IOException e) {
-                throw new InternalError("RTFReader: Unable to find character set resources (" + e + ")");
+                throw new InternalError("RTFReader: Unable to find character set resources (" + e + ")", e);
             }
         }
     }
@@ -1614,7 +1614,7 @@ class DocumentDestination
         } catch (BadLocationException ble) {
             /* This shouldn't be able to happen, of course */
             /* TODO is InternalError the correct error to throw? */
-            throw new InternalError(ble.getMessage());
+            throw new InternalError(ble.getMessage(), ble);
         }
     }
 
@@ -1628,7 +1628,7 @@ class DocumentDestination
         } catch (BadLocationException ble) {
             /* This shouldn't be able to happen, of course */
             /* TODO is InternalError the correct error to throw? */
-            throw new InternalError(ble.getMessage());
+            throw new InternalError(ble.getMessage(), ble);
         }
     }
 

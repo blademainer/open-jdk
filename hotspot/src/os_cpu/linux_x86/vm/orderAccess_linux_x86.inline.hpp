@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,8 +25,9 @@
 #ifndef OS_CPU_LINUX_X86_VM_ORDERACCESS_LINUX_X86_INLINE_HPP
 #define OS_CPU_LINUX_X86_VM_ORDERACCESS_LINUX_X86_INLINE_HPP
 
-#include "runtime/atomic.hpp"
+#include "runtime/atomic.inline.hpp"
 #include "runtime/orderAccess.hpp"
+#include "runtime/os.hpp"
 #include "vm_version_x86.hpp"
 
 // Implementation of class OrderAccess.
@@ -71,7 +72,7 @@ inline jushort  OrderAccess::load_acquire(volatile jushort* p) { return *p; }
 inline juint    OrderAccess::load_acquire(volatile juint*   p) { return *p; }
 inline julong   OrderAccess::load_acquire(volatile julong*  p) { return Atomic::load((volatile jlong*)p); }
 inline jfloat   OrderAccess::load_acquire(volatile jfloat*  p) { return *p; }
-inline jdouble  OrderAccess::load_acquire(volatile jdouble* p) { return *p; }
+inline jdouble  OrderAccess::load_acquire(volatile jdouble* p) { return jdouble_cast(Atomic::load((volatile jlong*)p)); }
 
 inline intptr_t OrderAccess::load_ptr_acquire(volatile intptr_t*   p) { return *p; }
 inline void*    OrderAccess::load_ptr_acquire(volatile void*       p) { return *(void* volatile *)p; }
@@ -86,7 +87,7 @@ inline void     OrderAccess::release_store(volatile jushort* p, jushort v) { *p 
 inline void     OrderAccess::release_store(volatile juint*   p, juint   v) { *p = v; }
 inline void     OrderAccess::release_store(volatile julong*  p, julong  v) { Atomic::store((jlong)v, (volatile jlong*)p); }
 inline void     OrderAccess::release_store(volatile jfloat*  p, jfloat  v) { *p = v; }
-inline void     OrderAccess::release_store(volatile jdouble* p, jdouble v) { *p = v; }
+inline void     OrderAccess::release_store(volatile jdouble* p, jdouble v) { release_store((volatile jlong *)p, jlong_cast(v)); }
 
 inline void     OrderAccess::release_store_ptr(volatile intptr_t* p, intptr_t v) { *p = v; }
 inline void     OrderAccess::release_store_ptr(volatile void*     p, void*    v) { *(void* volatile *)p = v; }
@@ -128,7 +129,7 @@ inline void     OrderAccess::store_fence(jushort* p, jushort v) { store_fence((j
 inline void     OrderAccess::store_fence(juint*   p, juint   v) { store_fence((jint*)p,   (jint)v);   }
 inline void     OrderAccess::store_fence(julong*  p, julong  v) { store_fence((jlong*)p,  (jlong)v);  }
 inline void     OrderAccess::store_fence(jfloat*  p, jfloat  v) { *p = v; fence(); }
-inline void     OrderAccess::store_fence(jdouble* p, jdouble v) { *p = v; fence(); }
+inline void     OrderAccess::store_fence(jdouble* p, jdouble v) { store_fence((jlong*)p, jlong_cast(v)); }
 
 inline void     OrderAccess::store_ptr_fence(intptr_t* p, intptr_t v) {
 #ifdef AMD64
@@ -189,7 +190,7 @@ inline void     OrderAccess::release_store_fence(volatile juint*   p, juint   v)
 inline void     OrderAccess::release_store_fence(volatile julong*  p, julong  v) { release_store_fence((volatile jlong*)p,  (jlong)v);  }
 
 inline void     OrderAccess::release_store_fence(volatile jfloat*  p, jfloat  v) { *p = v; fence(); }
-inline void     OrderAccess::release_store_fence(volatile jdouble* p, jdouble v) { *p = v; fence(); }
+inline void     OrderAccess::release_store_fence(volatile jdouble* p, jdouble v) { release_store_fence((volatile jlong*)p, jlong_cast(v)); }
 
 inline void     OrderAccess::release_store_ptr_fence(volatile intptr_t* p, intptr_t v) {
 #ifdef AMD64

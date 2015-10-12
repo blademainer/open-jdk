@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,74 +27,107 @@
 #include "classfile/vmSymbols.hpp"
 #include "memory/resourceArea.hpp"
 #include "memory/universe.inline.hpp"
+#include "oops/annotations.hpp"
 #include "oops/instanceKlass.hpp"
+#include "oops/fieldStreams.hpp"
 #include "runtime/fieldDescriptor.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/signature.hpp"
 
 
 oop fieldDescriptor::loader() const {
-  return instanceKlass::cast(_cp->pool_holder())->class_loader();
+  return _cp->pool_holder()->class_loader();
 }
 
-typeArrayOop fieldDescriptor::annotations() const {
-  instanceKlass* ik = instanceKlass::cast(field_holder());
-  objArrayOop md = ik->fields_annotations();
+Symbol* fieldDescriptor::generic_signature() const {
+  if (!has_generic_signature()) {
+    return NULL;
+  }
+
+  int idx = 0;
+  InstanceKlass* ik = field_holder();
+  for (AllFieldStream fs(ik); !fs.done(); fs.next()) {
+    if (idx == _index) {
+      return fs.generic_signature();
+    } else {
+      idx ++;
+    }
+  }
+  assert(false, "should never happen");
+  return NULL;
+}
+
+AnnotationArray* fieldDescriptor::annotations() const {
+  InstanceKlass* ik = field_holder();
+  Array<AnnotationArray*>* md = ik->fields_annotations();
   if (md == NULL)
     return NULL;
-  assert((index() % instanceKlass::next_offset) == 0, "");
-  return typeArrayOop(md->obj_at(index() / instanceKlass::next_offset));
+  return md->at(index());
+}
+
+AnnotationArray* fieldDescriptor::type_annotations() const {
+  InstanceKlass* ik = field_holder();
+  Array<AnnotationArray*>* type_annos = ik->fields_type_annotations();
+  if (type_annos == NULL)
+    return NULL;
+  return type_annos->at(index());
 }
 
 constantTag fieldDescriptor::initial_value_tag() const {
-  return constants()->tag_at(_initial_value_index);
+  return constants()->tag_at(initial_value_index());
 }
 
 jint fieldDescriptor::int_initial_value() const {
-  return constants()->int_at(_initial_value_index);
+  return constants()->int_at(initial_value_index());
 }
 
 jlong fieldDescriptor::long_initial_value() const {
-  return constants()->long_at(_initial_value_index);
+  return constants()->long_at(initial_value_index());
 }
 
 jfloat fieldDescriptor::float_initial_value() const {
-  return constants()->float_at(_initial_value_index);
+  return constants()->float_at(initial_value_index());
 }
 
 jdouble fieldDescriptor::double_initial_value() const {
-  return constants()->double_at(_initial_value_index);
+  return constants()->double_at(initial_value_index());
 }
 
 oop fieldDescriptor::string_initial_value(TRAPS) const {
-  return constants()->string_at(_initial_value_index, CHECK_0);
+  return constants()->uncached_string_at(initial_value_index(), CHECK_0);
 }
 
-void fieldDescriptor::initialize(klassOop k, int index) {
-  instanceKlass* ik = instanceKlass::cast(k);
-  _cp = ik->constants();
-  typeArrayOop fields = ik->fields();
+void fieldDescriptor::reinitialize(InstanceKlass* ik, int index) {
+  if (_cp.is_null() || field_holder() != ik) {
+    _cp = constantPoolHandle(Thread::current(), ik->constants());
+    // _cp should now reference ik's constant pool; i.e., ik is now field_holder.
+    assert(field_holder() == ik, "must be already initialized to this class");
+  }
+  FieldInfo* f = ik->field(index);
+  assert(!f->is_internal(), "regular Java fields only");
 
-  assert(fields->length() % instanceKlass::next_offset == 0, "Illegal size of field array");
-  assert(fields->length() >= index + instanceKlass::next_offset, "Illegal size of field array");
-
-  _access_flags.set_field_flags(fields->ushort_at(index + instanceKlass::access_flags_offset));
-  _name_index = fields->ushort_at(index + instanceKlass::name_index_offset);
-  _signature_index = fields->ushort_at(index + instanceKlass::signature_index_offset);
-  _initial_value_index = fields->ushort_at(index + instanceKlass::initval_index_offset);
-  guarantee(_name_index != 0 && _signature_index != 0, "bad constant pool index for fieldDescriptor");
-  _offset = ik->offset_from_fields( index );
-  _generic_signature_index = fields->ushort_at(index + instanceKlass::generic_signature_offset);
+  _access_flags = accessFlags_from(f->access_flags());
+  guarantee(f->name_index() != 0 && f->signature_index() != 0, "bad constant pool index for fieldDescriptor");
   _index = index;
+  verify();
 }
 
 #ifndef PRODUCT
 
+void fieldDescriptor::verify() const {
+  if (_cp.is_null()) {
+    assert(_index == badInt, "constructor must be called");  // see constructor
+  } else {
+    assert(_index >= 0, "good index");
+    assert(_index < field_holder()->java_fields_count(), "oob");
+  }
+}
+
 void fieldDescriptor::print_on(outputStream* st) const {
-  _access_flags.print_on(st);
-  constants()->symbol_at(_name_index)->print_value_on(st);
+  access_flags().print_on(st);
+  name()->print_value_on(st);
   st->print(" ");
-  constants()->symbol_at(_signature_index)->print_value_on(st);
+  signature()->print_value_on(st);
   st->print(" @%d ", offset());
   if (WizardMode && has_initial_value()) {
     st->print("(initval ");

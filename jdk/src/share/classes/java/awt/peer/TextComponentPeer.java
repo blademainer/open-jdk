@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -60,11 +60,11 @@ public interface TextComponentPeer extends ComponentPeer {
     /**
      * Sets the content for the text component.
      *
-     * @param l the content to set
+     * @param text the content to set
      *
      * @see TextComponent#setText(String)
      */
-    void setText(String l);
+    void setText(String text);
 
     /**
      * Returns the start index of the current selection.

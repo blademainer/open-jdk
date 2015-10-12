@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -300,11 +300,11 @@ public class IIOPInputStream
         resetStream();
     }
 
-    public final void setOrbStream(org.omg.CORBA_2_3.portable.InputStream os) {
+    final void setOrbStream(org.omg.CORBA_2_3.portable.InputStream os) {
         orbStream = os;
     }
 
-    public final org.omg.CORBA_2_3.portable.InputStream getOrbStream() {
+    final org.omg.CORBA_2_3.portable.InputStream getOrbStream() {
         return orbStream;
     }
 
@@ -327,11 +327,11 @@ public class IIOPInputStream
         return (javax.rmi.CORBA.ValueHandler) vhandler;
     }
 
-    public final void increaseRecursionDepth(){
+    final void increaseRecursionDepth(){
         recursionDepth++;
     }
 
-    public final int decreaseRecursionDepth(){
+    final int decreaseRecursionDepth(){
         return --recursionDepth;
     }
 
@@ -370,7 +370,7 @@ public class IIOPInputStream
      * @exception IOException Any of the usual Input/Output related exceptions.
      * @since     JDK1.1
      */
-    public final Object readObjectDelegate() throws IOException
+    public final synchronized Object readObjectDelegate() throws IOException
     {
         try {
 
@@ -389,7 +389,7 @@ public class IIOPInputStream
             }
     }
 
-    final Object simpleReadObject(Class clz,
+    final synchronized Object simpleReadObject(Class clz,
                                   String repositoryID,
                                   com.sun.org.omg.SendingContext.CodeBase sender,
                                   int offset)
@@ -461,7 +461,7 @@ public class IIOPInputStream
         return obj;
     }
 
-    public final void simpleSkipObject(String repositoryID,
+    public final synchronized  void simpleSkipObject(String repositoryID,
                                        com.sun.org.omg.SendingContext.CodeBase sender)
                                        /* throws OptionalDataException, ClassNotFoundException, IOException */
     {
@@ -559,7 +559,7 @@ public class IIOPInputStream
      *              objects.
      * @since     JDK1.1
      */
-    public final void defaultReadObjectDelegate()
+    final synchronized void defaultReadObjectDelegate()
     /* throws IOException, ClassNotFoundException, NotActiveException */
     {
         try {
@@ -988,7 +988,7 @@ public class IIOPInputStream
         }
     }
 
-    private Object inputObject(Class clz,
+    private synchronized Object inputObject(Class clz,
                                String repositoryID,
                                com.sun.org.omg.SendingContext.CodeBase sender,
                                int offset)
@@ -1317,7 +1317,7 @@ public class IIOPInputStream
      * a form of custom marshaling.
      *
      */
-    private Object inputObjectUsingFVD(Class clz,
+    private synchronized Object inputObjectUsingFVD(Class clz,
                                        String repositoryID,
                                        com.sun.org.omg.SendingContext.CodeBase sender,
                                        int offset)
@@ -2243,6 +2243,10 @@ public class IIOPInputStream
                 }
 
                 try {
+                    Class fieldCl = fields[i].getClazz();
+                    if (objectValue != null && !fieldCl.isInstance(objectValue)) {
+                        throw new IllegalArgumentException();
+                    }
                     bridge.putObject( o, fields[i].getFieldID(), objectValue ) ;
                     // reflective code: fields[i].getField().set( o, objectValue ) ;
                 } catch (IllegalArgumentException e) {
@@ -2553,6 +2557,10 @@ public class IIOPInputStream
     {
         try {
             Field fld = c.getDeclaredField( fieldName ) ;
+            Class fieldCl = fld.getType();
+            if(v != null && !fieldCl.isInstance(v)) {
+                throw new Exception();
+            }
             long key = bridge.objectFieldOffset( fld ) ;
             bridge.putObject( o, key, v ) ;
         } catch (Exception e) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,6 +42,7 @@
 #define GTK_STOCK_CANCEL           "gtk-cancel"
 #define GTK_STOCK_SAVE             "gtk-save"
 #define GTK_STOCK_OPEN             "gtk-open"
+#define GDK_CURRENT_TIME           0L
 
 typedef enum _WidgetType
 {
@@ -269,6 +270,7 @@ typedef enum
 /* We define all structure pointers to be void* */
 typedef void GError;
 typedef void GMainContext;
+typedef void GVfs;
 
 typedef struct _GSList GSList;
 struct _GSList
@@ -280,6 +282,7 @@ struct _GSList
 typedef void GdkColormap;
 typedef void GdkDrawable;
 typedef void GdkGC;
+typedef void GdkScreen;
 typedef void GdkPixbuf;
 typedef void GdkPixmap;
 typedef void GdkWindow;
@@ -641,6 +644,23 @@ typedef struct _GThreadFunctions GThreadFunctions;
  */
 const char *getStrFor(JNIEnv *env, jstring value);
 
+/**
+ * Returns :
+ * NULL if the GLib library is compatible with the given version, or a string
+ * describing the version mismatch.
+ * Please note that the glib_check_version() is available since 2.6,
+ * so you should use GLIB_CHECK_VERSION macro instead.
+ */
+gchar* (*fp_glib_check_version)(guint required_major, guint required_minor,
+                       guint required_micro);
+
+/**
+ * Returns :
+ *  TRUE if the GLib library is compatible with the given version
+ */
+#define GLIB_CHECK_VERSION(major, minor, micro) \
+    (fp_glib_check_version && fp_glib_check_version(major, minor, micro) == NULL)
+
 /*
  * Check whether the gtk2 library is available and meets the minimum
  * version requirement.  If the library is already loaded this method has no
@@ -661,7 +681,16 @@ gchar* (*fp_gtk_check_version)(guint required_major, guint required_minor,
  * effect and returns success.
  * Returns FALSE on failure and TRUE on success.
  */
-gboolean gtk2_load();
+gboolean gtk2_load(JNIEnv *env);
+
+/*
+ * Loads fp_gtk_show_uri function pointer. This initialization is
+ * separated because the function is required only
+ * for java.awt.Desktop API. The function relies on initialization in
+ * gtk2_load, so it must be invoked only after a successful gtk2_load
+ * invocation
+ */
+gboolean gtk2_show_uri_load(JNIEnv *env);
 
 /*
  * Unload the gtk2 library.  If the library is already unloaded this method has
@@ -790,9 +819,18 @@ void (*fp_gtk_main)(void);
 guint (*fp_gtk_main_level)(void);
 
 
+/**
+ * This function is available for GLIB > 2.20, so it MUST be
+ * called within GLIB_CHECK_VERSION(2, 20, 0) check.
+ */
+gboolean (*fp_g_thread_get_initialized)(void);
+
 void (*fp_g_thread_init)(GThreadFunctions *vtable);
 void (*fp_gdk_threads_init)(void);
 void (*fp_gdk_threads_enter)(void);
 void (*fp_gdk_threads_leave)(void);
+
+gboolean (*fp_gtk_show_uri)(GdkScreen *screen, const gchar *uri,
+    guint32 timestamp, GError **error);
 
 #endif /* !_GTK2_INTERFACE_H */

@@ -1,7 +1,7 @@
 #! /bin/sh
 
 #
-# Copyright (c) 1999, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -33,5 +33,5 @@ if [ x"$TESTCLASSES" = x ]; then TESTCLASSES=.; fi
 if [ x"$TESTSRC" = x ]; then TESTSRC=.; fi
 
 # now start the test
-${TESTJAVA}/bin/java -Djava.ext.dirs=$TESTSRC -cp $TESTCLASSES GetDotResource
+${TESTJAVA}/bin/java ${TESTVMOPTS} -Djava.ext.dirs=$TESTSRC -cp $TESTCLASSES GetDotResource
 

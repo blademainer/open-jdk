@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,7 +37,7 @@ package com.sun.beans.decoder;
  *     &lt;string&gt;-1.23&lt;/string&gt;
  * &lt;/method&gt;</pre>
  * which is equivalent to {@code Float.valueOf("-1.23")} in Java code.
- * <p>The following atribute is supported:
+ * <p>The following attribute is supported:
  * <dl>
  * <dt>id
  * <dd>the identifier of the variable that is intended to store the result

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,6 +49,8 @@ class ASPSOldGen : public PSOldGen {
   size_t gen_size_limit()               { return _gen_size_limit; }
   size_t max_gen_size()                 { return _reserved.byte_size(); }
   void set_gen_size_limit(size_t v)     { _gen_size_limit = v; }
+
+  virtual void initialize_work(const char* perf_data_name, int level);
 
   // After a shrink or expand reset the generation
   void reset_after_change();

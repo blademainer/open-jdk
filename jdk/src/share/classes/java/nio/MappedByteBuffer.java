@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,7 +45,7 @@ import sun.misc.Unsafe;
  * this program or another.  Whether or not such changes occur, and when they
  * occur, is operating-system dependent and therefore unspecified.
  *
- * <a name="inaccess"><p> All or part of a mapped byte buffer may become
+ * <a name="inaccess"></a><p> All or part of a mapped byte buffer may become
  * inaccessible at any time, for example if the mapped file is truncated.  An
  * attempt to access an inaccessible region of a mapped byte buffer will not
  * change the buffer's content and will cause an unspecified exception to be
@@ -139,6 +139,9 @@ public abstract class MappedByteBuffer
         return isLoaded0(mappingAddress(offset), length, Bits.pageCount(length));
     }
 
+    // not used, but a potential target for a store, see load() for details.
+    private static byte unused;
+
     /**
      * Loads this buffer's content into physical memory.
      *
@@ -157,15 +160,20 @@ public abstract class MappedByteBuffer
         long length = mappingLength(offset);
         load0(mappingAddress(offset), length);
 
-        // touch each page
+        // Read a byte from each page to bring it into memory. A checksum
+        // is computed as we go along to prevent the compiler from otherwise
+        // considering the loop as dead code.
         Unsafe unsafe = Unsafe.getUnsafe();
         int ps = Bits.pageSize();
         int count = Bits.pageCount(length);
         long a = mappingAddress(offset);
+        byte x = 0;
         for (int i=0; i<count; i++) {
-            unsafe.getByte(a);
+            x ^= unsafe.getByte(a);
             a += ps;
         }
+        if (unused != 0)
+            unused = x;
 
         return this;
     }

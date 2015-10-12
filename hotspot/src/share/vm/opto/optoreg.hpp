@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -77,7 +77,7 @@ class OptoReg VALUE_OBJ_CLASS_SPEC {
   // (We would like to have an operator+ for RegName, but it is not
   // a class, so this would be illegal in C++.)
 
-  static void dump( int );
+  static void dump(int, outputStream *st = tty);
 
   // Get the stack slot number of an OptoReg::Name
   static unsigned int reg2stack( OptoReg::Name r) {
@@ -172,6 +172,7 @@ class OptoReg VALUE_OBJ_CLASS_SPEC {
 // and converting that will return OptoReg::Bad losing the identity of the OptoReg.
 
 class OptoRegPair {
+  friend class VMStructs;
 private:
   short _second;
   short _first;

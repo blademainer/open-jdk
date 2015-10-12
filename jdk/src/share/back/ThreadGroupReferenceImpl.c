@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -47,7 +47,7 @@ name(PacketInputStream *in, PacketOutputStream *out)
 
         (void)memset(&info, 0, sizeof(info));
         threadGroupInfo(group, &info);
-        (void)outStream_writeString(out, info.name);
+        (void)outStream_writeString(out, info.name == NULL ? "" : info.name);
         if ( info.name != NULL )
             jvmtiDeallocate(info.name);
 

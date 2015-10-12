@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,7 @@ import java.awt.event.WindowListener;
 import java.awt.event.WindowAdapter;
 import sun.awt.SunToolkit;
 
-class WChoicePeer extends WComponentPeer implements ChoicePeer {
+final class WChoicePeer extends WComponentPeer implements ChoicePeer {
 
     // WComponentPeer overrides
 
@@ -84,6 +84,7 @@ class WChoicePeer extends WComponentPeer implements ChoicePeer {
 
     native void create(WComponentPeer parent);
 
+    @SuppressWarnings("deprecation")
     void initialize() {
         Choice opt = (Choice)target;
         int itemCount = opt.getItemCount();
@@ -116,6 +117,7 @@ class WChoicePeer extends WComponentPeer implements ChoicePeer {
         super.initialize();
     }
 
+    @SuppressWarnings("deprecation")
     protected void disposeImpl() {
         // TODO: we should somehow reset the listener when the choice
         // is moved to another toplevel without destroying its peer.
@@ -147,13 +149,6 @@ class WChoicePeer extends WComponentPeer implements ChoicePeer {
         FontMetrics fm = getFontMetrics(c.getFont());
         int maxItems = Math.min(c.getItemCount(), 8);
         return fm.getHeight() * maxItems;
-    }
-
-    /**
-     * DEPRECATED
-     */
-    public Dimension minimumSize() {
-            return getMinimumSize();
     }
 
     native void closeList();

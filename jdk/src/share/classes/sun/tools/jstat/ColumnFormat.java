@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,7 +57,7 @@ public class ColumnFormat extends OptionFormat {
         // should allow null data statments
 
         if (expression == null) {
-            // current policy is that a data statment must be specified
+            // current policy is that a data statement must be specified
             throw new ParserException("Missing data statement in column " + number);
         }
         if (header == null) {

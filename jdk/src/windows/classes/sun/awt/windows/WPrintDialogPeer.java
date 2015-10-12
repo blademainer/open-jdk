@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -73,7 +73,7 @@ public class WPrintDialogPeer extends WWindowPeer implements DialogPeer {
                     // but if it is we need to trap it so the thread does
                     // not hide is called and the thread doesn't hang.
                 }
-                ((WPrintDialog)target).hide();
+                ((WPrintDialog)target).setVisible(false);
             }
         }).start();
     }
@@ -117,7 +117,7 @@ public class WPrintDialogPeer extends WWindowPeer implements DialogPeer {
     // unused methods.  Overridden to disable this functionality as
     // it requires HWND which is not available for FileDialog
     void initialize() {}
-    public void setAlwaysOnTop(boolean b) {}
+    public void updateAlwaysOnTopState() {}
     public void setResizable(boolean resizable) {}
     public void hide() {}
     public void enable() {}

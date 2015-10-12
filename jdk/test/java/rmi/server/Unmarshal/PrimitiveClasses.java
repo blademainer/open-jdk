@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
  * @bug 4442373
  * @summary Verify that RMI can successfully unmarshal Class objects for
  *          primitive types.
+ * @run main PrimitiveClasses
  */
 
 import java.rmi.MarshalledObject;

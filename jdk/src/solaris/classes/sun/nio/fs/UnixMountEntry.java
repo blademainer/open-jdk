@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,12 +43,12 @@ class UnixMountEntry {
     }
 
     String name() {
-        return new String(name);
+        return Util.toString(name);
     }
 
     String fstype() {
         if (fstypeAsString == null)
-            fstypeAsString = new String(fstype);
+            fstypeAsString = Util.toString(fstype);
         return fstypeAsString;
     }
 
@@ -65,7 +65,7 @@ class UnixMountEntry {
      */
     boolean hasOption(String requested) {
         if (optionsAsString == null)
-            optionsAsString = new String(opts);
+            optionsAsString = Util.toString(opts);
         for (String opt: Util.split(optionsAsString, ',')) {
             if (opt.equals(requested))
                 return true;

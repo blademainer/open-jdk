@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -77,9 +77,9 @@ public class StoredCRC {
                 unexpected(t);
             }
 
-            // Test that data corruption is detected.  Offset 39 was
+            // Test that data corruption is detected.  "offset" was
             // determined to be in the entry's uncompressed data.
-            data[39] ^= 1;
+            data[getDataOffset(data) + 4] ^= 1;
 
             zis = new ZipInputStream(
                 new ByteArrayInputStream(data));
@@ -95,6 +95,15 @@ public class StoredCRC {
                 unexpected(t);
             }
         }
+    }
+
+    public static final int getDataOffset(byte b[]) {
+        final int LOCHDR = 30;       // LOC header size
+        final int LOCEXT = 28;       // extra field length
+        final int LOCNAM = 26;       // filename length
+        int lenExt = Byte.toUnsignedInt(b[LOCEXT]) | (Byte.toUnsignedInt(b[LOCEXT + 1]) << 8);
+        int lenNam = Byte.toUnsignedInt(b[LOCNAM]) | (Byte.toUnsignedInt(b[LOCNAM + 1]) << 8);
+        return LOCHDR + lenExt + lenNam;
     }
 
     //--------------------- Infrastructure ---------------------------

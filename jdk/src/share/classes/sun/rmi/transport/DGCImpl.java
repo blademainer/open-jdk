@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -59,6 +59,7 @@ import sun.security.action.GetPropertyAction;
  *
  * @author Ann Wollrath
  */
+@SuppressWarnings("deprecation")
 final class DGCImpl implements DGC {
 
     /* dgc system log */
@@ -84,7 +85,7 @@ final class DGCImpl implements DGC {
     /** remote implementation of DGC interface for this VM */
     private static DGCImpl dgc;
     /** table that maps VMID to LeaseInfo */
-    private Map<VMID,LeaseInfo> leaseTable = new HashMap<VMID,LeaseInfo>();
+    private Map<VMID,LeaseInfo> leaseTable = new HashMap<>();
     /** checks for lease expiration */
     private Future<?> checker = null;
 
@@ -236,7 +237,7 @@ final class DGCImpl implements DGC {
         long time = System.currentTimeMillis();
 
         /* List of vmids that need to be removed from the leaseTable */
-        List<LeaseInfo> toUnregister = new ArrayList<LeaseInfo>();
+        List<LeaseInfo> toUnregister = new ArrayList<>();
 
         /* Build a list of leaseInfo objects that need to have
          * targets removed from their notifySet.  Remove expired
@@ -313,7 +314,7 @@ final class DGCImpl implements DGC {
     private static class LeaseInfo {
         VMID vmid;
         long expiration;
-        Set<Target> notifySet = new HashSet<Target>();
+        Set<Target> notifySet = new HashSet<>();
 
         LeaseInfo(VMID vmid, long lease) {
             this.vmid = vmid;

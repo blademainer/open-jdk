@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,7 +40,7 @@ extern "C" {
  * particularly aware of the fact that these functions are convenience
  * functions, and as such are often compound operations, each one of
  * which may throw an exception. Therefore, the functions this file
- * will often return silently if an exception has occured, and callers
+ * will often return silently if an exception has occurred, and callers
  * must check for exception themselves.
  */
 
@@ -186,7 +186,7 @@ JNU_CallMethodByNameV(JNIEnv *env,
  * pass to it.
  *
  * The method will return an initialized instance if successful.
- * It will return NULL if an error has occured (for example if
+ * It will return NULL if an error has occurred (for example if
  * it ran out of memory) and the appropriate Java exception will
  * have been thrown.
  */
@@ -339,6 +339,10 @@ int getFastEncoding();
 
 void initializeEncoding();
 
+void* getProcessHandle();
+
+void buildJniFunctionName(const char *sym, const char *cname,
+                          char *jniEntryName);
 
 #ifdef __cplusplus
 } /* extern "C" */

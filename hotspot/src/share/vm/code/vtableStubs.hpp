@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -46,7 +46,7 @@ class VtableStub {
   bool           _is_vtable_stub;    // True if vtable stub, false, is itable stub
   /* code follows here */            // The vtableStub code
 
-  void* operator new(size_t size, int code_size);
+  void* operator new(size_t size, int code_size) throw();
 
   VtableStub(bool is_vtable_stub, int index)
         : _next(NULL), _is_vtable_stub(is_vtable_stub),
@@ -55,6 +55,8 @@ class VtableStub {
   int index() const                              { return _index; }
   static VMReg receiver_location()               { return _receiver_location; }
   void set_next(VtableStub* n)                   { _next = n; }
+
+ public:
   address code_begin() const                     { return (address)(this + 1); }
   address code_end() const                       { return code_begin() + pd_code_size_limit(_is_vtable_stub); }
   address entry_point() const                    { return code_begin(); }
@@ -65,6 +67,7 @@ class VtableStub {
   }
   bool contains(address pc) const                { return code_begin() <= pc && pc < code_end(); }
 
+ private:
   void set_exception_points(address npe_addr, address ame_addr) {
     _npe_offset = npe_addr - code_begin();
     _ame_offset = ame_addr - code_begin();
@@ -118,9 +121,11 @@ class VtableStubs : AllStatic {
   static VtableStub* lookup            (bool is_vtable_stub, int vtable_index);
   static void        enter             (bool is_vtable_stub, int vtable_index, VtableStub* s);
   static inline uint hash              (bool is_vtable_stub, int vtable_index);
+  static address     find_stub         (bool is_vtable_stub, int vtable_index);
 
  public:
-  static address     create_stub(bool is_vtable_stub, int vtable_index, methodOop method); // return the entry point of a stub for this call
+  static address     find_vtable_stub(int vtable_index) { return find_stub(true,  vtable_index); }
+  static address     find_itable_stub(int itable_index) { return find_stub(false, itable_index); }
   static bool        is_entry_point(address pc);                     // is pc a vtable stub entry point?
   static bool        contains(address pc);                           // is pc within any stub?
   static VtableStub* stub_containing(address pc);                    // stub containing pc or NULL

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -63,6 +63,15 @@ final class BeanValidator {
         }
         Class type = object1.getClass();
         if (!type.equals(object2.getClass())) {
+            // resolve different implementations of the Map.Entry interface
+            if ((object1 instanceof Map.Entry) && (object2 instanceof Map.Entry)) {
+                log("!!! special case", "Map.Entry");
+                Map.Entry entry1 = (Map.Entry) object1;
+                Map.Entry entry2 = (Map.Entry) object2;
+                validate(entry1.getKey(), entry2.getKey());
+                validate(entry1.getValue(), entry2.getValue());
+                return;
+            }
             throw new IllegalStateException("could not compare objects with different types");
         }
         // validate elements of arrays
@@ -82,10 +91,14 @@ final class BeanValidator {
             }
             return;
         }
+        // special case for collections: do not use equals
+        boolean ignore = Collection.class.isAssignableFrom(type)
+                || Map.Entry.class.isAssignableFrom(type)
+                || Map.class.isAssignableFrom(type);
         // validate objects using equals()
         // we assume that the method equals(Object) can be called,
         // if the class declares such method
-        if (isDefined(type, "equals", Object.class)) {
+        if (!ignore && isDefined(type, "equals", Object.class)) {
             if (object1.equals(object2)) {
                 return;
             }
@@ -205,27 +218,7 @@ final class BeanValidator {
     }
 
     private void validate(Map map1, Map map2, boolean sorted) {
-        if (map1.size() != map2.size()) {
-            throw new IllegalStateException("could not compare maps with different sizes");
-        }
-        if (sorted) {
-            Iterator first = map1.entrySet().iterator();
-            Iterator second = map2.entrySet().iterator();
-            int index = 0;
-            while (first.hasNext() && second.hasNext()) {
-                log("validate map entry", Integer.valueOf(index++));
-                validate(first.next(), second.next());
-            }
-            if (first.hasNext() || second.hasNext()) {
-                throw new IllegalStateException("one map contains more entries than another one");
-            }
-        } else {
-            // assume that equals() can be used for keys
-            for (Object key : map1.keySet()) {
-                log("validate map value for key", key);
-                validate(map1.get(key), map2.get(key));
-            }
-        }
+        validate(map1.entrySet(), map2.entrySet(), sorted);
     }
 
     private boolean isCyclic(Object object1, Object object2) {

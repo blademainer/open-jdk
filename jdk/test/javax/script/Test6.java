@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,11 +40,23 @@ public class Test6 {
                 System.out.println("Warning: No js engine found; test vacuously passes.");
                 return;
             }
-            Reader reader = new FileReader(
-                new File(System.getProperty("test.src", "."), "Test6.js"));
-            engine.eval(reader);
+
+            try (Reader reader = new FileReader(
+                new File(System.getProperty("test.src", "."), "Test6.js"))) {
+                engine.eval(reader);
+            }
             Object res = engine.get("res");
-            CompiledScript scr = ((Compilable)engine).compile(reader);
+
+            CompiledScript scr = null;
+            try (Reader reader = new FileReader(
+                new File(System.getProperty("test.src", "."), "Test6.js"))) {
+                scr = ((Compilable)engine).compile(reader);
+            }
+
+            if (scr == null) {
+                throw new RuntimeException("compilation failed!");
+            }
+
             scr.eval();
             Object res1 = engine.get("res");
             if (! res.equals(res1)) {

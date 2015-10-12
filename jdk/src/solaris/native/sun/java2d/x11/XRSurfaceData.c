@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,7 +29,7 @@
 #include "X11SurfaceData.h"
 
 /*#include <xcb/xcb.h>*/
-#include <Xrender.h>
+#include <X11/extensions/Xrender.h>
 
 #ifndef RepeatNone  /* added in 0.10 */
 #define RepeatNone    0
@@ -88,7 +88,13 @@ Java_sun_java2d_xr_XRSurfaceData_initIDs(JNIEnv *env, jclass xsd)
   J2dTraceLn(J2D_TRACE_INFO, "in XRSurfaceData_initIDs");
 
   pictID = (*env)->GetFieldID(env, xsd, "picture", "I");
+  if (pictID == NULL) {
+      return;
+  }
   xidID = (*env)->GetFieldID(env, xsd, "xid", "I");
+  if (xidID == NULL) {
+      return;
+  }
 
   XShared_initIDs(env, JNI_FALSE);
 #endif /* !HEADLESS */

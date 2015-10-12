@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -78,13 +78,14 @@ import com.sun.corba.se.impl.encoding.OSFCodeSetRegistry ;
 import com.sun.corba.se.impl.legacy.connection.USLPort ;
 import com.sun.corba.se.impl.logging.ORBUtilSystemException ;
 import com.sun.corba.se.impl.oa.poa.BadServerIdHandler ;
-import com.sun.corba.se.impl.orbutil.ORBClassLoader ;
 import com.sun.corba.se.impl.orbutil.ORBConstants ;
 import com.sun.corba.se.impl.protocol.giopmsgheaders.KeyAddr ;
 import com.sun.corba.se.impl.protocol.giopmsgheaders.ProfileAddr ;
 import com.sun.corba.se.impl.protocol.giopmsgheaders.ReferenceAddr ;
 import com.sun.corba.se.impl.transport.DefaultIORToSocketInfoImpl;
 import com.sun.corba.se.impl.transport.DefaultSocketFactoryImpl;
+
+import sun.corba.SharedSecrets;
 
 /** Initialize the parser data for the standard ORB parser.  This is used both
  * to implement ORBDataParserImpl and to provide the basic testing framework
@@ -106,7 +107,9 @@ public class ParserTable {
 
     public ParserData[] getParserData()
     {
-        return parserData ;
+        ParserData[] parserArray = new ParserData[parserData.length];
+        System.arraycopy(parserData, 0, parserArray, 0, parserData.length);
+        return parserArray;
     }
 
     private ParserTable() {
@@ -453,6 +456,10 @@ public class ParserTable {
             return other instanceof TestBadServerIdHandler ;
         }
 
+        public int hashCode() {
+            return 1;
+        }
+
         public void handle( ObjectKey objectKey )
         {
         }
@@ -516,6 +523,10 @@ public class ParserTable {
             return other instanceof TestLegacyORBSocketFactory ;
         }
 
+        public int hashCode() {
+            return 1;
+        }
+
         public ServerSocket createServerSocket( String type, int port )
         {
             return null ;
@@ -539,6 +550,10 @@ public class ParserTable {
         public boolean equals( Object other )
         {
             return other instanceof TestORBSocketFactory ;
+        }
+
+        public int hashCode() {
+            return 1;
         }
 
         public void setORB(ORB orb)
@@ -568,6 +583,10 @@ public class ParserTable {
         public boolean equals( Object other )
         {
             return other instanceof TestIORToSocketInfo;
+        }
+
+        public int hashCode() {
+            return 1;
         }
 
         public List getSocketInfo(IOR ior)
@@ -606,6 +625,10 @@ public class ParserTable {
             return other instanceof TestContactInfoListFactory;
         }
 
+        public int hashCode() {
+            return 1;
+        }
+
         public void setORB(ORB orb) { }
 
         public CorbaContactInfoList create( IOR ior ) { return null; }
@@ -638,8 +661,8 @@ public class ParserTable {
                 String param = (String)value ;
 
                 try {
-                    Class legacySocketFactoryClass =
-                        ORBClassLoader.loadClass(param);
+                    Class<?> legacySocketFactoryClass =
+                        SharedSecrets.getJavaCorbaAccess().loadClass(param);
                     // For security reasons avoid creating an instance if
                     // this socket factory class is not one that would fail
                     // the class cast anyway.
@@ -668,7 +691,8 @@ public class ParserTable {
                 String param = (String)value ;
 
                 try {
-                    Class socketFactoryClass = ORBClassLoader.loadClass(param);
+                    Class<?> socketFactoryClass =
+                        SharedSecrets.getJavaCorbaAccess().loadClass(param);
                     // For security reasons avoid creating an instance if
                     // this socket factory class is not one that would fail
                     // the class cast anyway.
@@ -697,7 +721,8 @@ public class ParserTable {
                 String param = (String)value ;
 
                 try {
-                    Class iorToSocketInfoClass = ORBClassLoader.loadClass(param);
+                    Class<?> iorToSocketInfoClass =
+                        SharedSecrets.getJavaCorbaAccess().loadClass(param);
                     // For security reasons avoid creating an instance if
                     // this socket factory class is not one that would fail
                     // the class cast anyway.
@@ -726,7 +751,8 @@ public class ParserTable {
                 String param = (String)value ;
 
                 try {
-                    Class iiopPrimaryToContactInfoClass = ORBClassLoader.loadClass(param);
+                    Class<?> iiopPrimaryToContactInfoClass =
+                        SharedSecrets.getJavaCorbaAccess().loadClass(param);
                     // For security reasons avoid creating an instance if
                     // this socket factory class is not one that would fail
                     // the class cast anyway.
@@ -755,8 +781,8 @@ public class ParserTable {
                 String param = (String)value ;
 
                 try {
-                    Class contactInfoListFactoryClass =
-                        ORBClassLoader.loadClass(param);
+                    Class<?> contactInfoListFactoryClass =
+                        SharedSecrets.getJavaCorbaAccess().loadClass(param);
                     // For security reasons avoid creating an instance if
                     // this socket factory class is not one that would fail
                     // the class cast anyway.
@@ -863,6 +889,10 @@ public class ParserTable {
             return other instanceof TestORBInitializer1 ;
         }
 
+        public int hashCode() {
+            return 1;
+        }
+
         public void pre_init( ORBInitInfo info )
         {
         }
@@ -878,6 +908,10 @@ public class ParserTable {
         public boolean equals( Object other )
         {
             return other instanceof TestORBInitializer2 ;
+        }
+
+        public int hashCode() {
+            return 1;
         }
 
         public void pre_init( ORBInitInfo info )
@@ -948,6 +982,8 @@ public class ParserTable {
         {
             return other instanceof TestAcceptor1 ;
         }
+
+        public int hashCode() { return 1; }
         public boolean initialize() { return true; }
         public boolean initialized() { return true; }
         public String getConnectionCacheType() { return "FOO"; }
@@ -979,6 +1015,7 @@ public class ParserTable {
         {
             return other instanceof TestAcceptor2 ;
         }
+        public int hashCode() { return 1; }
         public boolean initialize() { return true; }
         public boolean initialized() { return true; }
         public String getConnectionCacheType() { return "FOO"; }

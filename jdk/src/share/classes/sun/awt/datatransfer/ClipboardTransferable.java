@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -98,8 +98,7 @@ public class ClipboardTransferable implements Transferable {
                 }
 
                 flavors = DataTransferer.getInstance().
-                    setToSortedDataFlavorArray(flavorsToData.keySet(),
-                                               flavorsForFormats);
+                    setToSortedDataFlavorArray(flavorsToData.keySet());
             }
         } finally {
             clipboard.closeClipboard();

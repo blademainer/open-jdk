@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,12 +22,13 @@
  */
 
 /* @test
- * @bug 4777504
+ * @bug 4777504 8024883
  * @summary Ensure that a Selector can return at least 100 selected keys
  * @author Mark Reinhold
  * @library ..
  * @build SelectorLimit
  * @run main/othervm SelectorLimit
+ * @run main/othervm -Dsun.nio.ch.maxUpdateArraySize=128 SelectorLimit
  */
 
 import java.io.*;

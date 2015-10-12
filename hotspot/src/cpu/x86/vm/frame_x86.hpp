@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,7 +44,7 @@
 //    [pointer to locals     ]                   = locals()             locals_offset
 //    [constant pool cache   ]                   = cache()              cache_offset
 //    [methodData            ]                   = mdp()                mdx_offset
-//    [methodOop             ]                   = method()             method_offset
+//    [Method*               ]                   = method()             method_offset
 //    [last sp               ]                   = last_sp()            last_sp_offset
 //    [old stack pointer     ]                     (sender_sp)          sender_sp_offset
 //    [old frame pointer     ]   <- fp           = link()
@@ -170,7 +170,7 @@
     return (intptr_t*) addr_at(offset);
   }
 
-#if ASSERT
+#ifdef ASSERT
   // Used in frame::sender_for_{interpreter,compiled}_frame
   static void verify_deopt_original_pc(   nmethod* nm, intptr_t* unextended_sp, bool is_method_handle_return = false);
   static void verify_deopt_mh_original_pc(nmethod* nm, intptr_t* unextended_sp) {
@@ -188,6 +188,7 @@
   frame(intptr_t* sp, intptr_t* fp);
 
   // accessors for the instance variables
+  // Note: not necessarily the real 'frame pointer' (see real_fp)
   intptr_t*   fp() const { return _fp; }
 
   inline address* sender_pc_addr() const;

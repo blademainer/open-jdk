@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,7 +43,7 @@ class PromotedObject VALUE_OBJ_CLASS_SPEC {
   // whose position will depend on endian-ness of the platform.
   // This is so that there is no interference with the
   // cms_free_bit occupying bit position 7 (lsb == 0)
-  // when we are using compressed oops; see FreeChunk::isFree().
+  // when we are using compressed oops; see FreeChunk::is_free().
   // We cannot move the cms_free_bit down because currently
   // biased locking code assumes that age bits are contiguous
   // with the lock bits. Even if that assumption were relaxed,
@@ -65,7 +65,7 @@ class PromotedObject VALUE_OBJ_CLASS_SPEC {
   };
  public:
   inline PromotedObject* next() const {
-    assert(!((FreeChunk*)this)->isFree(), "Error");
+    assert(!((FreeChunk*)this)->is_free(), "Error");
     PromotedObject* res;
     if (UseCompressedOops) {
       // The next pointer is a compressed oop stored in the top 32 bits
@@ -85,27 +85,27 @@ class PromotedObject VALUE_OBJ_CLASS_SPEC {
     } else {
       _next |= (intptr_t)x;
     }
-    assert(!((FreeChunk*)this)->isFree(), "Error");
+    assert(!((FreeChunk*)this)->is_free(), "Error");
   }
   inline void setPromotedMark() {
     _next |= promoted_mask;
-    assert(!((FreeChunk*)this)->isFree(), "Error");
+    assert(!((FreeChunk*)this)->is_free(), "Error");
   }
   inline bool hasPromotedMark() const {
-    assert(!((FreeChunk*)this)->isFree(), "Error");
+    assert(!((FreeChunk*)this)->is_free(), "Error");
     return (_next & promoted_mask) == promoted_mask;
   }
   inline void setDisplacedMark() {
     _next |= displaced_mark;
-    assert(!((FreeChunk*)this)->isFree(), "Error");
+    assert(!((FreeChunk*)this)->is_free(), "Error");
   }
   inline bool hasDisplacedMark() const {
-    assert(!((FreeChunk*)this)->isFree(), "Error");
+    assert(!((FreeChunk*)this)->is_free(), "Error");
     return (_next & displaced_mark) != 0;
   }
-  inline void clearNext()        {
+  inline void clear_next()        {
     _next = 0;
-    assert(!((FreeChunk*)this)->isFree(), "Error");
+    assert(!((FreeChunk*)this)->is_free(), "Error");
   }
   debug_only(void *next_addr() { return (void *) &_next; })
 };
@@ -170,7 +170,7 @@ class PromotionInfo VALUE_OBJ_CLASS_SPEC {
   void track(PromotedObject* trackOop);      // keep track of a promoted oop
   // The following variant must be used when trackOop is not fully
   // initialized and has a NULL klass:
-  void track(PromotedObject* trackOop, klassOop klassOfOop); // keep track of a promoted oop
+  void track(PromotedObject* trackOop, Klass* klassOfOop); // keep track of a promoted oop
   void setSpace(CompactibleFreeListSpace* sp) { _space = sp; }
   CompactibleFreeListSpace* space() const     { return _space; }
   markOop nextDisplacedHeader(); // get next header & forward spool pointer

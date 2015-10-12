@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,6 +21,11 @@
  * questions.
  */
 
+//
+// SunJSSE does not support dynamic system properties, no way to re-use
+// system properties in samevm/agentvm mode.
+//
+
 /**
  * @test
  * @bug 6840752
@@ -28,11 +33,14 @@
  * @library ../pkcs11
  * @library ../pkcs11/ec
  * @library ../pkcs11/sslecc
+ * @library ../../../java/security/testlibrary
  * @compile -XDignore.symbol.file TestEC.java
- * @run main TestEC
+ * @run main/othervm TestEC
  */
 
+import java.security.NoSuchProviderException;
 import java.security.Provider;
+import java.security.Security;
 
 /*
  * Leverage the collection of EC tests used by PKCS11
@@ -51,7 +59,21 @@ import java.security.Provider;
 public class TestEC {
 
     public static void main(String[] args) throws Exception {
-        Provider p = new sun.security.ec.SunEC();
+        ProvidersSnapshot snapshot = ProvidersSnapshot.create();
+        try {
+            main0(args);
+        } finally {
+            snapshot.restore();
+        }
+    }
+
+    public static void main0(String[] args) throws Exception {
+        Provider p = Security.getProvider("SunEC");
+
+        if (p == null) {
+            throw new NoSuchProviderException("Can't get SunEC provider");
+        }
+
         System.out.println("Running tests with " + p.getName() +
             " provider...\n");
         long start = System.currentTimeMillis();
@@ -67,6 +89,11 @@ public class TestEC {
         new TestECGenSpec().main(p);
         new ReadPKCS12().main(p);
         new ReadCertificates().main(p);
+
+        // ClientJSSEServerJSSE fails on Solaris 11 when both SunEC and
+        // SunPKCS11-Solaris providers are enabled.
+        // Workaround:
+        // Security.removeProvider("SunPKCS11-Solaris");
         new ClientJSSEServerJSSE().main(p);
 
         long stop = System.currentTimeMillis();

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,9 +42,10 @@ import org.ietf.jgss.Oid;
 import com.sun.security.jgss.ExtendedGSSContext;
 import com.sun.security.jgss.InquireType;
 import com.sun.security.jgss.AuthorizationDataEntry;
+import com.sun.security.jgss.ExtendedGSSCredential;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import javax.security.auth.kerberos.KeyTab;
+import java.security.Principal;
 
 /**
  * Context of a JGSS subject, encapsulating Subject and GSSContext.
@@ -76,7 +77,6 @@ public class Context {
 
     private Subject s;
     private ExtendedGSSContext x;
-    private boolean f;      // context established?
     private String name;
     private GSSCredential cred;     // see static method delegated().
 
@@ -91,8 +91,31 @@ public class Context {
     public Context delegated() throws Exception {
         Context out = new Context();
         out.s = s;
-        out.cred = x.getDelegCred();
+        try {
+            out.cred = Subject.doAs(s, new PrivilegedExceptionAction<GSSCredential>() {
+                @Override
+                public GSSCredential run() throws Exception {
+                    GSSCredential cred = x.getDelegCred();
+                    if (cred == null && x.getCredDelegState() ||
+                            cred != null && !x.getCredDelegState()) {
+                        throw new Exception("getCredDelegState not match");
+                    }
+                    return cred;
+                }
+            });
+        } catch (PrivilegedActionException pae) {
+            throw pae.getException();
+        }
         out.name = name + " as " + out.cred.getName().toString();
+        return out;
+    }
+
+    /**
+     * No JAAS login at all, can be used to test JGSS without JAAS
+     */
+    public static Context fromThinAir() throws Exception {
+        Context out = new Context();
+        out.s = new Subject();
         return out;
     }
 
@@ -108,19 +131,24 @@ public class Context {
         return out;
     }
 
+    /**
+     * Logins with username/password as a new Subject
+     */
     public static Context fromUserPass(
             String user, char[] pass, boolean storeKey) throws Exception {
-        return fromUserPass(null, user, pass, storeKey);
+        return fromUserPass(new Subject(), user, pass, storeKey);
     }
+
     /**
-     * Logins with a username and a password, using Krb5LoginModule directly
-     * @param storeKey true if key should be saved, used on acceptor side
+     * Logins with username/password as an existing Subject. The
+     * same subject can be used multiple times to simulate multiple logins.
+     * @param s existing subject
      */
     public static Context fromUserPass(Subject s,
             String user, char[] pass, boolean storeKey) throws Exception {
         Context out = new Context();
         out.name = user;
-        out.s = s == null ? new Subject() : s;
+        out.s = s;
         Krb5LoginModule krb5 = new Krb5LoginModule();
         Map<String, String> map = new HashMap<>();
         Map<String, Object> shared = new HashMap<>();
@@ -147,17 +175,27 @@ public class Context {
     }
 
     /**
-     * Logins with a username and a keytab, using Krb5LoginModule directly
-     * @param storeKey true if key should be saved, used on acceptor side
+     * Logins with username/keytab as an existing Subject. The
+     * same subject can be used multiple times to simulate multiple logins.
+     * @param s existing subject
      */
-    public static Context fromUserKtab(String user, String ktab, boolean storeKey)
-            throws Exception {
+    public static Context fromUserKtab(
+            String user, String ktab, boolean storeKey) throws Exception {
+        return fromUserKtab(new Subject(), user, ktab, storeKey);
+    }
+
+    /**
+     * Logins with username/keytab as a new subject,
+     */
+    public static Context fromUserKtab(Subject s,
+            String user, String ktab, boolean storeKey) throws Exception {
         Context out = new Context();
         out.name = user;
-        out.s = new Subject();
+        out.s = s;
         Krb5LoginModule krb5 = new Krb5LoginModule();
         Map<String, String> map = new HashMap<>();
 
+        map.put("isInitiator", "false");
         map.put("doNotPrompt", "true");
         map.put("useTicketCache", "false");
         map.put("useKeyTab", "true");
@@ -194,7 +232,6 @@ public class Context {
                 return null;
             }
         }, null);
-        f = false;
     }
 
     /**
@@ -203,32 +240,37 @@ public class Context {
      * @throws java.lang.Exception
      */
     public void startAsServer(final Oid mech) throws Exception {
-        startAsServer(null, mech);
+        startAsServer(null, mech, false);
     }
 
+    public void startAsServer(final String name, final Oid mech) throws Exception {
+        startAsServer(name, mech, false);
+    }
     /**
      * Starts as a server with the specified service name
      * @param name the service name
      * @param mech GSS mech
      * @throws java.lang.Exception
      */
-    public void startAsServer(final String name, final Oid mech) throws Exception {
+    public void startAsServer(final String name, final Oid mech, final boolean asInitiator) throws Exception {
         doAs(new Action() {
             @Override
             public byte[] run(Context me, byte[] dummy) throws Exception {
                 GSSManager m = GSSManager.getInstance();
-                me.x = (ExtendedGSSContext)m.createContext(m.createCredential(
+                me.cred = m.createCredential(
                         name == null ? null :
                           (name.indexOf('@') < 0 ?
                             m.createName(name, null) :
                             m.createName(name, GSSName.NT_HOSTBASED_SERVICE)),
                         GSSCredential.INDEFINITE_LIFETIME,
                         mech,
-                        GSSCredential.ACCEPT_ONLY));
+                        asInitiator?
+                                GSSCredential.INITIATE_AND_ACCEPT:
+                                GSSCredential.ACCEPT_ONLY);
+                me.x = (ExtendedGSSContext)m.createContext(me.cred);
                 return null;
             }
         }, null);
-        f = false;
     }
 
     /**
@@ -253,6 +295,13 @@ public class Context {
      */
     public Subject s() {
         return s;
+    }
+
+    /**
+     * Returns the cred inside, if there is one
+     */
+    public GSSCredential cred() {
+        return cred;
     }
 
     /**
@@ -323,27 +372,38 @@ public class Context {
         } catch (Exception e) {
             ;// Don't care
         }
-        System.out.println("====== Private Credentials Set ======");
-        for (Object o : s.getPrivateCredentials()) {
-            System.out.println("    " + o.getClass());
-            if (o instanceof KerberosTicket) {
-                KerberosTicket kt = (KerberosTicket) o;
-                System.out.println("        " + kt.getServer() + " for " + kt.getClient());
-            } else if (o instanceof KerberosKey) {
-                KerberosKey kk = (KerberosKey) o;
-                System.out.print("        " + kk.getKeyType() + " " + kk.getVersionNumber() + " " + kk.getAlgorithm() + " ");
-                for (byte b : kk.getEncoded()) {
-                    System.out.printf("%02X", b & 0xff);
-                }
-                System.out.println();
-            } else if (o instanceof Map) {
-                Map map = (Map) o;
-                for (Object k : map.keySet()) {
-                    System.out.println("        " + k + ": " + map.get(k));
-                }
-            } else {
+        if (s != null) {
+            System.out.println("====== START SUBJECT CONTENT =====");
+            for (Principal p: s.getPrincipals()) {
+                System.out.println("    Principal: " + p);
+            }
+            for (Object o : s.getPublicCredentials()) {
+                System.out.println("    " + o.getClass());
                 System.out.println("        " + o);
             }
+            System.out.println("====== Private Credentials Set ======");
+            for (Object o : s.getPrivateCredentials()) {
+                System.out.println("    " + o.getClass());
+                if (o instanceof KerberosTicket) {
+                    KerberosTicket kt = (KerberosTicket) o;
+                    System.out.println("        " + kt.getServer() + " for " + kt.getClient());
+                } else if (o instanceof KerberosKey) {
+                    KerberosKey kk = (KerberosKey) o;
+                    System.out.print("        " + kk.getKeyType() + " " + kk.getVersionNumber() + " " + kk.getAlgorithm() + " ");
+                    for (byte b : kk.getEncoded()) {
+                        System.out.printf("%02X", b & 0xff);
+                    }
+                    System.out.println();
+                } else if (o instanceof Map) {
+                    Map map = (Map) o;
+                    for (Object k : map.keySet()) {
+                        System.out.println("        " + k + ": " + map.get(k));
+                    }
+                } else {
+                    System.out.println("        " + o);
+                }
+            }
+            System.out.println("====== END SUBJECT CONTENT =====");
         }
         if (x != null && x instanceof ExtendedGSSContext) {
             if (x.isEstablished()) {
@@ -375,6 +435,89 @@ public class Context {
         }
     }
 
+    public byte[] wrap(byte[] t, final boolean privacy)
+            throws Exception {
+        return doAs(new Action() {
+            @Override
+            public byte[] run(Context me, byte[] input) throws Exception {
+                System.out.printf("wrap %s privacy from %s: ", privacy?"with":"without", me.name);
+                MessageProp p1 = new MessageProp(0, privacy);
+                byte[] out;
+                if (usingStream) {
+                    ByteArrayOutputStream os = new ByteArrayOutputStream();
+                    me.x.wrap(new ByteArrayInputStream(input), os, p1);
+                    out = os.toByteArray();
+                } else {
+                    out = me.x.wrap(input, 0, input.length, p1);
+                }
+                System.out.println(printProp(p1));
+                return out;
+            }
+        }, t);
+    }
+
+    public byte[] unwrap(byte[] t, final boolean privacy)
+            throws Exception {
+        return doAs(new Action() {
+            @Override
+            public byte[] run(Context me, byte[] input) throws Exception {
+                System.out.printf("unwrap %s privacy from %s: ", privacy?"with":"without", me.name);
+                MessageProp p1 = new MessageProp(0, privacy);
+                byte[] bytes;
+                if (usingStream) {
+                    ByteArrayOutputStream os = new ByteArrayOutputStream();
+                    me.x.unwrap(new ByteArrayInputStream(input), os, p1);
+                    bytes = os.toByteArray();
+                } else {
+                    bytes = me.x.unwrap(input, 0, input.length, p1);
+                }
+                System.out.println(printProp(p1));
+                return bytes;
+            }
+        }, t);
+    }
+
+    public byte[] getMic(byte[] t) throws Exception {
+        return doAs(new Action() {
+            @Override
+            public byte[] run(Context me, byte[] input) throws Exception {
+                MessageProp p1 = new MessageProp(0, true);
+                byte[] bytes;
+                p1 = new MessageProp(0, true);
+                System.out.printf("getMic from %s: ", me.name);
+                if (usingStream) {
+                    ByteArrayOutputStream os = new ByteArrayOutputStream();
+                    me.x.getMIC(new ByteArrayInputStream(input), os, p1);
+                    bytes = os.toByteArray();
+                } else {
+                    bytes = me.x.getMIC(input, 0, input.length, p1);
+                }
+                System.out.println(printProp(p1));
+                return bytes;
+            }
+        }, t);
+    }
+
+    public void verifyMic(byte[] t, final byte[] msg) throws Exception {
+        doAs(new Action() {
+            @Override
+            public byte[] run(Context me, byte[] input) throws Exception {
+                MessageProp p1 = new MessageProp(0, true);
+                System.out.printf("verifyMic from %s: ", me.name);
+                if (usingStream) {
+                    me.x.verifyMIC(new ByteArrayInputStream(input),
+                            new ByteArrayInputStream(msg), p1);
+                } else {
+                    me.x.verifyMIC(input, 0, input.length,
+                            msg, 0, msg.length,
+                            p1);
+                }
+                System.out.println(printProp(p1));
+                return null;
+            }
+        }, t);
+    }
+
     /**
      * Transmits a message from one Context to another. The sender wraps the
      * message and sends it to the receiver. The receiver unwraps it, creates
@@ -390,73 +533,13 @@ public class Context {
         final byte[] messageBytes = message.getBytes();
         System.out.printf("-------------------- TRANSMIT from %s to %s------------------------\n",
                 s1.name, s2.name);
-
-        byte[] t = s1.doAs(new Action() {
-            @Override
-            public byte[] run(Context me, byte[] dummy) throws Exception {
-                System.out.println("wrap");
-                MessageProp p1 = new MessageProp(0, true);
-                byte[] out;
-                if (usingStream) {
-                    ByteArrayOutputStream os = new ByteArrayOutputStream();
-                    me.x.wrap(new ByteArrayInputStream(messageBytes), os, p1);
-                    out = os.toByteArray();
-                } else {
-                    out = me.x.wrap(messageBytes, 0, messageBytes.length, p1);
-                }
-                System.out.println(printProp(p1));
-                return out;
-            }
-        }, null);
-
-        t = s2.doAs(new Action() {
-            @Override
-            public byte[] run(Context me, byte[] input) throws Exception {
-                MessageProp p1 = new MessageProp(0, true);
-                byte[] bytes;
-                if (usingStream) {
-                    ByteArrayOutputStream os = new ByteArrayOutputStream();
-                    me.x.unwrap(new ByteArrayInputStream(input), os, p1);
-                    bytes = os.toByteArray();
-                } else {
-                    bytes = me.x.unwrap(input, 0, input.length, p1);
-                }
-                if (!Arrays.equals(messageBytes, bytes))
-                    throw new Exception("wrap/unwrap mismatch");
-                System.out.println("unwrap");
-                System.out.println(printProp(p1));
-                p1 = new MessageProp(0, true);
-                System.out.println("getMIC");
-                if (usingStream) {
-                    ByteArrayOutputStream os = new ByteArrayOutputStream();
-                    me.x.getMIC(new ByteArrayInputStream(messageBytes), os, p1);
-                    bytes = os.toByteArray();
-                } else {
-                    bytes = me.x.getMIC(messageBytes, 0, messageBytes.length, p1);
-                }
-                System.out.println(printProp(p1));
-                return bytes;
-            }
-        }, t);
-
-        // Re-unwrap should make p2.isDuplicateToken() returns true
-        s1.doAs(new Action() {
-            @Override
-            public byte[] run(Context me, byte[] input) throws Exception {
-                MessageProp p1 = new MessageProp(0, true);
-                System.out.println("verifyMIC");
-                if (usingStream) {
-                    me.x.verifyMIC(new ByteArrayInputStream(input),
-                            new ByteArrayInputStream(messageBytes), p1);
-                } else {
-                    me.x.verifyMIC(input, 0, input.length,
-                            messageBytes, 0, messageBytes.length,
-                            p1);
-                }
-                System.out.println(printProp(p1));
-                return null;
-            }
-        }, t);
+        byte[] wrapped = s1.wrap(messageBytes, true);
+        byte[] unwrapped = s2.unwrap(wrapped, true);
+        if (!Arrays.equals(messageBytes, unwrapped)) {
+            throw new Exception("wrap/unwrap mismatch");
+        }
+        byte[] mic = s2.getMic(unwrapped);
+        s1.verifyMic(mic, messageBytes);
     }
 
     /**
@@ -479,6 +562,53 @@ public class Context {
         return sb.toString();
     }
 
+    public Context impersonate(final String someone) throws Exception {
+        try {
+            GSSCredential creds = Subject.doAs(s, new PrivilegedExceptionAction<GSSCredential>() {
+                @Override
+                public GSSCredential run() throws Exception {
+                    GSSManager m = GSSManager.getInstance();
+                    GSSName other = m.createName(someone, GSSName.NT_USER_NAME);
+                    if (Context.this.cred == null) {
+                        Context.this.cred = m.createCredential(GSSCredential.INITIATE_ONLY);
+                    }
+                    return ((ExtendedGSSCredential)Context.this.cred).impersonate(other);
+                }
+            });
+            Context out = new Context();
+            out.s = s;
+            out.cred = creds;
+            out.name = name + " as " + out.cred.getName().toString();
+            return out;
+        } catch (PrivilegedActionException pae) {
+            throw pae.getException();
+        }
+    }
+
+    public byte[] take(final byte[] in) throws Exception {
+        return doAs(new Action() {
+            @Override
+            public byte[] run(Context me, byte[] input) throws Exception {
+                if (me.x.isEstablished()) {
+                    System.out.println(name + " side established");
+                    if (input != null) {
+                        throw new Exception("Context established but " +
+                                "still receive token at " + name);
+                    }
+                    return null;
+                } else {
+                    if (me.x.isInitiator()) {
+                        System.out.println(name + " call initSecContext");
+                        return me.x.initSecContext(input, 0, input.length);
+                    } else {
+                        System.out.println(name + " call acceptSecContext");
+                        return me.x.acceptSecContext(input, 0, input.length);
+                    }
+                }
+            }
+        }, in);
+    }
+
     /**
      * Handshake (security context establishment process) between two Contexts
      * @param c the initiator
@@ -487,54 +617,10 @@ public class Context {
      */
     static public void handshake(final Context c, final Context s) throws Exception {
         byte[] t = new byte[0];
-        while (!c.f || !s.f) {
-            t = c.doAs(new Action() {
-                @Override
-                public byte[] run(Context me, byte[] input) throws Exception {
-                    if (me.x.isEstablished()) {
-                        me.f = true;
-                        System.out.println(c.name + " side established");
-                        if (input != null) {
-                            throw new Exception("Context established but " +
-                                    "still receive token at " + c.name);
-                        }
-                        return null;
-                    } else {
-                        System.out.println(c.name + " call initSecContext");
-                        if (usingStream) {
-                            ByteArrayOutputStream os = new ByteArrayOutputStream();
-                            me.x.initSecContext(new ByteArrayInputStream(input), os);
-                            return os.size() == 0 ? null : os.toByteArray();
-                        } else {
-                            return me.x.initSecContext(input, 0, input.length);
-                        }
-                    }
-                }
-            }, t);
-
-            t = s.doAs(new Action() {
-                @Override
-                public byte[] run(Context me, byte[] input) throws Exception {
-                    if (me.x.isEstablished()) {
-                        me.f = true;
-                        System.out.println(s.name + " side established");
-                        if (input != null) {
-                            throw new Exception("Context established but " +
-                                    "still receive token at " + s.name);
-                        }
-                        return null;
-                    } else {
-                        System.out.println(s.name + " called acceptSecContext");
-                        if (usingStream) {
-                            ByteArrayOutputStream os = new ByteArrayOutputStream();
-                            me.x.acceptSecContext(new ByteArrayInputStream(input), os);
-                            return os.size() == 0 ? null : os.toByteArray();
-                        } else {
-                            return me.x.acceptSecContext(input, 0, input.length);
-                        }
-                    }
-                }
-            }, t);
+        while (true) {
+            if (t != null || !c.x.isEstablished()) t = c.take(t);
+            if (t != null || !s.x.isEstablished()) t = s.take(t);
+            if (c.x.isEstablished() && s.x.isEstablished()) break;
         }
     }
 }

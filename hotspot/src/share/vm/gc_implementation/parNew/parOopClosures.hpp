@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,16 +26,17 @@
 #define SHARE_VM_GC_IMPLEMENTATION_PARNEW_PAROOPCLOSURES_HPP
 
 #include "memory/genOopClosures.hpp"
+#include "memory/padded.hpp"
 
 // Closures for ParNewGeneration
 
 class ParScanThreadState;
 class ParNewGeneration;
 typedef Padded<OopTaskQueue> ObjToScanQueue;
-typedef GenericTaskQueueSet<ObjToScanQueue> ObjToScanQueueSet;
+typedef GenericTaskQueueSet<ObjToScanQueue, mtGC> ObjToScanQueueSet;
 class ParallelTaskTerminator;
 
-class ParScanClosure: public OopsInGenClosure {
+class ParScanClosure: public OopsInKlassOrGenClosure {
  protected:
   ParScanThreadState* _par_scan_state;
   ParNewGeneration*   _g;

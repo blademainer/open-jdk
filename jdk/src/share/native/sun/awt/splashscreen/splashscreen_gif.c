@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,9 @@
 #include "splashscreen_impl.h"
 #include "splashscreen_gfx.h"
 
-#include "../giflib/gif_lib.h"
+#include <gif_lib.h>
+
+#include "sizecalc.h"
 
 #define GIF_TRANSPARENT     0x01
 #define GIF_USER_INPUT      0x02
@@ -120,7 +122,7 @@ SplashDecodeGif(Splash * splash, GifFileType * gif)
     splash->height = gif->SHeight;
     splash->frameCount = gif->ImageCount;
     splash->frames = (SplashImage *)
-        malloc(sizeof(SplashImage) * gif->ImageCount);
+        SAFE_SIZE_ARRAY_ALLOC(malloc, sizeof(SplashImage), gif->ImageCount);
     if (!splash->frames) {
       free(pBitmapBits);
       free(pOldBitmapBits);
@@ -254,7 +256,7 @@ SplashDecodeGif(Splash * splash, GifFileType * gif)
         // now dispose of the previous frame correctly
 
         splash->frames[imageIndex].bitmapBits =
-            (rgbquad_t *) malloc(bufferSize);
+            (rgbquad_t *) malloc(bufferSize); // bufferSize is safe (checked above)
         if (!splash->frames[imageIndex].bitmapBits) {
             free(pBitmapBits);
             free(pOldBitmapBits);

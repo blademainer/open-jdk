@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -61,6 +61,7 @@ import java.rmi.server.RemoteRef;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.security.PrivilegedExceptionAction;
+import java.security.PrivilegedActionException;
 import java.security.ProtectionDomain;
 import java.util.Arrays;
 import java.util.Collections;
@@ -103,6 +104,7 @@ import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import javax.rmi.ssl.SslRMIClientSocketFactory;
 import javax.security.auth.Subject;
+import sun.reflect.misc.ReflectUtil;
 import sun.rmi.server.UnicastRef2;
 import sun.rmi.transport.LiveRef;
 
@@ -127,7 +129,6 @@ public class RMIConnector implements JMXConnector, Serializable, JMXAddressable 
             Map<String, ?> environment) {
         if (rmiServer == null && address == null) throw new
                 IllegalArgumentException("rmiServer and jmxServiceURL both null");
-
         initTransients();
 
         this.rmiServer = rmiServer;
@@ -238,10 +239,21 @@ public class RMIConnector implements JMXConnector, Serializable, JMXAddressable 
     //--------------------------------------------------------------------
     // implements JMXConnector interface
     //--------------------------------------------------------------------
+
+    /**
+     * @throws IOException if the connection could not be made because of a
+     *   communication problem, or in the case of the {@code iiop} protocol,
+     *   that RMI/IIOP is not supported
+     */
     public void connect() throws IOException {
         connect(null);
     }
 
+    /**
+     * @throws IOException if the connection could not be made because of a
+     *   communication problem, or in the case of the {@code iiop} protocol,
+     *   that RMI/IIOP is not supported
+     */
     public synchronized void connect(Map<String,?> environment)
     throws IOException {
         final boolean tracing = logger.traceOn();
@@ -277,9 +289,9 @@ public class RMIConnector implements JMXConnector, Serializable, JMXAddressable 
             // Check for secure RMIServer stub if the corresponding
             // client-side environment property is set to "true".
             //
-            boolean checkStub = EnvHelp.computeBooleanFromString(
-                    usemap,
-                    "jmx.remote.x.check.stub",false);
+            String stringBoolean =  (String) usemap.get("jmx.remote.x.check.stub");
+            boolean checkStub = EnvHelp.computeBooleanFromString(stringBoolean);
+
             if (checkStub) checkStub(stub, rmiServerImplStubClass);
 
             // Connect IIOP Stub if needed.
@@ -393,14 +405,7 @@ public class RMIConnector implements JMXConnector, Serializable, JMXAddressable 
             throw new IOException("Not connected");
         }
 
-        MBeanServerConnection rmbsc = rmbscMap.get(delegationSubject);
-        if (rmbsc != null) {
-            return rmbsc;
-        }
-
-        rmbsc = new RemoteMBeanServerConnection(delegationSubject);
-        rmbscMap.put(delegationSubject, rmbsc);
-        return rmbsc;
+        return getConnectionWithSubject(delegationSubject);
     }
 
     public void
@@ -1683,17 +1688,17 @@ public class RMIConnector implements JMXConnector, Serializable, JMXAddressable 
      * this method will attempt to connect the stub to an ORB as
      * follows:
      * <ul>
-     * <p>This method looks in the provided <var>environment</var> for
+     * <li>This method looks in the provided <var>environment</var> for
      * the "java.naming.corba.orb" property. If it is found, the
      * referenced object (an {@link org.omg.CORBA.ORB ORB}) is used to
      * connect the stub. Otherwise, a new org.omg.CORBA.ORB is created
      * by calling {@link
      * org.omg.CORBA.ORB#init(String[], Properties)
-     * org.omg.CORBA.ORB.init((String[])null,(Properties)null)}
-     * <p>The new created ORB is kept in a static
+     * org.omg.CORBA.ORB.init((String[])null,(Properties)null)}</li>
+     * <li>The new created ORB is kept in a static
      * {@link WeakReference} and can be reused for connecting other
      * stubs. However, no reference is ever kept on the ORB provided
-     * in the <var>environment</var> map, if any.
+     * in the <var>environment</var> map, if any.</li>
      * </ul>
      * @param rmiServer A RMI Server Stub.
      * @param environment An environment map, possibly containing an ORB.
@@ -1819,7 +1824,7 @@ public class RMIConnector implements JMXConnector, Serializable, JMXAddressable 
 
     // Initialization of transient variables.
     private void initTransients() {
-        rmbscMap = new WeakHashMap<Subject, MBeanServerConnection>();
+        rmbscMap = new WeakHashMap<Subject, WeakReference<MBeanServerConnection>>();
         connected = false;
         terminated = false;
 
@@ -1991,10 +1996,31 @@ public class RMIConnector implements JMXConnector, Serializable, JMXAddressable 
         @Override
         protected Class<?> resolveClass(ObjectStreamClass classDesc)
                 throws IOException, ClassNotFoundException {
-            return Class.forName(classDesc.getName(), false, loader);
+            String name = classDesc.getName();
+            ReflectUtil.checkPackageAccess(name);
+            return Class.forName(name, false, loader);
         }
 
         private final ClassLoader loader;
+    }
+
+    private MBeanServerConnection getConnectionWithSubject(Subject delegationSubject) {
+        MBeanServerConnection conn = null;
+
+        if (delegationSubject == null) {
+            if (nullSubjectConnRef == null
+                    || (conn = nullSubjectConnRef.get()) == null) {
+                conn = new RemoteMBeanServerConnection(null);
+                nullSubjectConnRef = new WeakReference(conn);
+            }
+        } else {
+            WeakReference<MBeanServerConnection> wr = rmbscMap.get(delegationSubject);
+            if (wr == null || (conn = wr.get()) == null) {
+                conn = new RemoteMBeanServerConnection(delegationSubject);
+                rmbscMap.put(delegationSubject, new WeakReference(conn));
+            }
+        }
+        return conn;
     }
 
     /*
@@ -2356,13 +2382,21 @@ public class RMIConnector implements JMXConnector, Serializable, JMXAddressable 
         }
     }
 
-    private static RMIConnection shadowIiopStub(Object stub)
+  private static RMIConnection shadowIiopStub(Object stub)
     throws InstantiationException, IllegalAccessException {
-        Object proxyStub = proxyStubClass.newInstance();
+        Object proxyStub = null;
+        try {
+            proxyStub = AccessController.doPrivileged(new PrivilegedExceptionAction<Object>() {
+                public Object run() throws Exception {
+                    return proxyStubClass.newInstance();
+                }
+            });
+        } catch (PrivilegedActionException e) {
+            throw new InternalError();
+        }
         IIOPHelper.setDelegate(proxyStub, IIOPHelper.getDelegate(stub));
         return (RMIConnection) proxyStub;
     }
-
     private static RMIConnection getConnection(RMIServer server,
             Object credentials,
             boolean checkStub)
@@ -2537,7 +2571,8 @@ public class RMIConnector implements JMXConnector, Serializable, JMXAddressable 
 
     private transient long clientNotifSeqNo = 0;
 
-    private transient WeakHashMap<Subject, MBeanServerConnection> rmbscMap;
+    private transient WeakHashMap<Subject, WeakReference<MBeanServerConnection>> rmbscMap;
+    private transient WeakReference<MBeanServerConnection> nullSubjectConnRef = null;
 
     private transient RMINotifClient rmiNotifClient;
     // = new RMINotifClient(new Integer(0));

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@ import sun.jvm.hotspot.runtime.*;
 import sun.jvm.hotspot.types.*;
 import sun.jvm.hotspot.utilities.*;
 
-public class ConstMethod extends Oop {
+public class ConstMethod extends VMObject {
   static {
     VM.registerVMInitializedObserver(new Observer() {
         public void update(Observable o, Object data) {
@@ -47,73 +47,98 @@ public class ConstMethod extends Oop {
   private static int HAS_LINENUMBER_TABLE;
   private static int HAS_CHECKED_EXCEPTIONS;
   private static int HAS_LOCALVARIABLE_TABLE;
+  private static int HAS_EXCEPTION_TABLE;
+  private static int HAS_GENERIC_SIGNATURE;
+  private static int HAS_METHOD_ANNOTATIONS;
+  private static int HAS_PARAMETER_ANNOTATIONS;
+  private static int HAS_METHOD_PARAMETERS;
+  private static int HAS_DEFAULT_ANNOTATIONS;
+  private static int HAS_TYPE_ANNOTATIONS;
+
+  private static final int sizeofShort = 2;
 
   private static synchronized void initialize(TypeDataBase db) throws WrongTypeException {
-    Type type                  = db.lookupType("constMethodOopDesc");
-    // Backpointer to non-const methodOop
-    method                     = new OopField(type.getOopField("_method"), 0);
-    // The exception handler table. 4-tuples of ints [start_pc, end_pc,
-    // handler_pc, catch_type index] For methods with no exceptions the
-    // table is pointing to Universe::the_empty_int_array
-    exceptionTable             = new OopField(type.getOopField("_exception_table"), 0);
+    Type type                  = db.lookupType("ConstMethod");
+    constants                  = new MetadataField(type.getAddressField("_constants"), 0);
     constMethodSize            = new CIntField(type.getCIntegerField("_constMethod_size"), 0);
-    flags                      = new ByteField(type.getJByteField("_flags"), 0);
+    flags                      = new CIntField(type.getCIntegerField("_flags"), 0);
 
     // enum constants for flags
-    HAS_LINENUMBER_TABLE      = db.lookupIntConstant("constMethodOopDesc::_has_linenumber_table").intValue();
-    HAS_CHECKED_EXCEPTIONS     = db.lookupIntConstant("constMethodOopDesc::_has_checked_exceptions").intValue();
-    HAS_LOCALVARIABLE_TABLE   = db.lookupIntConstant("constMethodOopDesc::_has_localvariable_table").intValue();
+    HAS_LINENUMBER_TABLE      = db.lookupIntConstant("ConstMethod::_has_linenumber_table").intValue();
+    HAS_CHECKED_EXCEPTIONS     = db.lookupIntConstant("ConstMethod::_has_checked_exceptions").intValue();
+    HAS_LOCALVARIABLE_TABLE   = db.lookupIntConstant("ConstMethod::_has_localvariable_table").intValue();
+    HAS_EXCEPTION_TABLE       = db.lookupIntConstant("ConstMethod::_has_exception_table").intValue();
+    HAS_GENERIC_SIGNATURE     = db.lookupIntConstant("ConstMethod::_has_generic_signature").intValue();
+    HAS_METHOD_ANNOTATIONS    = db.lookupIntConstant("ConstMethod::_has_method_annotations").intValue();
+    HAS_PARAMETER_ANNOTATIONS = db.lookupIntConstant("ConstMethod::_has_parameter_annotations").intValue();
+    HAS_METHOD_PARAMETERS = db.lookupIntConstant("ConstMethod::_has_method_parameters").intValue();
+    HAS_DEFAULT_ANNOTATIONS   = db.lookupIntConstant("ConstMethod::_has_default_annotations").intValue();
+    HAS_TYPE_ANNOTATIONS      = db.lookupIntConstant("ConstMethod::_has_type_annotations").intValue();
 
-    // Size of Java bytecodes allocated immediately after constMethodOop.
+    // Size of Java bytecodes allocated immediately after ConstMethod*.
     codeSize                   = new CIntField(type.getCIntegerField("_code_size"), 0);
     nameIndex                  = new CIntField(type.getCIntegerField("_name_index"), 0);
     signatureIndex             = new CIntField(type.getCIntegerField("_signature_index"), 0);
-    genericSignatureIndex      = new CIntField(type.getCIntegerField("_generic_signature_index"),0);
+    idnum                      = new CIntField(type.getCIntegerField("_method_idnum"), 0);
+    maxStack                   = new CIntField(type.getCIntegerField("_max_stack"), 0);
+    maxLocals                  = new CIntField(type.getCIntegerField("_max_locals"), 0);
+    sizeOfParameters           = new CIntField(type.getCIntegerField("_size_of_parameters"), 0);
 
     // start of byte code
     bytecodeOffset = type.getSize();
+
+    type                       = db.lookupType("MethodParametersElement");
+    methodParametersElementSize = type.getSize();
 
     type                       = db.lookupType("CheckedExceptionElement");
     checkedExceptionElementSize = type.getSize();
 
     type                       = db.lookupType("LocalVariableTableElement");
     localVariableTableElementSize = type.getSize();
+
+    type                       = db.lookupType("ExceptionTableElement");
+    exceptionTableElementSize = type.getSize();
   }
 
-  ConstMethod(OopHandle handle, ObjectHeap heap) {
-    super(handle, heap);
+  public ConstMethod(Address addr) {
+    super(addr);
   }
 
   // Fields
-  private static OopField  method;
-  private static OopField  exceptionTable;
+  private static MetadataField constants;
   private static CIntField constMethodSize;
-  private static ByteField flags;
+  private static CIntField flags;
   private static CIntField codeSize;
   private static CIntField nameIndex;
   private static CIntField signatureIndex;
-  private static CIntField genericSignatureIndex;
+  private static CIntField idnum;
+  private static CIntField maxStack;
+  private static CIntField maxLocals;
+  private static CIntField sizeOfParameters;
 
   // start of bytecode
   private static long bytecodeOffset;
-
+  private static long methodParametersElementSize;
   private static long checkedExceptionElementSize;
   private static long localVariableTableElementSize;
+  private static long exceptionTableElementSize;
 
-  // Accessors for declared fields
   public Method getMethod() {
-    return (Method) method.getValue(this);
+    InstanceKlass ik = (InstanceKlass)getConstants().getPoolHolder();
+    MethodArray methods = ik.getMethods();
+    return methods.at((int)getIdNum());
   }
 
-  public TypeArray getExceptionTable() {
-    return (TypeArray) exceptionTable.getValue(this);
+  // Accessors for declared fields
+  public ConstantPool getConstants() {
+    return (ConstantPool) constants.getValue(this);
   }
 
   public long getConstMethodSize() {
     return constMethodSize.getValue(this);
   }
 
-  public byte getFlags() {
+  public long getFlags() {
     return flags.getValue(this);
   }
 
@@ -130,7 +155,27 @@ public class ConstMethod extends Oop {
   }
 
   public long getGenericSignatureIndex() {
-    return genericSignatureIndex.getValue(this);
+    if (hasGenericSignature()) {
+      return getAddress().getCIntegerAt(offsetOfGenericSignatureIndex(), 2, true);
+    } else {
+      return 0;
+    }
+  }
+
+  public long getIdNum() {
+    return idnum.getValue(this);
+  }
+
+  public long getMaxStack() {
+    return maxStack.getValue(this);
+  }
+
+  public long getMaxLocals() {
+    return maxLocals.getValue(this);
+  }
+
+  public long getSizeOfParameters() {
+    return sizeOfParameters.getValue(this);
   }
 
   public Symbol getName() {
@@ -149,7 +194,7 @@ public class ConstMethod extends Oop {
 
   /** Get a bytecode or breakpoint at the given bci */
   public int getBytecodeOrBPAt(int bci) {
-    return getHandle().getJByteAt(bytecodeOffset + bci) & 0xFF;
+    return getAddress().getJByteAt(bytecodeOffset + bci) & 0xFF;
   }
 
   public byte getBytecodeByteArg(int bci) {
@@ -164,6 +209,18 @@ public class ConstMethod extends Oop {
     return (short) ((hi << 8) | lo);
   }
 
+  /** Fetches a 16-bit native ordered value from the
+      bytecode stream */
+  public short getNativeShortArg(int bci) {
+    int hi = getBytecodeOrBPAt(bci);
+    int lo = getBytecodeOrBPAt(bci + 1);
+    if (VM.getVM().isBigEndian()) {
+        return (short) ((hi << 8) | lo);
+    } else {
+        return (short) ((lo << 8) | hi);
+    }
+  }
+
   /** Fetches a 32-bit big-endian ("Java ordered") value from the
       bytecode stream */
   public int getBytecodeIntArg(int bci) {
@@ -175,38 +232,51 @@ public class ConstMethod extends Oop {
     return (b4 << 24) | (b3 << 16) | (b2 << 8) | b1;
   }
 
+  /** Fetches a 32-bit native ordered value from the
+      bytecode stream */
+  public int getNativeIntArg(int bci) {
+    int b4 = getBytecodeOrBPAt(bci);
+    int b3 = getBytecodeOrBPAt(bci + 1);
+    int b2 = getBytecodeOrBPAt(bci + 2);
+    int b1 = getBytecodeOrBPAt(bci + 3);
+
+    if (VM.getVM().isBigEndian()) {
+        return (b4 << 24) | (b3 << 16) | (b2 << 8) | b1;
+    } else {
+        return (b1 << 24) | (b2 << 16) | (b3 << 8) | b4;
+    }
+  }
+
   public byte[] getByteCode() {
      byte[] bc = new byte[ (int) getCodeSize() ];
      for( int i=0; i < bc.length; i++ )
      {
         long offs = bytecodeOffset + i;
-        bc[i] = getHandle().getJByteAt( offs );
+        bc[i] = getAddress().getJByteAt( offs );
      }
      return bc;
   }
 
-  public long getObjectSize() {
-    return getConstMethodSize() * getHeap().getOopSize();
+  public long getSize() {
+    return getConstMethodSize();
   }
 
   public void printValueOn(PrintStream tty) {
-    tty.print("ConstMethod " + getName().asString() + getSignature().asString() + "@" + getHandle());
+    tty.print("ConstMethod " + getName().asString() + getSignature().asString() + "@" + getAddress());
   }
 
-  public void iterateFields(OopVisitor visitor, boolean doVMFields) {
-    super.iterateFields(visitor, doVMFields);
-    if (doVMFields) {
-      visitor.doOop(method, true);
-      visitor.doOop(exceptionTable, true);
+  public void iterateFields(MetadataVisitor visitor) {
+    visitor.doMetadata(constants, true);
       visitor.doCInt(constMethodSize, true);
-      visitor.doByte(flags, true);
+      visitor.doCInt(flags, true);
       visitor.doCInt(codeSize, true);
       visitor.doCInt(nameIndex, true);
       visitor.doCInt(signatureIndex, true);
-      visitor.doCInt(genericSignatureIndex, true);
       visitor.doCInt(codeSize, true);
+      visitor.doCInt(maxStack, true);
+      visitor.doCInt(maxLocals, true);
+      visitor.doCInt(sizeOfParameters, true);
     }
-  }
 
   // Accessors
 
@@ -232,7 +302,7 @@ public class ConstMethod extends Oop {
       // The line numbers are a short array of 2-tuples [start_pc, line_number].
       // Not necessarily sorted and not necessarily one-to-one.
       CompressedLineNumberReadStream stream =
-        new CompressedLineNumberReadStream(getHandle(), (int) offsetOfCompressedLineNumberTable());
+        new CompressedLineNumberReadStream(getAddress(), (int) offsetOfCompressedLineNumberTable());
       while (stream.readPair()) {
         if (stream.bci() == bci) {
           // perfect match
@@ -256,7 +326,7 @@ public class ConstMethod extends Oop {
     }
     int len = getLineNumberTableLength();
     CompressedLineNumberReadStream stream =
-      new CompressedLineNumberReadStream(getHandle(), (int) offsetOfCompressedLineNumberTable());
+      new CompressedLineNumberReadStream(getAddress(), (int) offsetOfCompressedLineNumberTable());
     LineNumberTableElement[] ret = new LineNumberTableElement[len];
 
     for (int idx = 0; idx < len; idx++) {
@@ -282,8 +352,25 @@ public class ConstMethod extends Oop {
     LocalVariableTableElement[] ret = new LocalVariableTableElement[getLocalVariableTableLength()];
     long offset = offsetOfLocalVariableTable();
     for (int i = 0; i < ret.length; i++) {
-      ret[i] = new LocalVariableTableElement(getHandle(), offset);
+      ret[i] = new LocalVariableTableElement(getAddress(), offset);
       offset += localVariableTableElementSize;
+    }
+    return ret;
+  }
+
+  public boolean hasExceptionTable() {
+    return (getFlags() & HAS_EXCEPTION_TABLE) != 0;
+  }
+
+  public ExceptionTableElement[] getExceptionTable() {
+    if (Assert.ASSERTS_ENABLED) {
+      Assert.that(hasExceptionTable(), "should only be called if table is present");
+    }
+    ExceptionTableElement[] ret = new ExceptionTableElement[getExceptionTableLength()];
+    long offset = offsetOfExceptionTable();
+    for (int i = 0; i < ret.length; i++) {
+      ret[i] = new ExceptionTableElement(getAddress(), offset);
+      offset += exceptionTableElementSize;
     }
     return ret;
   }
@@ -299,10 +386,34 @@ public class ConstMethod extends Oop {
     CheckedExceptionElement[] ret = new CheckedExceptionElement[getCheckedExceptionsLength()];
     long offset = offsetOfCheckedExceptions();
     for (int i = 0; i < ret.length; i++) {
-      ret[i] = new CheckedExceptionElement(getHandle(), offset);
+      ret[i] = new CheckedExceptionElement(getAddress(), offset);
       offset += checkedExceptionElementSize;
     }
     return ret;
+  }
+
+  private boolean hasMethodParameters() {
+    return (getFlags() & HAS_METHOD_PARAMETERS) != 0;
+  }
+
+  private boolean hasGenericSignature() {
+    return (getFlags() & HAS_GENERIC_SIGNATURE) != 0;
+  }
+
+  private boolean hasMethodAnnotations() {
+    return (getFlags() & HAS_METHOD_ANNOTATIONS) != 0;
+  }
+
+  private boolean hasParameterAnnotations() {
+    return (getFlags() & HAS_PARAMETER_ANNOTATIONS) != 0;
+  }
+
+  private boolean hasDefaultAnnotations() {
+    return (getFlags() & HAS_DEFAULT_ANNOTATIONS) != 0;
+  }
+
+  private boolean hasTypeAnnotations() {
+    return (getFlags() & HAS_TYPE_ANNOTATIONS) != 0;
   }
 
 
@@ -319,23 +430,65 @@ public class ConstMethod extends Oop {
     return bytecodeOffset + getCodeSize();
   }
 
-  // Offset of start of compressed line number table (see methodOop.hpp)
+  // Offset of start of compressed line number table (see method.hpp)
   private long offsetOfCompressedLineNumberTable() {
     return offsetOfCodeEnd() + (isNative() ? 2 * VM.getVM().getAddressSize() : 0);
   }
 
-  // Offset of last short in methodOop
+  // Offset of last short in Method* before annotations, if present
   private long offsetOfLastU2Element() {
-    return getObjectSize() - 2;
+    int offset = 0;
+    if (hasMethodAnnotations()) offset++;
+    if (hasParameterAnnotations()) offset++;
+    if (hasTypeAnnotations()) offset++;
+    if (hasDefaultAnnotations()) offset++;
+    long wordSize = VM.getVM().getObjectHeap().getOopSize();
+    return (getSize() * wordSize) - (offset * wordSize) - sizeofShort;
+  }
+
+  // Offset of the generic signature index
+  private long offsetOfGenericSignatureIndex() {
+    return offsetOfLastU2Element();
+  }
+
+  private long offsetOfMethodParametersLength() {
+    if (Assert.ASSERTS_ENABLED) {
+      Assert.that(hasMethodParameters(), "should only be called if table is present");
+    }
+    return hasGenericSignature() ? offsetOfLastU2Element() - sizeofShort :
+                                   offsetOfLastU2Element();
+  }
+
+  private int getMethodParametersLength() {
+      if (hasMethodParameters())
+          return (int) getAddress().getCIntegerAt(offsetOfMethodParametersLength(), 2, true);
+      else
+          return 0;
+  }
+
+  // Offset of start of checked exceptions
+  private long offsetOfMethodParameters() {
+    long offset = offsetOfMethodParametersLength();
+    long length = getMethodParametersLength();
+    if (Assert.ASSERTS_ENABLED) {
+      Assert.that(length > 0, "should only be called if method parameter information is present");
+    }
+    offset -= length * methodParametersElementSize;
+    return offset;
   }
 
   private long offsetOfCheckedExceptionsLength() {
-    return offsetOfLastU2Element();
+    if (hasMethodParameters())
+      return offsetOfMethodParameters() - sizeofShort;
+    else {
+      return hasGenericSignature() ? offsetOfLastU2Element() - sizeofShort :
+                                     offsetOfLastU2Element();
+    }
   }
 
   private int getCheckedExceptionsLength() {
     if (hasCheckedExceptions()) {
-      return (int) getHandle().getCIntegerAt(offsetOfCheckedExceptionsLength(), 2, true);
+      return (int) getAddress().getCIntegerAt(offsetOfCheckedExceptionsLength(), 2, true);
     } else {
       return 0;
     }
@@ -356,7 +509,7 @@ public class ConstMethod extends Oop {
     int len = 0;
     if (hasLineNumberTable()) {
       CompressedLineNumberReadStream stream =
-        new CompressedLineNumberReadStream(getHandle(), (int) offsetOfCompressedLineNumberTable());
+        new CompressedLineNumberReadStream(getAddress(), (int) offsetOfCompressedLineNumberTable());
       while (stream.readPair()) {
         len += 1;
       }
@@ -366,7 +519,7 @@ public class ConstMethod extends Oop {
 
   private int getLocalVariableTableLength() {
     if (hasLocalVariableTable()) {
-      return (int) getHandle().getCIntegerAt(offsetOfLocalVariableTableLength(), 2, true);
+      return (int) getAddress().getCIntegerAt(offsetOfLocalVariableTableLength(), 2, true);
     } else {
       return 0;
     }
@@ -377,10 +530,16 @@ public class ConstMethod extends Oop {
     if (Assert.ASSERTS_ENABLED) {
       Assert.that(hasLocalVariableTable(), "should only be called if table is present");
     }
-    if (hasCheckedExceptions()) {
-      return offsetOfCheckedExceptions() - 2;
+
+    if (hasExceptionTable()) {
+      return offsetOfExceptionTable() - sizeofShort;
+    } else if (hasCheckedExceptions()) {
+      return offsetOfCheckedExceptions() - sizeofShort;
+    } else if (hasMethodParameters()) {
+      return offsetOfMethodParameters() - sizeofShort;
     } else {
-      return offsetOfLastU2Element();
+      return hasGenericSignature() ? offsetOfLastU2Element() - sizeofShort :
+                                     offsetOfLastU2Element();
     }
   }
 
@@ -391,6 +550,38 @@ public class ConstMethod extends Oop {
       Assert.that(length > 0, "should only be called if table is present");
     }
     offset -= length * localVariableTableElementSize;
+    return offset;
+  }
+
+  private int getExceptionTableLength() {
+    if (hasExceptionTable()) {
+      return (int) getAddress().getCIntegerAt(offsetOfExceptionTableLength(), 2, true);
+    } else {
+      return 0;
+    }
+  }
+
+  private long offsetOfExceptionTableLength() {
+    if (Assert.ASSERTS_ENABLED) {
+      Assert.that(hasExceptionTable(), "should only be called if table is present");
+    }
+    if (hasCheckedExceptions()) {
+      return offsetOfCheckedExceptions() - sizeofShort;
+    } else if (hasMethodParameters()) {
+      return offsetOfMethodParameters() - sizeofShort;
+    } else {
+      return hasGenericSignature() ? offsetOfLastU2Element() - sizeofShort :
+                                     offsetOfLastU2Element();
+    }
+  }
+
+  private long offsetOfExceptionTable() {
+    long offset = offsetOfExceptionTableLength();
+    long length = getExceptionTableLength();
+    if (Assert.ASSERTS_ENABLED) {
+      Assert.that(length > 0, "should only be called if table is present");
+    }
+    offset -= length * exceptionTableElementSize;
     return offset;
   }
 

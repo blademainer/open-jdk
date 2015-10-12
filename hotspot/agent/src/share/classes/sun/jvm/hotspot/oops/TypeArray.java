@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,7 +43,7 @@ public class TypeArray extends Array {
   }
 
   private static synchronized void initialize(TypeDataBase db) throws WrongTypeException {
-    Type type = db.lookupType("typeArrayOopDesc");
+    Type type = db.lookupType("typeArrayOop");
   }
 
   TypeArray(OopHandle handle, ObjectHeap heap) {
@@ -53,6 +53,9 @@ public class TypeArray extends Array {
   public boolean isTypeArray()         { return true; }
 
   public byte getByteAt(long index) {
+    if (index < 0 || index >= getLength()) {
+      throw new ArrayIndexOutOfBoundsException(index + " " + getLength());
+    }
     long offset = baseOffsetInBytes(BasicType.T_BYTE) + index * getHeap().getByteSize();
     return getHandle().getJByteAt(offset);
   }

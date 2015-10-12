@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -86,6 +86,7 @@ public:
     // tables are cached with the native font scaler data
     // only supports gsub, gpos, gdef, mort tables at present
     virtual const void *getFontTable(LETag tableTag) const;
+    virtual const void *getFontTable(LETag tableTag, size_t &len) const;
 
     virtual void *getKernPairs() const {
         return layoutTables->kernPairs;

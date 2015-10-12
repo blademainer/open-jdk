@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,9 +30,10 @@
  * @author Laird Dornin
  *
  * @library ../../../testlibrary
- * @build TestLibrary FnnClass FnnUnmarshal LoadProxyClasses NonpublicInterface
- * @build NonpublicInterface1 PublicInterface PublicInterface1
- * @run main/othervm/policy=security.policy LoadProxyClasses
+ * @build TestLibrary FnnClass FnnUnmarshal NonpublicInterface
+ *     NonpublicInterface1 PublicInterface PublicInterface1
+ * @run main/othervm/policy=security.policy
+ *     -Djava.rmi.server.useCodebaseOnly=false LoadProxyClasses
  */
 
 import java.rmi.server.RMIClassLoader;

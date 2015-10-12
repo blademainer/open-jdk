@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -122,7 +122,8 @@ typedef jint    IntArgbDataType;
 #define DeclareIntArgbAlphaLoadData(PREFIX) \
     jint PREFIX;
 
-#define InitIntArgbAlphaLoadData(PREFIX, pRasInfo)
+#define InitIntArgbAlphaLoadData(PREFIX, pRasInfo) \
+    PREFIX = 0
 
 #define LoadAlphaFromIntArgbFor4ByteArgb(pRas, PREFIX, COMP_PREFIX) \
     do { \

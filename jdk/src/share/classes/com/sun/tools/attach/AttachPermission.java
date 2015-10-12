@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -79,6 +79,7 @@ package com.sun.tools.attach;
  * @see com.sun.tools.attach.spi.AttachProvider
  */
 
+@jdk.Exported
 public final class AttachPermission extends java.security.BasicPermission {
 
     /** use serialVersionUID for interoperability */

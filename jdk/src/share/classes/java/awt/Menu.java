@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,6 +31,7 @@ import java.util.Enumeration;
 import java.awt.peer.MenuPeer;
 import java.awt.event.KeyEvent;
 import javax.accessibility.*;
+import sun.awt.AWTAccessor;
 
 /**
  * A <code>Menu</code> object is a pull-down menu component
@@ -62,6 +63,13 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
         if (!GraphicsEnvironment.isHeadless()) {
             initIDs();
         }
+
+        AWTAccessor.setMenuAccessor(
+            new AWTAccessor.MenuAccessor() {
+                public Vector<MenuComponent> getItems(Menu menu) {
+                    return menu.items;
+                }
+            });
     }
 
     /**
@@ -70,7 +78,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
      * @serial
      * @see #countItems()
      */
-    Vector              items = new Vector();
+    Vector<MenuComponent> items = new Vector<>();
 
     /**
      * This field indicates whether the menu has the
@@ -305,7 +313,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
             }
 
             int nitems = getItemCount();
-            Vector tempItems = new Vector();
+            Vector<MenuItem> tempItems = new Vector<>();
 
             /* Remove the item at index, nitems-index times
                storing them in a temporary vector in the
@@ -322,7 +330,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
                already in the correct order in the temp vector.
             */
             for (int i = 0; i < tempItems.size()  ; i++) {
-                add((MenuItem)tempItems.elementAt(i));
+                add(tempItems.elementAt(i));
             }
         }
     }
@@ -371,7 +379,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
             }
 
             int nitems = getItemCount();
-            Vector tempItems = new Vector();
+            Vector<MenuItem> tempItems = new Vector<>();
 
             /* Remove the item at index, nitems-index times
                storing them in a temporary vector in the
@@ -388,7 +396,7 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
                already in the correct order in the temp vector.
             */
             for (int i = 0; i < tempItems.size()  ; i++) {
-                add((MenuItem)tempItems.elementAt(i));
+                add(tempItems.elementAt(i));
             }
         }
     }
@@ -467,13 +475,13 @@ public class Menu extends MenuItem implements MenuContainer, Accessible {
         return null;
     }
 
-    synchronized Enumeration shortcuts() {
-        Vector shortcuts = new Vector();
+    synchronized Enumeration<MenuShortcut> shortcuts() {
+        Vector<MenuShortcut> shortcuts = new Vector<>();
         int nitems = getItemCount();
         for (int i = 0 ; i < nitems ; i++) {
             MenuItem mi = getItem(i);
             if (mi instanceof Menu) {
-                Enumeration e = ((Menu)mi).shortcuts();
+                Enumeration<MenuShortcut> e = ((Menu)mi).shortcuts();
                 while (e.hasMoreElements()) {
                     shortcuts.addElement(e.nextElement());
                 }

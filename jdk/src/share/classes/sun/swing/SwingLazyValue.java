@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,6 +30,7 @@ import java.lang.reflect.AccessibleObject;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import javax.swing.UIDefaults;
+import sun.reflect.misc.ReflectUtil;
 
 /**
  * SwingLazyValue is a copy of ProxyLazyValue that does not snapshot the
@@ -63,7 +64,7 @@ public class SwingLazyValue implements UIDefaults.LazyValue {
 
     public Object createValue(final UIDefaults table) {
         try {
-            Object cl;
+            ReflectUtil.checkPackageAccess(className);
             Class<?> c = Class.forName(className, true, null);
             if (methodName != null) {
                 Class[] types = getClassArray(args);

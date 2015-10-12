@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,6 +35,7 @@ class GCTaskTimeStamp;
 class GCTaskManager;
 
 class GCTaskThread : public WorkerThread {
+  friend class GCTaskManager;
 private:
   // Instance state.
   GCTaskManager* _manager;              // Manager for worker.
@@ -44,6 +45,8 @@ private:
   uint _time_stamp_index;
 
   GCTaskTimeStamp* time_stamp_at(uint index);
+
+  bool _is_working;                     // True if participating in GC tasks
 
  public:
   // Factory create and destroy methods.
@@ -84,9 +87,10 @@ protected:
   uint processor_id() const {
     return _processor_id;
   }
+  void set_is_working(bool v) { _is_working = v; }
 };
 
-class GCTaskTimeStamp : public CHeapObj
+class GCTaskTimeStamp : public CHeapObj<mtGC>
 {
  private:
   jlong  _entry_time;

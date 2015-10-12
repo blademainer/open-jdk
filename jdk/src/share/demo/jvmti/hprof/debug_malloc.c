@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,15 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+/*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
 
 /* **************************************************************************
  *
@@ -241,7 +250,7 @@ static void * smallest_addr = NULL;
 static char *debug_check;
 static void *clobbered_ptr;
 
-/* Minumum macro */
+/* Minimum macro */
 #define minimum(a,b) ((a)<(b)?(a):(b))
 
 /* Message routine */

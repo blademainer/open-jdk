@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,10 +31,8 @@
  * @author Laird Dornin
  *
  * @library ../../../testlibrary
- * @build TestLibrary RMID JavaVM StreamPipe
- * @build CheckUnmarshall PoisonPill RuntimeExceptionParameter
- * @build CheckUnmarshalOnStopThread
- * @build CheckUnmarshalOnStopThread_Stub
+ * @build TestLibrary CheckUnmarshal CheckUnmarshalOnStopThread_Stub
+ *     PoisonPill RuntimeExceptionParameter
  * @run main/othervm/timeout=480 CheckUnmarshalOnStopThread
  */
 

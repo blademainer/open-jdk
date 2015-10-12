@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -63,4 +63,4 @@ CLASSPATH=${TESTCLASSES}:${TESTSRC}
 export CLASSPATH
 
 # Run sanity test (IPv4-only for now)
-$JAVA -Djava.net.preferIPv4Stack=true Sanity ${IB_LINKS}
+$JAVA ${TESTVMOPTS} -Djava.net.preferIPv4Stack=true Sanity ${IB_LINKS}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 
 package sun.java2d;
 
+import java.awt.AWTError;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
@@ -165,7 +166,11 @@ public abstract class SunGraphicsEnvironment extends GraphicsEnvironment
      * Returns the default screen graphics device.
      */
     public GraphicsDevice getDefaultScreenDevice() {
-        return getScreenDevices()[0];
+        GraphicsDevice[] screens = getScreenDevices();
+        if (screens.length == 0) {
+            throw new AWTError("no screen devices");
+        }
+        return screens[0];
     }
 
     /**

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -198,7 +198,15 @@ void AwtMenuBar::DeleteItem(UINT index)
     if (hOwnerWnd != NULL) {
         VERIFY(::InvalidateRect(hOwnerWnd,0,TRUE));
     }
-    ::DrawMenuBar(GetOwnerHWnd());
+    RedrawMenuBar();
+}
+
+/**
+ * If the menu changes after the system has created the window,
+ * this function must be called to draw the changed menu bar.
+ */
+void AwtMenuBar::RedrawMenuBar() {
+    VERIFY(::DrawMenuBar(GetOwnerHWnd()));
 }
 
 LRESULT AwtMenuBar::WinThreadExecProc(ExecuteArgs * args)
@@ -232,7 +240,7 @@ void AwtMenuBar::_AddMenu(void *param)
     if (::IsWindow(m->GetOwnerHWnd()))
     {
         /* The menu was already created and added during peer creation -- redraw */
-        ::DrawMenuBar(m->GetOwnerHWnd());
+        m->RedrawMenuBar();
     }
 ret:
     env->DeleteGlobalRef(self);

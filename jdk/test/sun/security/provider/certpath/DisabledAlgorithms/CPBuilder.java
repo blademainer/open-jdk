@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -20,6 +20,9 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+
+// This test case relies on updated static security property, no way to re-use
+// security property in samevm/agentvm mode.
 
 /**
  * @test
@@ -392,6 +395,9 @@ public class CPBuilder {
     }
 
     public static void main(String args[]) throws Exception {
+        // reset the security property to make sure that the algorithms
+        // and keys used in this test are not disabled.
+        Security.setProperty("jdk.certpath.disabledAlgorithms", "MD2");
 
         CertPathBuilder builder = CertPathBuilder.getInstance("PKIX");
 

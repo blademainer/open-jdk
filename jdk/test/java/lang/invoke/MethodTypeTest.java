@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,17 +24,19 @@
 /* @test
  * @summary unit tests for java.lang.invoke.MethodType
  * @compile MethodTypeTest.java
- * @run junit/othervm test.java.lang.invoke.MethodTypeTest
+ * @run testng/othervm test.java.lang.invoke.MethodTypeTest
  */
 
 package test.java.lang.invoke;
 
+import java.io.IOException;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 
 import java.util.*;
-import org.junit.*;
-import static org.junit.Assert.*;
+import org.testng.*;
+import static org.testng.AssertJUnit.*;
+import org.testng.annotations.*;
 
 /**
  *
@@ -52,7 +54,7 @@ public class MethodTypeTest {
     private MethodType[] GALLERY;
     private Method compareTo;
 
-    @Before
+    @BeforeMethod
     public void setUp() throws Exception {
         rtype = void.class;
         ptypes = new Class<?>[] { int.class, String.class };
@@ -93,7 +95,7 @@ public class MethodTypeTest {
         };
     }
 
-    @After
+    @AfterMethod
     public void tearDown() throws Exception {
     }
 
@@ -378,7 +380,7 @@ public class MethodTypeTest {
     public void testHashCode() {
         System.out.println("hashCode");
         MethodType instance = mt_viS;
-        ArrayList<Class<?>> types = new ArrayList<Class<?>>();
+        ArrayList<Class<?>> types = new ArrayList<>();
         types.add(instance.returnType());
         types.addAll(instance.parameterList());
         int expResult = types.hashCode();
@@ -556,7 +558,7 @@ public class MethodTypeTest {
             Object decode;
             try {
                 decode = readSerial(wire);
-            } catch (Exception ex) {
+            } catch (IOException | ClassNotFoundException ex) {
                 decode = ex;  // oops!
             }
             assertEquals(mt, decode);

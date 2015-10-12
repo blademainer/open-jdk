@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,7 +58,7 @@ public class Klist {
      * The main program that can be invoked at command line.
      * <br>Usage: klist
      * [[-c] [-f] [-e] [-a [-n]]] [-k [-t] [-K]] [name]
-     * -c specifes that credential cache is to be listed
+     * -c specifies that credential cache is to be listed
      * -k specifies that key tab is to be listed
      * name name of the credentials cache or keytab
      * <br>available options for credential caches:
@@ -95,14 +95,17 @@ public class Klist {
             }
             break;
         case 'k':
-            try {
-                KeyTab ktab = KeyTab.getInstance(klist.name);
-                klist.target = ktab;
-                klist.name = ktab.tabName();
-            } catch (Exception e) {
-                klist.displayMessage("KeyTab");
+            KeyTab ktab = KeyTab.getInstance(klist.name);
+            if (ktab.isMissing()) {
+                System.out.println("KeyTab " + klist.name + " not found.");
+                System.exit(-1);
+            } else if (!ktab.isValid()) {
+                System.out.println("KeyTab " + klist.name
+                        + " format not supported.");
                 System.exit(-1);
             }
+            klist.target = ktab;
+            klist.name = ktab.tabName();
             klist.displayTab();
             break;
         default:
@@ -204,7 +207,7 @@ public class Klist {
                 }
                 if (options[2] == 't') {
                     System.out.println("\t Time stamp: " +
-                            reformat(entries[i].getTimeStamp().toDate().toString()));
+                            format(entries[i].getTimeStamp()));
                 }
             }
         }
@@ -231,30 +234,39 @@ public class Klist {
             System.out.println("\nDefault principal: " +
                                defaultPrincipal + ", " +
                                creds.length + " entries found.\n");
-        String starttime = null;
-        String endtime = null;
-        String servicePrincipal = null;
-        String etype = null;
         if (creds != null) {
             for (int i = 0; i < creds.length; i++) {
                 try {
-                    starttime =
-                        reformat(creds[i].getAuthTime().toDate().toString());
-                    endtime =
-                        reformat(creds[i].getEndTime().toDate().toString());
+                    String starttime;
+                    String endtime;
+                    String renewTill;
+                    String servicePrincipal;
+                    if (creds[i].getStartTime() != null) {
+                        starttime = format(creds[i].getStartTime());
+                    } else {
+                        starttime = format(creds[i].getAuthTime());
+                    }
+                    endtime = format(creds[i].getEndTime());
                     servicePrincipal =
                         creds[i].getServicePrincipal().toString();
                     System.out.println("[" + (i + 1) + "] " +
                                        " Service Principal:  " +
                                        servicePrincipal);
-                    System.out.println("     Valid starting:  " + starttime);
-                    System.out.println("     Expires:         " + endtime);
+                    System.out.println("     Valid starting:     " + starttime);
+                    System.out.println("     Expires:            " + endtime);
+                    if (creds[i].getRenewTill() != null) {
+                        renewTill = format(creds[i].getRenewTill());
+                        System.out.println(
+                                "     Renew until:        " + renewTill);
+                    }
                     if (options[0] == 'e') {
-                        etype = EType.toString(creds[i].getEType());
-                        System.out.println("     Encryption type: " + etype);
+                        String eskey = EType.toString(creds[i].getEType());
+                        String etkt = EType.toString(creds[i].getTktEType());
+                        System.out.println("     EType (skey, tkt):  "
+                                + eskey + ", " + etkt);
                     }
                     if (options[1] == 'f') {
-                        System.out.println("     Flags:           " +
+                        System.out.println("     Flags:              " +
                                            creds[i].getTicketFlags().toString());
                     }
                     if (options[2] == 'a') {
@@ -309,13 +321,14 @@ public class Klist {
      * and yyyy is the year.
      * @param date the string form of Date object.
      */
-    String reformat(String date) {
+    private String format(KerberosTime kt) {
+        String date = kt.toDate().toString();
         return (date.substring(4, 7) + " " + date.substring(8, 10) +
                 ", " + date.substring(24)
-                + " " + date.substring(11, 16));
+                + " " + date.substring(11, 19));
     }
     /**
-     * Printes out the help information.
+     * Prints out the help information.
      */
     void printHelp() {
         System.out.println("\nUsage: klist " +
@@ -323,7 +336,7 @@ public class Klist {
         System.out.println("   name\t name of credentials cache or " +
                            " keytab with the prefix. File-based cache or "
                            + "keytab's prefix is FILE:.");
-        System.out.println("   -c specifes that credential cache is to be " +
+        System.out.println("   -c specifies that credential cache is to be " +
                            "listed");
         System.out.println("   -k specifies that key tab is to be listed");
         System.out.println("   options for credentials caches:");

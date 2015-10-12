@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,8 +57,8 @@
 #define MAX(a,b)        ((a) > (b) ? (a) : (b))
 
 /* Cached Java method ids */
-static jmethodID ImageInputStream_readID;
-static jmethodID ImageInputStream_skipBytesID;
+static jmethodID JPEGImageReader_readInputDataID;
+static jmethodID JPEGImageReader_skipInputBytesID;
 static jmethodID JPEGImageReader_warningOccurredID;
 static jmethodID JPEGImageReader_warningWithMessageID;
 static jmethodID JPEGImageReader_setImageDataID;
@@ -66,7 +66,7 @@ static jmethodID JPEGImageReader_acceptPixelsID;
 static jmethodID JPEGImageReader_pushBackID;
 static jmethodID JPEGImageReader_passStartedID;
 static jmethodID JPEGImageReader_passCompleteID;
-static jmethodID ImageOutputStream_writeID;
+static jmethodID JPEGImageWriter_writeOutputDataID;
 static jmethodID JPEGImageWriter_warningOccurredID;
 static jmethodID JPEGImageWriter_warningWithMessageID;
 static jmethodID JPEGImageWriter_writeMetadataID;
@@ -106,7 +106,7 @@ extern JavaVM *jvm;
 /******************** StreamBuffer definition ************************/
 
 typedef struct streamBufferStruct {
-    jobject stream;            // ImageInputStream or ImageOutputStream
+    jweak ioRef;               // weak reference to a provider of I/O routines
     jbyteArray hstreamBuffer;  // Handle to a Java buffer for the stream
     JOCTET *buf;               // Pinned buffer pointer */
     size_t bufferOffset;          // holds offset between unpin and the next pin
@@ -124,6 +124,15 @@ typedef struct streamBufferStruct {
  * IJG folks, it's good enough for me.
  */
 #define STREAMBUF_SIZE 4096
+
+#define GET_IO_REF(io_name)                                            \
+    do {                                                               \
+        if ((*env)->IsSameObject(env, sb->ioRef, NULL) ||              \
+            ((io_name) = (*env)->NewLocalRef(env, sb->ioRef)) == NULL) \
+        {                                                              \
+            cinfo->err->error_exit((j_common_ptr) cinfo);              \
+        }                                                              \
+    } while (0)                                                        \
 
 /*
  * Used to signal that no data need be restored from an unpin to a pin.
@@ -159,7 +168,7 @@ static int initStreamBuffer(JNIEnv *env, streamBufferPtr sb) {
     }
 
 
-    sb->stream = NULL;
+    sb->ioRef = NULL;
 
     sb->buf = NULL;
 
@@ -191,9 +200,9 @@ static void unpinStreamBuffer(JNIEnv *env,
  * All other state is reset.
  */
 static void resetStreamBuffer(JNIEnv *env, streamBufferPtr sb) {
-    if (sb->stream != NULL) {
-        (*env)->DeleteGlobalRef(env, sb->stream);
-        sb->stream = NULL;
+    if (sb->ioRef != NULL) {
+        (*env)->DeleteWeakGlobalRef(env, sb->ioRef);
+        sb->ioRef = NULL;
     }
     unpinStreamBuffer(env, sb, NULL);
     sb->bufferOffset = NO_DATA;
@@ -571,7 +580,7 @@ sun_jpeg_output_message (j_common_ptr cinfo)
 static void imageio_set_stream(JNIEnv *env,
                                j_common_ptr cinfo,
                                imageIODataPtr data,
-                               jobject stream){
+                               jobject io){
     streamBufferPtr sb;
     sun_jpeg_error_ptr jerr;
 
@@ -579,13 +588,13 @@ static void imageio_set_stream(JNIEnv *env,
 
     resetStreamBuffer(env, sb);  // Removes any old stream
 
-    /* Now we need a new global reference for the stream */
-    if (stream != NULL) { // Fix for 4411955
-        sb->stream = (*env)->NewGlobalRef(env, stream);
-        if (sb->stream == NULL) {
+    /* Now we need a new weak global reference for the I/O provider */
+    if (io != NULL) { // Fix for 4411955
+        sb->ioRef = (*env)->NewWeakGlobalRef(env, io);
+        if (sb->ioRef == NULL) {
             JNU_ThrowByName(env,
                             "java/lang/OutOfMemoryError",
-                            "Setting Stream");
+                            "Setting I/O provider");
             return;
         }
     }
@@ -895,6 +904,7 @@ imageio_fill_input_buffer(j_decompress_ptr cinfo)
     streamBufferPtr sb = &data->streamBuf;
     JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
     int ret;
+    jobject input = NULL;
 
     /* This is where input suspends */
     if (sb->suspendable) {
@@ -921,9 +931,12 @@ imageio_fill_input_buffer(j_decompress_ptr cinfo)
      * will give us if we are near the end.
      */
     RELEASE_ARRAYS(env, data, src->next_input_byte);
+
+    GET_IO_REF(input);
+
     ret = (*env)->CallIntMethod(env,
-                                sb->stream,
-                                ImageInputStream_readID,
+                                input,
+                                JPEGImageReader_readInputDataID,
                                 sb->hstreamBuffer, 0,
                                 sb->bufferLength);
     if ((*env)->ExceptionOccurred(env)
@@ -970,7 +983,7 @@ imageio_fill_input_buffer(j_decompress_ptr cinfo)
  * buffer filling be done at the top application level, using this
  * function.  Due to the way that backtracking works, this procedure
  * saves all of the data that was left in the buffer when suspension
- * occured and read new data only at the end.
+ * occurred and read new data only at the end.
  */
 
 GLOBAL(void)
@@ -982,6 +995,7 @@ imageio_fill_suspended_buffer(j_decompress_ptr cinfo)
     JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
     jint ret;
     size_t offset, buflen;
+    jobject input = NULL;
 
     /*
      * The original (jpegdecoder.c) had code here that called
@@ -1003,7 +1017,12 @@ imageio_fill_suspended_buffer(j_decompress_ptr cinfo)
     if (src->next_input_byte > sb->buf) {
         memcpy(sb->buf, src->next_input_byte, offset);
     }
+
+
     RELEASE_ARRAYS(env, data, src->next_input_byte);
+
+    GET_IO_REF(input);
+
     buflen = sb->bufferLength - offset;
     if (buflen <= 0) {
         if (!GET_ARRAYS(env, data, &(src->next_input_byte))) {
@@ -1012,8 +1031,8 @@ imageio_fill_suspended_buffer(j_decompress_ptr cinfo)
         return;
     }
 
-    ret = (*env)->CallIntMethod(env, sb->stream,
-                                ImageInputStream_readID,
+    ret = (*env)->CallIntMethod(env, input,
+                                JPEGImageReader_readInputDataID,
                                 sb->hstreamBuffer,
                                 offset, buflen);
     if ((*env)->ExceptionOccurred(env)
@@ -1075,6 +1094,7 @@ imageio_skip_input_data(j_decompress_ptr cinfo, long num_bytes)
     JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
     jlong ret;
     jobject reader;
+    jobject input = NULL;
 
     if (num_bytes < 0) {
         return;
@@ -1105,9 +1125,12 @@ imageio_skip_input_data(j_decompress_ptr cinfo, long num_bytes)
     }
 
     RELEASE_ARRAYS(env, data, src->next_input_byte);
+
+    GET_IO_REF(input);
+
     ret = (*env)->CallLongMethod(env,
-                                 sb->stream,
-                                 ImageInputStream_skipBytesID,
+                                 input,
+                                 JPEGImageReader_skipInputBytesID,
                                  (jlong) num_bytes);
     if ((*env)->ExceptionOccurred(env)
         || !GET_ARRAYS(env, data, &(src->next_input_byte))) {
@@ -1382,13 +1405,13 @@ Java_com_sun_imageio_plugins_jpeg_JPEGImageReader_initReaderIDs
      jclass qTableClass,
      jclass huffClass) {
 
-    ImageInputStream_readID = (*env)->GetMethodID(env,
-                                                  ImageInputStreamClass,
-                                                  "read",
+    JPEGImageReader_readInputDataID = (*env)->GetMethodID(env,
+                                                  cls,
+                                                  "readInputData",
                                                   "([BII)I");
-    ImageInputStream_skipBytesID = (*env)->GetMethodID(env,
-                                                       ImageInputStreamClass,
-                                                       "skipBytes",
+    JPEGImageReader_skipInputBytesID = (*env)->GetMethodID(env,
+                                                       cls,
+                                                       "skipInputBytes",
                                                        "(J)J");
     JPEGImageReader_warningOccurredID = (*env)->GetMethodID(env,
                                                             cls,
@@ -1531,8 +1554,7 @@ JNIEXPORT void JNICALL
 Java_com_sun_imageio_plugins_jpeg_JPEGImageReader_setSource
     (JNIEnv *env,
      jobject this,
-     jlong ptr,
-     jobject source) {
+     jlong ptr) {
 
     imageIODataPtr data = (imageIODataPtr)jlong_to_ptr(ptr);
     j_common_ptr cinfo;
@@ -1546,7 +1568,7 @@ Java_com_sun_imageio_plugins_jpeg_JPEGImageReader_setSource
 
     cinfo = data->jpegObj;
 
-    imageio_set_stream(env, cinfo, data, source);
+    imageio_set_stream(env, cinfo, data, this);
 
     imageio_init_source((j_decompress_ptr) cinfo);
 }
@@ -2286,12 +2308,15 @@ imageio_empty_output_buffer (j_compress_ptr cinfo)
     imageIODataPtr data = (imageIODataPtr) cinfo->client_data;
     streamBufferPtr sb = &data->streamBuf;
     JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
+    jobject output = NULL;
 
     RELEASE_ARRAYS(env, data, (const JOCTET *)(dest->next_output_byte));
 
+    GET_IO_REF(output);
+
     (*env)->CallVoidMethod(env,
-                           sb->stream,
-                           ImageOutputStream_writeID,
+                           output,
+                           JPEGImageWriter_writeOutputDataID,
                            sb->hstreamBuffer,
                            0,
                            sb->bufferLength);
@@ -2323,12 +2348,17 @@ imageio_term_destination (j_compress_ptr cinfo)
     /* find out how much needs to be written */
     /* this conversion from size_t to jint is safe, because the lenght of the buffer is limited by jint */
     jint datacount = (jint)(sb->bufferLength - dest->free_in_buffer);
+
     if (datacount != 0) {
+        jobject output = NULL;
+
         RELEASE_ARRAYS(env, data, (const JOCTET *)(dest->next_output_byte));
 
+        GET_IO_REF(output);
+
         (*env)->CallVoidMethod(env,
-                               sb->stream,
-                               ImageOutputStream_writeID,
+                               output,
+                               JPEGImageWriter_writeOutputDataID,
                                sb->hstreamBuffer,
                                0,
                                datacount);
@@ -2366,13 +2396,12 @@ JNIEXPORT void JNICALL
 Java_com_sun_imageio_plugins_jpeg_JPEGImageWriter_initWriterIDs
     (JNIEnv *env,
      jclass cls,
-     jclass IOSClass,
      jclass qTableClass,
      jclass huffClass) {
 
-    ImageOutputStream_writeID = (*env)->GetMethodID(env,
-                                                    IOSClass,
-                                                    "write",
+    JPEGImageWriter_writeOutputDataID = (*env)->GetMethodID(env,
+                                                    cls,
+                                                    "writeOutputData",
                                                     "([BII)V");
 
     JPEGImageWriter_warningOccurredID = (*env)->GetMethodID(env,
@@ -2496,8 +2525,7 @@ JNIEXPORT void JNICALL
 Java_com_sun_imageio_plugins_jpeg_JPEGImageWriter_setDest
     (JNIEnv *env,
      jobject this,
-     jlong ptr,
-     jobject destination) {
+     jlong ptr) {
 
     imageIODataPtr data = (imageIODataPtr)jlong_to_ptr(ptr);
     j_compress_ptr cinfo;
@@ -2511,7 +2539,7 @@ Java_com_sun_imageio_plugins_jpeg_JPEGImageWriter_setDest
 
     cinfo = (j_compress_ptr) data->jpegObj;
 
-    imageio_set_stream(env, data->jpegObj, data, destination);
+    imageio_set_stream(env, data->jpegObj, data, this);
 
 
     // Don't call the init method, as that depends on pinned arrays
@@ -2678,6 +2706,15 @@ Java_com_sun_imageio_plugins_jpeg_JPEGImageWriter_writeImage
     bandSize = (*env)->GetIntArrayElements(env, bandSizes, NULL);
 
     for (i = 0; i < numBands; i++) {
+        if (bandSize[i] <= 0 || bandSize[i] > JPEG_BAND_SIZE) {
+            (*env)->ReleaseIntArrayElements(env, bandSizes,
+                                            bandSize, JNI_ABORT);
+            JNU_ThrowByName(env, "javax/imageio/IIOException", "Invalid Image");
+            return JNI_FALSE;;
+        }
+    }
+
+    for (i = 0; i < numBands; i++) {
         if (bandSize[i] != JPEG_BAND_SIZE) {
             if (scale == NULL) {
                 scale = (UINT8**) calloc(numBands, sizeof(UINT8*));
@@ -2694,6 +2731,11 @@ Java_com_sun_imageio_plugins_jpeg_JPEGImageWriter_writeImage
             scale[i] = (UINT8*) malloc((maxBandValue + 1) * sizeof(UINT8));
 
             if (scale[i] == NULL) {
+                // Cleanup before throwing an out of memory exception
+                for (j = 0; j < i; j++) {
+                    free(scale[j]);
+                }
+                free(scale);
                 JNU_ThrowByName( env, "java/lang/OutOfMemoryError",
                                  "Writing JPEG Stream");
                 return JNI_FALSE;

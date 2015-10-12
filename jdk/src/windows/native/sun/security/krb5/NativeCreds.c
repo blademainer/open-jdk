@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -67,7 +67,6 @@ jmethodID encryptionKeyConstructor = 0;
 jmethodID ticketFlagsConstructor = 0;
 jmethodID kerberosTimeConstructor = 0;
 jmethodID krbcredsConstructor = 0;
-jmethodID setRealmMethod = 0;
 
 /*
  * Function prototypes for internal routines
@@ -279,7 +278,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(
     }
 
     principalNameConstructor = (*env)->GetMethodID(env, principalNameClass,
-                                    "<init>", "([Ljava/lang/String;)V");
+                        "<init>", "([Ljava/lang/String;Ljava/lang/String;)V");
     if (principalNameConstructor == 0) {
         printf("LSA: Couldn't find PrincipalName constructor\n");
         return JNI_ERR;
@@ -316,14 +315,6 @@ JNIEXPORT jint JNICALL JNI_OnLoad(
     }
     if (native_debug) {
         printf("LSA: Found KerberosTime constructor\n");
-    }
-
-    // load the setRealm method in PrincipalName
-    setRealmMethod = (*env)->GetMethodID(env, principalNameClass,
-                                    "setRealm", "(Ljava/lang/String;)V");
-    if (setRealmMethod == 0) {
-        printf("LSA: Couldn't find setRealm in PrincipalName\n");
-        return JNI_ERR;
     }
 
     if (native_debug) {
@@ -376,11 +367,12 @@ JNIEXPORT void JNICALL JNI_OnUnload(
 /*
  * Class:     sun_security_krb5_Credentials
  * Method:    acquireDefaultNativeCreds
- * Signature: ()Lsun/security/krb5/Credentials;
+ * Signature: ([I])Lsun/security/krb5/Credentials;
  */
 JNIEXPORT jobject JNICALL Java_sun_security_krb5_Credentials_acquireDefaultNativeCreds(
         JNIEnv *env,
-        jclass krbcredsClass) {
+        jclass krbcredsClass,
+        jintArray jetypes) {
 
     KERB_QUERY_TKT_CACHE_REQUEST CacheRequest;
     PKERB_RETRIEVE_TKT_RESPONSE TktCacheResponse = NULL;
@@ -396,8 +388,11 @@ JNIEXPORT jobject JNICALL Java_sun_security_krb5_Credentials_acquireDefaultNativ
     jobject ticketFlags, startTime, endTime, krbCreds = NULL;
     jobject authTime, renewTillTime, hostAddresses = NULL;
     KERB_EXTERNAL_TICKET *msticket;
-    int ignore_cache = 0;
+    int found_in_cache = 0;
     FILETIME Now, EndTime, LocalEndTime;
+
+    int i, netypes;
+    jint *etypes = NULL;
 
     while (TRUE) {
 
@@ -465,31 +460,33 @@ JNIEXPORT jobject JNICALL Java_sun_security_krb5_Credentials_acquireDefaultNativ
         // got the native MS TGT
         msticket = &(TktCacheResponse->Ticket);
 
+        netypes = (*env)->GetArrayLength(env, jetypes);
+        etypes = (jint *) (*env)->GetIntArrayElements(env, jetypes, NULL);
+
         // check TGT validity
-        switch (msticket->SessionKey.KeyType) {
-            case KERB_ETYPE_DES_CBC_CRC:
-            case KERB_ETYPE_DES_CBC_MD5:
-            case KERB_ETYPE_NULL:
-            case KERB_ETYPE_RC4_HMAC_NT:
-                GetSystemTimeAsFileTime(&Now);
-                EndTime.dwLowDateTime = msticket->EndTime.LowPart;
-                EndTime.dwHighDateTime = msticket->EndTime.HighPart;
-                FileTimeToLocalFileTime(&EndTime, &LocalEndTime);
-                if (CompareFileTime(&Now, &LocalEndTime) >= 0) {
-                    ignore_cache = 1;
-                }
-                if (msticket->TicketFlags & KERB_TICKET_FLAGS_invalid) {
-                    ignore_cache = 1;
-                }
-                break;
-            case KERB_ETYPE_RC4_MD4:
-            default:
-                // not supported
-                ignore_cache = 1;
-                break;
+        if (native_debug) {
+            printf("LSA: TICKET SessionKey KeyType is %d\n", msticket->SessionKey.KeyType);
         }
 
-        if (ignore_cache) {
+        if ((msticket->TicketFlags & KERB_TICKET_FLAGS_invalid) == 0) {
+            GetSystemTimeAsFileTime(&Now);
+            EndTime.dwLowDateTime = msticket->EndTime.LowPart;
+            EndTime.dwHighDateTime = msticket->EndTime.HighPart;
+            FileTimeToLocalFileTime(&EndTime, &LocalEndTime);
+            if (CompareFileTime(&Now, &LocalEndTime) < 0) {
+                for (i=0; i<netypes; i++) {
+                    if (etypes[i] == msticket->SessionKey.KeyType) {
+                        found_in_cache = 1;
+                        if (native_debug) {
+                            printf("LSA: Valid etype found: %d\n", etypes[i]);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!found_in_cache) {
             if (native_debug) {
                 printf("LSA: MS TGT in cache is invalid/not supported; request new ticket\n");
             }
@@ -503,34 +500,41 @@ JNIEXPORT jobject JNICALL Java_sun_security_krb5_Credentials_acquireDefaultNativ
             }
 
             pTicketRequest->MessageType = KerbRetrieveEncodedTicketMessage;
-            pTicketRequest->EncryptionType = KERB_ETYPE_DES_CBC_MD5;
             pTicketRequest->CacheOptions = KERB_RETRIEVE_TICKET_DONT_USE_CACHE;
 
-            Status = LsaCallAuthenticationPackage(
-                        LogonHandle,
-                        PackageId,
-                        pTicketRequest,
-                        requestSize,
-                        &pTicketResponse,
-                        &responseSize,
-                        &SubStatus
-                        );
+            for (i=0; i<netypes; i++) {
+                pTicketRequest->EncryptionType = etypes[i];
+                Status = LsaCallAuthenticationPackage(
+                            LogonHandle,
+                            PackageId,
+                            pTicketRequest,
+                            requestSize,
+                            &pTicketResponse,
+                            &responseSize,
+                            &SubStatus
+                            );
 
-            if (native_debug) {
-                printf("LSA: Response size is %d\n", responseSize);
-            }
-
-            if (!LSA_SUCCESS(Status) || !LSA_SUCCESS(SubStatus)) {
-                if (!LSA_SUCCESS(Status)) {
-                    ShowNTError("LsaCallAuthenticationPackage", Status);
-                } else {
-                    ShowNTError("Protocol status", SubStatus);
+                if (native_debug) {
+                    printf("LSA: Response size is %d for %d\n", responseSize, etypes[i]);
                 }
+
+                if (!LSA_SUCCESS(Status) || !LSA_SUCCESS(SubStatus)) {
+                    if (!LSA_SUCCESS(Status)) {
+                        ShowNTError("LsaCallAuthenticationPackage", Status);
+                    } else {
+                        ShowNTError("Protocol status", SubStatus);
+                    }
+                    continue;
+                }
+
+                // got the native MS Kerberos TGT
+                msticket = &(pTicketResponse->Ticket);
                 break;
             }
+        }
 
-            // got the native MS Kerberos TGT
-            msticket = &(pTicketResponse->Ticket);
+        if (etypes != NULL) {
+            (*env)->ReleaseIntArrayElements(env, jetypes, etypes, 0);
         }
 
         /*
@@ -653,7 +657,7 @@ JNIEXPORT jobject JNICALL Java_sun_security_krb5_Credentials_acquireDefaultNativ
                 hostAddresses);
 
         break;
-    } // end of WHILE
+    } // end of WHILE. This WHILE will never loop.
 
     // clean up resources
     if (TktCacheResponse != NULL) {
@@ -721,7 +725,7 @@ ConstructTicketRequest(UNICODE_STRING DomainName,
         return GetLastError();
 
     //
-    // Concatenate the target prefix with the previous reponse's
+    // Concatenate the target prefix with the previous response's
     // target domain.
     //
 
@@ -952,13 +956,12 @@ jobject BuildPrincipal(JNIEnv *env, PKERB_EXTERNAL_NAME principalName,
 
         // Do I have to worry about storage reclamation here?
     }
-    principal = (*env)->NewObject(env, principalNameClass,
-                    principalNameConstructor, stringArray);
-
     // now set the realm in the principal
     realmLen = (ULONG)wcslen((PWCHAR)realm);
     realmStr = (*env)->NewString(env, (PWCHAR)realm, (USHORT)realmLen);
-    (*env)->CallVoidMethod(env, principal, setRealmMethod, realmStr);
+
+    principal = (*env)->NewObject(env, principalNameClass,
+                    principalNameConstructor, stringArray, realmStr);
 
     // free local resources
     LocalFree(realm);

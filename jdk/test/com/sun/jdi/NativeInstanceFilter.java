@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,6 +57,7 @@ public class NativeInstanceFilter extends JDIScaffold {
 
     static EventRequestManager requestManager = null;
     static MethodExitRequest request = null;
+    static ThreadReference mainThread = null;
 
     private void listen() {
         TargetAdapter adapter = new TargetAdapter() {
@@ -77,6 +78,7 @@ public class NativeInstanceFilter extends JDIScaffold {
                     requestManager.deleteEventRequest(request);
                     request = requestManager.createMethodExitRequest();
                     request.addInstanceFilter(instance);
+                    request.addThreadFilter(mainThread);
                     request.enable();
                 } else if (instance != null && name.equals("intern")) {
                     // If not for the filter, this will be called twice
@@ -101,10 +103,12 @@ public class NativeInstanceFilter extends JDIScaffold {
 
         // VM has started, but hasn't started running the test program yet.
         requestManager = vm().eventRequestManager();
-        ReferenceType referenceType =
-            resumeToPrepareOf("NativeInstanceFilterTarg").referenceType();
+        ClassPrepareEvent e = resumeToPrepareOf("NativeInstanceFilterTarg");
+        ReferenceType referenceType = e.referenceType();
+        mainThread = e.thread();
 
         request = requestManager.createMethodExitRequest();
+        request.addThreadFilter(mainThread);
         request.enable();
 
         listen();

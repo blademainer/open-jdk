@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2007 Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -40,7 +40,7 @@ int InlineCacheBuffer::ic_stub_code_size() {
 }
 
 void InlineCacheBuffer::assemble_ic_buffer_code(address code_begin,
-                                                oop cached_oop,
+                                                void* cached_oop,
                                                 address entry_point) {
   // NB ic_stub_code_size() must return the size of the code we generate
   ShouldNotCallThis();
@@ -49,9 +49,10 @@ void InlineCacheBuffer::assemble_ic_buffer_code(address code_begin,
 address InlineCacheBuffer::ic_buffer_entry_point(address code_begin) {
   // NB ic_stub_code_size() must return the size of the code we generate
   ShouldNotCallThis();
+  return NULL;
 }
 
-oop InlineCacheBuffer::ic_buffer_cached_oop(address code_begin) {
-  // NB ic_stub_code_size() must return the size of the code we generate
+void* InlineCacheBuffer::ic_buffer_cached_value(address code_begin) {
   ShouldNotCallThis();
+  return NULL;
 }

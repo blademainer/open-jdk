@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -52,7 +52,7 @@ public final class SunNativeProvider extends Provider {
         "sun.security.jgss.wrapper.NativeGSSFactory";
     private static final String LIB_PROP = "sun.security.jgss.lib";
     private static final String DEBUG_PROP = "sun.security.nativegss.debug";
-    private static HashMap MECH_MAP;
+    private static HashMap<String, String> MECH_MAP;
     static final Provider INSTANCE = new SunNativeProvider();
     static boolean DEBUG;
     static void debug(String message) {
@@ -66,8 +66,9 @@ public final class SunNativeProvider extends Provider {
 
     static {
         MECH_MAP =
-            AccessController.doPrivileged(new PrivilegedAction<HashMap>() {
-                    public HashMap run() {
+            AccessController.doPrivileged(
+                new PrivilegedAction<HashMap<String, String>>() {
+                    public HashMap<String, String> run() {
                         DEBUG = Boolean.parseBoolean
                             (System.getProperty(DEBUG_PROP));
                         try {
@@ -89,6 +90,11 @@ public final class SunNativeProvider extends Provider {
                                     "libgssapi_krb5.so",
                                     "libgssapi_krb5.so.2",
                                 };
+                            } else if (osname.contains("OS X")) {
+                                gssLibs = new String[]{
+                                    "libgssapi_krb5.dylib",
+                                    "/usr/lib/sasl2/libgssapiv2.2.so",
+                               };
                             }
                         } else {
                             gssLibs = new String[]{ defaultLib };
@@ -114,7 +120,7 @@ public final class SunNativeProvider extends Provider {
 
     public SunNativeProvider() {
         /* We are the Sun NativeGSS provider */
-        super(NAME, 1.0, INFO);
+        super(NAME, 1.8d, INFO);
 
         if (MECH_MAP != null) {
             AccessController.doPrivileged(new PutAllAction(this, MECH_MAP));

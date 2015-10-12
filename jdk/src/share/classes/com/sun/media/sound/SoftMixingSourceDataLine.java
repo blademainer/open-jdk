@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,12 +37,12 @@ import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.SourceDataLine;
 
 /**
- * SourceDataLine implemention for the SoftMixingMixer.
+ * SourceDataLine implementation for the SoftMixingMixer.
  *
  * @author Karl Helgason
  */
-public class SoftMixingSourceDataLine extends SoftMixingDataLine implements
-        SourceDataLine {
+public final class SoftMixingSourceDataLine extends SoftMixingDataLine
+        implements SourceDataLine {
 
     private boolean open = false;
 
@@ -72,7 +72,7 @@ public class SoftMixingSourceDataLine extends SoftMixingDataLine implements
             AudioFloatInputStream {
         AudioFloatInputStream ais;
 
-        public NonBlockingFloatInputStream(AudioFloatInputStream ais) {
+        NonBlockingFloatInputStream(AudioFloatInputStream ais) {
             this.ais = ais;
         }
 
@@ -120,7 +120,7 @@ public class SoftMixingSourceDataLine extends SoftMixingDataLine implements
 
     }
 
-    protected SoftMixingSourceDataLine(SoftMixingMixer mixer, DataLine.Info info) {
+    SoftMixingSourceDataLine(SoftMixingMixer mixer, DataLine.Info info) {
         super(mixer, info);
     }
 
@@ -130,6 +130,12 @@ public class SoftMixingSourceDataLine extends SoftMixingDataLine implements
         if (len % framesize != 0)
             throw new IllegalArgumentException(
                     "Number of bytes does not represent an integral number of sample frames.");
+        if (off < 0) {
+            throw new ArrayIndexOutOfBoundsException(off);
+        }
+        if ((long)off + (long)len > (long)b.length) {
+            throw new ArrayIndexOutOfBoundsException(b.length);
+        }
 
         byte[] buff = cycling_buffer;
         int buff_len = cycling_buffer.length;

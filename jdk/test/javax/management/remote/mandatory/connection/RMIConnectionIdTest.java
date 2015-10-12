@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
 
 /*
  * @test
- * @bug 4901808
+ * @bug 4901808 7183800
  * @summary Check that RMI connection ids include client host name
  * @author Eamonn McManus
  * @run clean RMIConnectionIdTest
@@ -60,7 +60,7 @@ public class RMIConnectionIdTest {
         }
         String clientAddr = rest.substring(0, spaceIndex);
         InetAddress clientInetAddr = InetAddress.getByName(clientAddr);
-        InetAddress localAddr = InetAddress.getLocalHost();
+        InetAddress localAddr = clientInetAddr.isLoopbackAddress() ? InetAddress.getLoopbackAddress() : InetAddress.getLocalHost();
         System.out.println("InetAddresses: local=" + localAddr + "; " +
                            "connectionId=" + clientInetAddr);
         if (!localAddr.equals(clientInetAddr)) {

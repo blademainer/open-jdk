@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,12 +22,11 @@
  */
 
 /* @test
+ * @summary Ensure that java.rmi.Naming.lookup can handle URLs containing
+ *          IPv6 addresses.
  * @bug 4402708
  *
  * @run main/othervm -Djava.net.preferIPv6Addresses=true LookupIPv6
- *
- * @summary Ensure that java.rmi.Naming.lookup can handle URLs containing
- *          IPv6 addresses.
  */
 
 import java.net.InetAddress;

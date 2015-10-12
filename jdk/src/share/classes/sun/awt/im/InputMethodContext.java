@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -72,12 +72,11 @@ public class InputMethodContext
     static {
         // check whether we should use below-the-spot input
         // get property from command line
-        String inputStyle = (String) AccessController.doPrivileged
+        String inputStyle = AccessController.doPrivileged
                 (new GetPropertyAction("java.awt.im.style", null));
         // get property from awt.properties file
         if (inputStyle == null) {
-            inputStyle = Toolkit.getDefaultToolkit().
-                    getProperty("java.awt.im.style", null);
+            inputStyle = Toolkit.getProperty("java.awt.im.style", null);
         }
         belowTheSpotInputRequested = "below-the-spot".equals(inputStyle);
     }

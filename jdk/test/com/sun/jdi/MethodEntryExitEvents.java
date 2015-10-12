@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -108,13 +108,11 @@ public class MethodEntryExitEvents extends TestScaffold {
     final int expectedExitCount = 1 + (15 * 3);
     int methodExitCount = 0;
 
-    /*
-     * Class patterns for which we don't want events (copied
-     * from the "Trace.java" example):
-     *     http://java.sun.com/javase/technologies/core/toolsapis/jpda/
-     */
-    private String[] excludes = {"java.*", "javax.*", "sun.*",
-                                 "com.sun.*"};
+    // Classes which we are interested in
+    private List includes = Arrays.asList(new String[] {
+        "MethodEntryExitEventsDebugee",
+        "t2"
+    });
 
     MethodEntryExitEvents (String args[]) {
         super(args);
@@ -160,6 +158,10 @@ public class MethodEntryExitEvents extends TestScaffold {
         str.disable();
     }
     public void methodEntered(MethodEntryEvent event) {
+        if (!includes.contains(event.method().declaringType().name())) {
+            return;
+        }
+
         if (! finishedCounting) {
             // We have to count the entry to loopComplete, but
             // not the exit
@@ -175,6 +177,10 @@ public class MethodEntryExitEvents extends TestScaffold {
     }
 
     public void methodExited(MethodExitEvent event) {
+        if (!includes.contains(event.method().declaringType().name())) {
+            return;
+        }
+
         if (! finishedCounting){
             methodExitCount++;
             System.out.print  (" Method exit  number: ");
@@ -213,6 +219,10 @@ public class MethodEntryExitEvents extends TestScaffold {
         connect((String[]) argList.toArray(args2));
         waitForVMStart();
 
+        // Determine main thread
+        ClassPrepareEvent e = resumeToPrepareOf("MethodEntryExitEventsDebugee");
+        mainThread = e.thread();
+
         try {
 
             /*
@@ -222,6 +232,7 @@ public class MethodEntryExitEvents extends TestScaffold {
                 eventRequestManager().createExceptionRequest(null, // refType (null == all instances)
                                                              true, // notifyCaught
                                                              true);// notifyUncaught
+            exceptionRequest.addThreadFilter(mainThread);
             exceptionRequest.setSuspendPolicy(EventRequest.SUSPEND_ALL);
             exceptionRequest.enable();
 
@@ -230,9 +241,7 @@ public class MethodEntryExitEvents extends TestScaffold {
              */
             MethodEntryRequest entryRequest =
                eventRequestManager().createMethodEntryRequest();
-            for (int i=0; i<excludes.length; ++i) {
-                entryRequest.addClassExclusionFilter(excludes[i]);
-            }
+            entryRequest.addThreadFilter(mainThread);
             entryRequest.setSuspendPolicy(sessionSuspendPolicy);
             entryRequest.enable();
 
@@ -241,10 +250,7 @@ public class MethodEntryExitEvents extends TestScaffold {
              */
             MethodExitRequest exitRequest =
                 eventRequestManager().createMethodExitRequest();
-
-            for (int i=0; i<excludes.length; ++i) {
-                exitRequest.addClassExclusionFilter(excludes[i]);
-            }
+            exitRequest.addThreadFilter(mainThread);
             exitRequest.setSuspendPolicy(sessionSuspendPolicy);
             exitRequest.enable();
 

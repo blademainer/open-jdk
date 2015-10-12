@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,9 +27,18 @@ package sun.jvm.hotspot.tools;
 import java.io.PrintStream;
 import java.util.*;
 
+import sun.jvm.hotspot.debugger.JVMDebugger;
 import sun.jvm.hotspot.runtime.*;
 
 public class SysPropsDumper extends Tool {
+
+   public SysPropsDumper() {
+      super();
+   }
+
+   public SysPropsDumper(JVMDebugger d) {
+      super(d);
+   }
 
    public void run() {
       Properties sysProps = VM.getVM().getSystemProperties();
@@ -49,7 +58,6 @@ public class SysPropsDumper extends Tool {
 
    public static void main(String[] args) {
       SysPropsDumper pd = new SysPropsDumper();
-      pd.start(args);
-      pd.stop();
+      pd.execute(args);
    }
 }

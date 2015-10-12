@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -667,7 +667,8 @@ public abstract class Path2D implements Shape, Cloneable {
                         // Collapse out initial moveto/lineto
                         break;
                     }
-                    // NO BREAK;
+                    lineTo(coords[0], coords[1]);
+                    break;
                 case SEG_LINETO:
                     lineTo(coords[0], coords[1]);
                     break;
@@ -793,7 +794,7 @@ public abstract class Path2D implements Shape, Cloneable {
          * ({@link #WIND_EVEN_ODD WIND_EVEN_ODD} or
          *  {@link #WIND_NON_ZERO WIND_NON_ZERO})
          * <li>followed by
-         * NP (or unlimited if NP < 0) sets of values consisting of
+         * {@code NP} (or unlimited if {@code NP < 0}) sets of values consisting of
          * a single byte indicating a path segment type
          * followed by one or more pairs of float or double
          * values representing the coordinates of the path segment
@@ -1392,7 +1393,8 @@ public abstract class Path2D implements Shape, Cloneable {
                         // Collapse out initial moveto/lineto
                         break;
                     }
-                    // NO BREAK;
+                    lineTo(coords[0], coords[1]);
+                    break;
                 case SEG_LINETO:
                     lineTo(coords[0], coords[1]);
                     break;
@@ -1518,7 +1520,7 @@ public abstract class Path2D implements Shape, Cloneable {
          * ({@link #WIND_EVEN_ODD WIND_EVEN_ODD} or
          *  {@link #WIND_NON_ZERO WIND_NON_ZERO})
          * <li>followed by
-         * NP (or unlimited if NP < 0) sets of values consisting of
+         * {@code NP} (or unlimited if {@code NP < 0}) sets of values consisting of
          * a single byte indicating a path segment type
          * followed by one or more pairs of float or double
          * values representing the coordinates of the path segment
@@ -2062,7 +2064,7 @@ public abstract class Path2D implements Shape, Cloneable {
      * @param w the width of the specified rectangular area
      * @param h the height of the specified rectangular area
      * @return {@code true} if the specified {@code PathIterator} contains
-     *         the specified rectangluar area; {@code false} otherwise.
+     *         the specified rectangular area; {@code false} otherwise.
      * @since 1.6
      */
     public static boolean contains(PathIterator pi,
@@ -2456,7 +2458,7 @@ public abstract class Path2D implements Shape, Cloneable {
                 }
             }
         }
-        s.writeByte((byte) SERIAL_PATH_END);
+        s.writeByte(SERIAL_PATH_END);
     }
 
     final void readObject(java.io.ObjectInputStream s, boolean storedbl)

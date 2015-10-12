@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,36 +34,36 @@ class PlaceholderEntry;
 // being loaded, as well as arrays of primitives.
 //
 
-class PlaceholderTable : public TwoOopHashtable<Symbol*> {
+class PlaceholderTable : public TwoOopHashtable<Symbol*, mtClass> {
   friend class VMStructs;
 
 public:
   PlaceholderTable(int table_size);
 
-  PlaceholderEntry* new_entry(int hash, Symbol* name, oop loader, bool havesupername, Symbol* supername);
+  PlaceholderEntry* new_entry(int hash, Symbol* name, ClassLoaderData* loader_data, bool havesupername, Symbol* supername);
   void free_entry(PlaceholderEntry* entry);
 
   PlaceholderEntry* bucket(int i) {
-    return (PlaceholderEntry*)Hashtable<Symbol*>::bucket(i);
+    return (PlaceholderEntry*)Hashtable<Symbol*, mtClass>::bucket(i);
   }
 
   PlaceholderEntry** bucket_addr(int i) {
-    return (PlaceholderEntry**)Hashtable<Symbol*>::bucket_addr(i);
+    return (PlaceholderEntry**)Hashtable<Symbol*, mtClass>::bucket_addr(i);
   }
 
   void add_entry(int index, PlaceholderEntry* new_entry) {
-    Hashtable<Symbol*>::add_entry(index, (HashtableEntry<Symbol*>*)new_entry);
+    Hashtable<Symbol*, mtClass>::add_entry(index, (HashtableEntry<Symbol*, mtClass>*)new_entry);
   }
 
   void add_entry(int index, unsigned int hash, Symbol* name,
-                Handle loader, bool havesupername, Symbol* supername);
+                ClassLoaderData* loader_data, bool havesupername, Symbol* supername);
 
   // This returns a Symbol* to match type for SystemDictionary
   Symbol* find_entry(int index, unsigned int hash,
-                       Symbol* name, Handle loader);
+                       Symbol* name, ClassLoaderData* loader_data);
 
   PlaceholderEntry* get_entry(int index, unsigned int hash,
-                       Symbol* name, Handle loader);
+                       Symbol* name, ClassLoaderData* loader_data);
 
 // caller to create a placeholder entry must enumerate an action
 // caller claims ownership of that action
@@ -82,25 +82,27 @@ public:
  };
 
   // find_and_add returns probe pointer - old or new
-  // If no entry exists, add a placeholder entry and push SeenThread
+  // If no entry exists, add a placeholder entry and push SeenThread for classloadAction
   // If entry exists, reuse entry and push SeenThread for classloadAction
   PlaceholderEntry* find_and_add(int index, unsigned int hash,
-                                 Symbol* name, Handle loader,
+                                 Symbol* name, ClassLoaderData* loader_data,
                                  classloadAction action, Symbol* supername,
                                  Thread* thread);
 
   void remove_entry(int index, unsigned int hash,
-                    Symbol* name, Handle loader);
+                    Symbol* name, ClassLoaderData* loader_data);
 
-// Remove placeholder information
+  // find_and_remove first removes SeenThread for classloadAction
+  // If all queues are empty and definer is null, remove the PlacheholderEntry completely
   void find_and_remove(int index, unsigned int hash,
-                       Symbol* name, Handle loader, Thread* thread);
+                       Symbol* name, ClassLoaderData* loader_data,
+                       classloadAction action, Thread* thread);
 
   // GC support.
-  void oops_do(OopClosure* f);
+  void classes_do(KlassClosure* f);
 
   // JVMTI support
-  void entries_do(void f(Symbol*, oop));
+  void entries_do(void f(Symbol*));
 
 #ifndef PRODUCT
   void print();
@@ -116,7 +118,7 @@ public:
 // For DEFINE_CLASS, the head of the queue owns the
 // define token and the rest of the threads wait to return the
 // result the first thread gets.
-class SeenThread: public CHeapObj {
+class SeenThread: public CHeapObj<mtInternal> {
 private:
    Thread *_thread;
    SeenThread* _stnext;
@@ -152,16 +154,16 @@ public:
 // on store ordering here.
 // The system dictionary is the only user of this class.
 
-class PlaceholderEntry : public HashtableEntry<Symbol*> {
+class PlaceholderEntry : public HashtableEntry<Symbol*, mtClass> {
   friend class VMStructs;
 
 
  private:
-  oop               _loader;        // initiating loader
+  ClassLoaderData*  _loader_data;   // initiating loader
   bool              _havesupername; // distinguish between null supername, and unknown
   Symbol*           _supername;
   Thread*           _definer;       // owner of define token
-  klassOop          _instanceKlass; // instanceKlass from successful define
+  Klass*            _instanceKlass; // InstanceKlass from successful define
   SeenThread*       _superThreadQ;  // doubly-linked queue of Threads loading a superclass for this class
   SeenThread*       _loadInstanceThreadQ;  // loadInstance thread
                                     // can be multiple threads if classloader object lock broken by application
@@ -176,9 +178,8 @@ class PlaceholderEntry : public HashtableEntry<Symbol*> {
   // Simple accessors, used only by SystemDictionary
   Symbol*            klassname()           const { return literal(); }
 
-  oop                loader()              const { return _loader; }
-  void               set_loader(oop loader) { _loader = loader; }
-  oop*               loader_addr()         { return &_loader; }
+  ClassLoaderData*   loader_data()         const { return _loader_data; }
+  void               set_loader_data(ClassLoaderData* loader_data) { _loader_data = loader_data; }
 
   bool               havesupername()       const { return _havesupername; }
   void               set_havesupername(bool havesupername) { _havesupername = havesupername; }
@@ -192,9 +193,8 @@ class PlaceholderEntry : public HashtableEntry<Symbol*> {
   Thread*            definer()             const {return _definer; }
   void               set_definer(Thread* definer) { _definer = definer; }
 
-  klassOop           instanceKlass()     const {return _instanceKlass; }
-  void               set_instanceKlass(klassOop instanceKlass) { _instanceKlass = instanceKlass; }
-  klassOop*          instanceKlass_addr()   { return &_instanceKlass; }
+  Klass*             instance_klass()      const {return _instanceKlass; }
+  void               set_instance_klass(Klass* ik) { _instanceKlass = ik; }
 
   SeenThread*        superThreadQ()        const { return _superThreadQ; }
   void               set_superThreadQ(SeenThread* SeenThread) { _superThreadQ = SeenThread; }
@@ -206,17 +206,17 @@ class PlaceholderEntry : public HashtableEntry<Symbol*> {
   void               set_defineThreadQ(SeenThread* SeenThread) { _defineThreadQ = SeenThread; }
 
   PlaceholderEntry* next() const {
-    return (PlaceholderEntry*)HashtableEntry<Symbol*>::next();
+    return (PlaceholderEntry*)HashtableEntry<Symbol*, mtClass>::next();
   }
 
   PlaceholderEntry** next_addr() {
-    return (PlaceholderEntry**)HashtableEntry<Symbol*>::next_addr();
+    return (PlaceholderEntry**)HashtableEntry<Symbol*, mtClass>::next_addr();
   }
 
   // Test for equality
   // Entries are unique for class/classloader name pair
-  bool equals(Symbol* class_name, oop class_loader) const {
-    return (klassname() == class_name && loader() == class_loader);
+  bool equals(Symbol* class_name, ClassLoaderData* loader) const {
+    return (klassname() == class_name && loader_data() == loader);
   }
 
   SeenThread* actionToQueue(PlaceholderTable::classloadAction action) {
@@ -331,7 +331,7 @@ class PlaceholderEntry : public HashtableEntry<Symbol*> {
 
   // GC support
   // Applies "f->do_oop" to all root oops in the placeholder table.
-  void oops_do(OopClosure* blk);
+  void classes_do(KlassClosure* closure);
 
   // Print method doesn't append a cr
   void print() const  PRODUCT_RETURN;

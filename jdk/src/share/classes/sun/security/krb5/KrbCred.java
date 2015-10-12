@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -96,15 +96,14 @@ public class KrbCred {
         PrincipalName princ = delegatedCreds.getClient();
         Realm realm = princ.getRealm();
         PrincipalName tgService = delegatedCreds.getServer();
-        Realm tgsRealm = tgService.getRealm();
 
-        KrbCredInfo credInfo = new KrbCredInfo(sessionKey, realm,
+        KrbCredInfo credInfo = new KrbCredInfo(sessionKey,
                                                princ, delegatedCreds.flags, delegatedCreds.authTime,
                                                delegatedCreds.startTime, delegatedCreds.endTime,
-                                               delegatedCreds.renewTill, tgsRealm, tgService,
+                                               delegatedCreds.renewTill, tgService,
                                                delegatedCreds.cAddr);
 
-        timeStamp = new KerberosTime(KerberosTime.NOW);
+        timeStamp = KerberosTime.now();
         KrbCredInfo[] credInfos = {credInfo};
         EncKrbCredPart encPart =
             new EncKrbCredPart(credInfos,
@@ -120,7 +119,7 @@ public class KrbCred {
         return credMessg;
     }
 
-         // Used in InitialToken, key always NULL_KEY
+    // Used in InitialToken, NULL_KEY might be used
     public KrbCred(byte[] asn1Message, EncryptionKey key)
         throws KrbException, IOException {
 
@@ -128,6 +127,9 @@ public class KrbCred {
 
         ticket = credMessg.tickets[0];
 
+        if (credMessg.encPart.getEType() == 0) {
+            key = EncryptionKey.NULL_KEY;
+        }
         byte[] temp = credMessg.encPart.decrypt(key,
             KeyUsage.KU_ENC_KRB_CRED_PART);
         byte[] plainText = credMessg.encPart.reset(temp);
@@ -138,19 +140,13 @@ public class KrbCred {
 
         KrbCredInfo credInfo = encPart.ticketInfo[0];
         EncryptionKey credInfoKey = credInfo.key;
-        Realm prealm = credInfo.prealm;
-        // XXX PrincipalName can store realm + principalname or
-        // just principal name.
         PrincipalName pname = credInfo.pname;
-        pname.setRealm(prealm);
         TicketFlags flags = credInfo.flags;
         KerberosTime authtime = credInfo.authtime;
         KerberosTime starttime = credInfo.starttime;
         KerberosTime endtime = credInfo.endtime;
         KerberosTime renewTill = credInfo.renewTill;
-        Realm srealm = credInfo.srealm;
         PrincipalName sname = credInfo.sname;
-        sname.setRealm(srealm);
         HostAddresses caddr = credInfo.caddr;
 
         if (DEBUG) {

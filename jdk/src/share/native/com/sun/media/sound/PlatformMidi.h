@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@
 
 /* do we need the queue ? */
 #if (USE_PLATFORM_MIDI_IN == TRUE) || (USE_PLATFORM_MIDI_OUT == TRUE)
- #if X_PLATFORM == X_WINDOWS
+ #if X_PLATFORM == X_WINDOWS || X_PLATFORM == X_MACOSX
   #define USE_MIDI_QUEUE TRUE
  #endif
 #endif
@@ -222,7 +222,7 @@ INT32 MIDI_IN_StopDevice(MidiDeviceHandle* handle);
 
 /*
  * Return the current time stamp in microseconds.
- * If not supported, or problem occured, returns -1
+ * If not supported, or problem occurred, returns -1
  */
 INT64 MIDI_IN_GetTimeStamp(MidiDeviceHandle* handle);
 
@@ -311,7 +311,7 @@ INT32 MIDI_OUT_CloseDevice(MidiDeviceHandle* handle);
 /*
  * Return the current time stamp in microseconds (the time since the device
  * was opened).
- * If not supported, or problem occured, returns -1
+ * If not supported, or problem occurred, returns -1
  */
 INT64 MIDI_OUT_GetTimeStamp(MidiDeviceHandle* handle);
 

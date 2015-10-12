@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,8 +40,15 @@ import sun.jvm.hotspot.utilities.soql.*;
 public class SOQL extends Tool {
    public static void main(String[] args) {
       SOQL soql = new SOQL();
-      soql.start(args);
-      soql.stop();
+      soql.execute(args);
+   }
+
+   public SOQL() {
+      super();
+   }
+
+   public SOQL(JVMDebugger d) {
+      super(d);
    }
 
    protected SOQLEngine soqlEngine;
@@ -126,7 +133,7 @@ public class SOQL extends Tool {
       for (int i = 0; i < klasses.length; i++) {
          out.print(klasses[i].getName().asString().replace('/', '.'));
          out.print(" @");
-         out.println(klasses[i].getHandle());
+         out.println(klasses[i].getAddress());
       }
    }
 
@@ -150,16 +157,14 @@ public class SOQL extends Tool {
             }
 
             // list immediate fields only
-            TypeArray fields = klass.getFields();
-            int numFields = (int) fields.getLength();
+            U2Array fields = klass.getFields();
+            int numFields = (int) fields.length();
             ConstantPool cp = klass.getConstants();
             out.println("fields");
             if (numFields != 0) {
-               for (int f = 0; f < numFields; f += InstanceKlass.NEXT_OFFSET) {
-                 int nameIndex = fields.getShortAt(f + InstanceKlass.NAME_INDEX_OFFSET);
-                 int sigIndex  = fields.getShortAt(f + InstanceKlass.SIGNATURE_INDEX_OFFSET);
-                 Symbol f_name = cp.getSymbolAt(nameIndex);
-                 Symbol f_sig  = cp.getSymbolAt(sigIndex);
+              for (int f = 0; f < numFields; f++){
+                 Symbol f_name = klass.getFieldName(f);
+                 Symbol f_sig  = klass.getFieldSignature(f);
                  StringBuffer sigBuf = new StringBuffer();
                  new SignatureConverter(f_sig, sigBuf).dispatchField();
                  out.print('\t');

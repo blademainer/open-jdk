@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,6 @@
  * ObjID() should still generate sequential object numbers.
  * @author Peter Jones
  *
- * @build RandomIDs
  * @run main/othervm RandomIDs random
  * @run main/othervm -Djava.rmi.server.randomIDs=true RandomIDs random
  * @run main/othervm -Djava.rmi.server.randomIDs=false RandomIDs sequential

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -50,7 +50,6 @@ import sun.java2d.ScreenUpdateManager;
 import sun.java2d.d3d.D3DSurfaceData;
 import sun.java2d.opengl.OGLSurfaceData;
 import sun.java2d.pipe.Region;
-import sun.awt.DisplayChangedListener;
 import sun.awt.PaintEventDispatcher;
 import sun.awt.SunToolkit;
 import sun.awt.event.IgnorePaintEvent;
@@ -177,7 +176,7 @@ public abstract class WComponentPeer extends WObjectPeer
     void dynamicallyLayoutContainer() {
         // If we got the WM_SIZING, this must be a Container, right?
         // In fact, it must be the top-level Container.
-        if (log.isLoggable(PlatformLogger.FINE)) {
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
             Container parent = WToolkit.getNativeContainer((Component)target);
             if (parent != null) {
                 log.fine("Assertion (parent == null) failed");
@@ -222,7 +221,7 @@ public abstract class WComponentPeer extends WObjectPeer
         updateWindow();
         // make sure paint events are transferred to main event queue
         // for coalescing
-        WToolkit.getWToolkit().flushPendingEvents();
+        SunToolkit.flushPendingEvents();
         // paint the damaged area
         paintArea.paint(target, shouldClearRectBeforePaint());
     }
@@ -282,7 +281,7 @@ public abstract class WComponentPeer extends WObjectPeer
             paintArea.add(r, e.getID());
         }
 
-        if (log.isLoggable(PlatformLogger.FINEST)) {
+        if (log.isLoggable(PlatformLogger.Level.FINEST)) {
             switch(e.getID()) {
             case PaintEvent.UPDATE:
                 log.finest("coalescePaintEvent: UPDATE: add: x = " +
@@ -320,6 +319,7 @@ public abstract class WComponentPeer extends WObjectPeer
 
     native void nativeHandleEvent(AWTEvent e);
 
+    @SuppressWarnings("fallthrough")
     public void handleEvent(AWTEvent e) {
         int id = e.getID();
 
@@ -359,7 +359,9 @@ public abstract class WComponentPeer extends WObjectPeer
     }
 
     void handleJavaFocusEvent(FocusEvent fe) {
-        if (focusLog.isLoggable(PlatformLogger.FINER)) focusLog.finer(fe.toString());
+        if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
+            focusLog.finer(fe.toString());
+        }
         setFocus(fe.getID() == FocusEvent.FOCUS_GAINED);
     }
 
@@ -487,14 +489,15 @@ public abstract class WComponentPeer extends WObjectPeer
                     try {
                         replaceSurfaceData();
                     } catch (InvalidPipeException e) {
-                    // REMIND : what do we do if our surface creation failed?
+                        // REMIND : what do we do if our surface creation failed?
                     }
                 }
             }
         };
+        Component c = (Component)target;
         // Fix 6255371.
-        if (!PaintEventDispatcher.getPaintEventDispatcher().queueSurfaceDataReplacing((Component)target, r)) {
-            postEvent(new InvocationEvent(Toolkit.getDefaultToolkit(), r));
+        if (!PaintEventDispatcher.getPaintEventDispatcher().queueSurfaceDataReplacing(c, r)) {
+            postEvent(new InvocationEvent(c, r));
         }
     }
 
@@ -542,13 +545,11 @@ public abstract class WComponentPeer extends WObjectPeer
             return null;
         }
     }
-    public java.awt.Toolkit getToolkit() {
-        return Toolkit.getDefaultToolkit();
-    }
 
     // fallback default font object
     final static Font defaultFont = new Font(Font.DIALOG, Font.PLAIN, 12);
 
+    @SuppressWarnings("deprecation")
     public Graphics getGraphics() {
         if (isDisposed()) {
             return null;
@@ -615,6 +616,14 @@ public abstract class WComponentPeer extends WObjectPeer
         _dispose();
     }
 
+    public void disposeLater() {
+        postEvent(new InvocationEvent(target, new Runnable() {
+            public void run() {
+                dispose();
+            }
+        }));
+    }
+
     public synchronized void setForeground(Color c) {
         foreground = c;
         _setForeground(c.getRGB());
@@ -643,11 +652,12 @@ public abstract class WComponentPeer extends WObjectPeer
         _setFont(f);
     }
     public synchronized native void _setFont(Font f);
-    public final void updateCursorImmediately() {
+    public void updateCursorImmediately() {
         WGlobalCursorManager.getCursorManager().updateCursorImmediately();
     }
 
     // TODO: consider moving it to KeyboardFocusManagerPeerImpl
+    @SuppressWarnings("deprecation")
     public boolean requestFocus(Component lightweightChild, boolean temporary,
                                 boolean focusedWindowChangeAllowed, long time,
                                 CausedFocusEvent.Cause cause)
@@ -668,7 +678,7 @@ public abstract class WComponentPeer extends WObjectPeer
           case WKeyboardFocusManagerPeer.SNFH_FAILURE:
               return false;
           case WKeyboardFocusManagerPeer.SNFH_SUCCESS_PROCEED:
-              if (focusLog.isLoggable(PlatformLogger.FINER)) {
+              if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
                   focusLog.finer("Proceeding with request to " + lightweightChild + " in " + target);
               }
               Window parentWindow = SunToolkit.getContainingWindow((Component)target);
@@ -681,7 +691,9 @@ public abstract class WComponentPeer extends WObjectPeer
               }
               boolean res = wpeer.requestWindowFocus(cause);
 
-              if (focusLog.isLoggable(PlatformLogger.FINER)) focusLog.finer("Requested window focus: " + res);
+              if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
+                  focusLog.finer("Requested window focus: " + res);
+              }
               // If parent window can be made focused and has been made focused(synchronously)
               // then we can proceed with children, otherwise we retreat.
               if (!(res && parentWindow.isFocused())) {
@@ -701,7 +713,9 @@ public abstract class WComponentPeer extends WObjectPeer
     }
 
     private boolean rejectFocusRequestHelper(String logMsg) {
-        if (focusLog.isLoggable(PlatformLogger.FINER)) focusLog.finer(logMsg);
+        if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
+            focusLog.finer(logMsg);
+        }
         WKeyboardFocusManagerPeer.removeLastFocusRequest((Component)target);
         return false;
     }
@@ -721,11 +735,11 @@ public abstract class WComponentPeer extends WObjectPeer
     }
 
     public boolean prepareImage(Image img, int w, int h, ImageObserver o) {
-        return getToolkit().prepareImage(img, w, h, o);
+        return Toolkit.getDefaultToolkit().prepareImage(img, w, h, o);
     }
 
     public int checkImage(Image img, int w, int h, ImageObserver o) {
-        return getToolkit().checkImage(img, w, h, o);
+        return Toolkit.getDefaultToolkit().checkImage(img, w, h, o);
     }
 
     // Object overrides
@@ -741,9 +755,7 @@ public abstract class WComponentPeer extends WObjectPeer
     WComponentPeer(Component target) {
         this.target = target;
         this.paintArea = new RepaintArea();
-        Container parent = WToolkit.getNativeContainer(target);
-        WComponentPeer parentPeer = (WComponentPeer) WToolkit.targetToPeer(parent);
-        create(parentPeer);
+        create(getNativeParent());
         // fix for 5088782: check if window object is created successfully
         checkCreation();
 
@@ -752,6 +764,17 @@ public abstract class WComponentPeer extends WObjectPeer
         start();  // Initialize enable/disable state, turn on callbacks
     }
     abstract void create(WComponentPeer parent);
+
+    /**
+     * Gets the native parent of this peer. We use the term "parent" explicitly,
+     * because we override the method in top-level window peer implementations.
+     *
+     * @return the parent container/owner of this peer.
+     */
+    WComponentPeer getNativeParent() {
+        Container parent = SunToolkit.getNativeContainer((Component) target);
+        return (WComponentPeer) WToolkit.targetToPeer(parent);
+    }
 
     protected void checkCreation()
     {
@@ -856,13 +879,6 @@ public abstract class WComponentPeer extends WObjectPeer
 
     public native void beginValidate();
     public native void endValidate();
-
-    /**
-     * DEPRECATED
-     */
-    public Dimension minimumSize() {
-        return getMinimumSize();
-    }
 
     /**
      * DEPRECATED
@@ -1050,6 +1066,7 @@ public abstract class WComponentPeer extends WObjectPeer
     // in the browser on Vista when DWM is enabled.
     // @return true if the toplevel container is not an EmbeddedFrame or
     // if this EmbeddedFrame is acceleration capable, false otherwise
+    @SuppressWarnings("deprecation")
     private static final boolean isContainingTopLevelAccelCapable(Component c) {
         while (c != null && !(c instanceof WEmbeddedFrame)) {
             c = c.getParent();
@@ -1064,12 +1081,12 @@ public abstract class WComponentPeer extends WObjectPeer
      * Applies the shape to the native component window.
      * @since 1.7
      */
+    @SuppressWarnings("deprecation")
     public void applyShape(Region shape) {
-        if (shapeLog.isLoggable(PlatformLogger.FINER)) {
-            shapeLog.finer(
-                    "*** INFO: Setting shape: PEER: " + this
-                    + "; TARGET: " + target
-                    + "; SHAPE: " + shape);
+        if (shapeLog.isLoggable(PlatformLogger.Level.FINER)) {
+            shapeLog.finer("*** INFO: Setting shape: PEER: " + this
+                            + "; TARGET: " + target
+                            + "; SHAPE: " + shape);
         }
 
         if (shape != null) {
@@ -1091,4 +1108,8 @@ public abstract class WComponentPeer extends WObjectPeer
     }
 
     private native void setZOrder(long above);
+
+    public boolean isLightweightFramePeer() {
+        return false;
+    }
 }

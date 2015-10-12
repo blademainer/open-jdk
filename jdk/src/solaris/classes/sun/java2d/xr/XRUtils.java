@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@ package sun.java2d.xr;
 
 import java.awt.*;
 import java.awt.MultipleGradientPaint.*;
+import java.awt.geom.AffineTransform;
 import java.awt.image.*;
 import sun.java2d.loops.*;
 import static java.awt.AlphaComposite.*;
@@ -255,7 +256,24 @@ public class XRUtils {
                            : (x < Short.MIN_VALUE ? Short.MIN_VALUE : x));
     }
 
-    public static short clampToUShort(int x) {
-        return (short) (x > 65535 ? 65535 : (x < 0) ? 0 : x);
+    public static int clampToUShort(int x) {
+        return (x > 65535 ? 65535 : (x < 0) ? 0 : x);
+    }
+
+    public static boolean isTransformQuadrantRotated(AffineTransform tr) {
+        return ((tr.getType() & (AffineTransform.TYPE_GENERAL_ROTATION |
+                 AffineTransform.TYPE_GENERAL_TRANSFORM)) == 0);
+    }
+
+    public static boolean isMaskEvaluated(byte xrCompRule) {
+        switch (xrCompRule) {
+        case PictOpOver:
+        case PictOpOverReverse:
+        case PictOpAtop:
+        case PictOpXor:
+            return true;
+        }
+
+        return false;
     }
 }

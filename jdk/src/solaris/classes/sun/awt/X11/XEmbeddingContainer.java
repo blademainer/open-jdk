@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,7 +29,7 @@ import java.awt.*;
 import java.util.HashMap;
 import java.awt.event.KeyEvent;
 import java.lang.reflect.*;
-import sun.awt.SunToolkit;
+import sun.awt.AWTAccessor;
 
 public class XEmbeddingContainer extends XEmbedHelper implements XEventDispatcher {
     HashMap children = new HashMap();
@@ -127,20 +127,8 @@ public class XEmbeddingContainer extends XEmbedHelper implements XEventDispatche
         }
     }
 
-    static Field bdata;
-    byte[] getBData(KeyEvent e) {
-        try {
-            if (bdata == null) {
-                bdata = SunToolkit.getField(java.awt.AWTEvent.class, "bdata");
-            }
-            return (byte[])bdata.get(e);
-        } catch (IllegalAccessException ex) {
-            return null;
-        }
-    }
-
     void forwardKeyEvent(long child, KeyEvent e) {
-        byte[] bdata = getBData(e);
+        byte[] bdata = AWTAccessor.getAWTEventAccessor().getBData(e);
         long data = Native.toData(bdata);
         if (data == 0) {
             return;

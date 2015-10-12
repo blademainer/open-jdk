@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -74,7 +74,7 @@ public interface CompilationMXBean extends PlatformManagedObject {
     public boolean isCompilationTimeMonitoringSupported();
 
     /**
-     * Returns the approximate accumlated elapsed time (in milliseconds)
+     * Returns the approximate accumulated elapsed time (in milliseconds)
      * spent in compilation.
      * If multiple threads are used for compilation, this value is
      * summation of the approximate time that each thread spent in compilation.

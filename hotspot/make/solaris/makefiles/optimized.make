@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -32,6 +32,11 @@ OPT_CFLAGS/BYFILE = $(OPT_CFLAGS/$@)$(OPT_CFLAGS/DEFAULT$(OPT_CFLAGS/$@))
 # (OPT_CFLAGS/SLOWER is also available, to alter compilation of buggy files)
 ifeq ("${Platform_compiler}", "sparcWorks")
 
+ifeq ($(COMPILER_REV_NUMERIC), 510)
+# CC 5.10 has bug XXXXX with -xO4
+OPT_CFLAGS/jvmtiClassFileReconstituter.o = $(OPT_CFLAGS/O2)
+endif # COMPILER_REV_NUMERIC == 510
+
 ifeq ($(shell expr $(COMPILER_REV_NUMERIC) \>= 509), 1)
 # dtrace cannot handle tail call optimization (6672627, 6693876)
 OPT_CFLAGS/jni.o = $(OPT_CFLAGS/DEFAULT) $(OPT_CCFLAGS/NO_TAIL_CALL_OPT)
@@ -48,9 +53,7 @@ endif # Platform_compiler == sparcWorks
 CFLAGS$(HOTSPARC_GENERIC) += $(OPT_CFLAGS/BYFILE)
 
 # Linker mapfiles
-# NOTE: inclusion of nonproduct mapfile not necessary; read it for details
-MAPFILE = $(GAMMADIR)/make/solaris/makefiles/mapfile-vers \
-          $(GAMMADIR)/make/solaris/makefiles/mapfile-vers-nonproduct
+MAPFILE = $(GAMMADIR)/make/solaris/makefiles/mapfile-vers
 
 # This mapfile is only needed when compiling with dtrace support, 
 # and mustn't be otherwise.
@@ -59,5 +62,4 @@ MAPFILE_DTRACE = $(GAMMADIR)/make/solaris/makefiles/mapfile-vers-$(TYPE)
 # Set the environment variable HOTSPARC_GENERIC to "true"
 # to inhibit the effect of the previous line on CFLAGS.
 
-G_SUFFIX =
 VERSION = optimized

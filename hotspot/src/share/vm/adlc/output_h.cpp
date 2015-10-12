@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,8 @@
 // output_h.cpp - Class HPP file output routines for architecture definition
 #include "adlc.hpp"
 
+// The comment delimiter used in format statements after assembler instructions.
+#define commentSeperator "!"
 
 // Generate the #define that describes the number of registers.
 static void defineRegCount(FILE *fp, RegisterForm *registers) {
@@ -79,10 +81,15 @@ void ArchDesc::buildMachRegisterNumbers(FILE *fp_hpp) {
     _register->reset_RegDefs();
     int i = 0;
     while( (reg_def = _register->iter_RegDefs()) != NULL ) {
-      fprintf(fp_hpp,"  %s_num,\t\t// %d\n", reg_def->_regname, i++);
+      fprintf(fp_hpp,"  %s_num,", reg_def->_regname);
+      for (int j = 0; j < 20-(int)strlen(reg_def->_regname); j++) fprintf(fp_hpp, " ");
+      fprintf(fp_hpp," // enum %3d, regnum %3d, reg encode %3s\n",
+              i++,
+              reg_def->register_num(),
+              reg_def->register_encode());
     }
     // Finish defining enumeration
-    fprintf(fp_hpp, "  _last_Mach_Reg\t// %d\n", i);
+    fprintf(fp_hpp, "  _last_Mach_Reg            // %d\n", i);
     fprintf(fp_hpp, "};\n");
   }
 
@@ -121,13 +128,24 @@ void ArchDesc::buildMachRegisterEncodes(FILE *fp_hpp) {
     fprintf(fp_hpp, "// in the order of occurrence in the alloc_class(es).\n");
     fprintf(fp_hpp, "enum MachRegisterEncodes {\n");
 
+    // Find max enum string length.
+    size_t maxlen = 0;
+    _register->reset_RegDefs();
+    reg_def = _register->iter_RegDefs();
+    while (reg_def != NULL) {
+      size_t len = strlen(reg_def->_regname);
+      if (len > maxlen) maxlen = len;
+      reg_def = _register->iter_RegDefs();
+    }
+
     // Output the register encoding for each register in the allocation classes
     _register->reset_RegDefs();
     reg_def_next = _register->iter_RegDefs();
     while( (reg_def = reg_def_next) != NULL ) {
       reg_def_next = _register->iter_RegDefs();
-      fprintf(fp_hpp,"  %s_enc = %s%s\n",
-              reg_def->_regname, reg_def->register_encode(), reg_def_next == NULL? "" : "," );
+      fprintf(fp_hpp,"  %s_enc", reg_def->_regname);
+      for (size_t i = strlen(reg_def->_regname); i < maxlen; i++) fprintf(fp_hpp, " ");
+      fprintf(fp_hpp," = %3s%s\n", reg_def->register_encode(), reg_def_next == NULL? "" : "," );
     }
     // Finish defining enumeration
     fprintf(fp_hpp, "};\n");
@@ -177,14 +195,6 @@ static void in_RegMask(FILE *fp) {
   fprintf(fp,"  virtual const RegMask *in_RegMask(int index) const;\n");
 }
 
-static void declare_hash(FILE *fp) {
-  fprintf(fp,"  virtual uint           hash() const;\n");
-}
-
-static void declare_cmp(FILE *fp) {
-  fprintf(fp,"  virtual uint           cmp( const MachOper &oper ) const;\n");
-}
-
 static void declareConstStorage(FILE *fp, FormDict &globals, OperandForm *oper) {
   int i = 0;
   Component *comp;
@@ -206,6 +216,10 @@ static void declareConstStorage(FILE *fp, FormDict &globals, OperandForm *oper) 
     else if (!strcmp(type, "ConN")) {
       if (i > 0) fprintf(fp,", ");
       fprintf(fp,"  const TypeNarrowOop *_c%d;\n", i);
+    }
+    else if (!strcmp(type, "ConNKlass")) {
+      if (i > 0) fprintf(fp,", ");
+      fprintf(fp,"  const TypeNarrowKlass *_c%d;\n", i);
     }
     else if (!strcmp(type, "ConL")) {
       if (i > 0) fprintf(fp,", ");
@@ -240,6 +254,10 @@ static void declareConstStorage(FILE *fp, FormDict &globals, OperandForm *oper) 
         i++;
       }
       else if (!strcmp(comp->base_type(globals), "ConN")) {
+        fprintf(fp,"  const TypePtr *_c%d;\n", i);
+        i++;
+      }
+      else if (!strcmp(comp->base_type(globals), "ConNKlass")) {
         fprintf(fp,"  const TypePtr *_c%d;\n", i);
         i++;
       }
@@ -288,11 +306,12 @@ static void defineConstructor(FILE *fp, const char *name, uint num_consts,
       fprintf(fp,is_ideal_bool ? "BoolTest::mask c%d" : "int32 c%d", i);
       break;
     }
-    case Form::idealN : { fprintf(fp,"const TypeNarrowOop *c%d", i); break; }
-    case Form::idealP : { fprintf(fp,"const TypePtr *c%d", i); break; }
-    case Form::idealL : { fprintf(fp,"jlong c%d", i);   break;        }
-    case Form::idealF : { fprintf(fp,"jfloat c%d", i);  break;        }
-    case Form::idealD : { fprintf(fp,"jdouble c%d", i); break;        }
+    case Form::idealN :      { fprintf(fp,"const TypeNarrowOop *c%d", i); break; }
+    case Form::idealNKlass : { fprintf(fp,"const TypeNarrowKlass *c%d", i); break; }
+    case Form::idealP :      { fprintf(fp,"const TypePtr *c%d", i); break; }
+    case Form::idealL :      { fprintf(fp,"jlong c%d", i);   break;        }
+    case Form::idealF :      { fprintf(fp,"jfloat c%d", i);  break;        }
+    case Form::idealD :      { fprintf(fp,"jdouble c%d", i); break;        }
     default:
       assert(!is_ideal_bool, "Non-constant operand lacks component list.");
       break;
@@ -312,6 +331,11 @@ static void defineConstructor(FILE *fp, const char *name, uint num_consts,
         i++;
       }
       else if (!strcmp(comp->base_type(globals), "ConN")) {
+        if (i > 0) fprintf(fp,", ");
+        fprintf(fp,"const TypePtr *c%d", i);
+        i++;
+      }
+      else if (!strcmp(comp->base_type(globals), "ConNKlass")) {
         if (i > 0) fprintf(fp,", ");
         fprintf(fp,"const TypePtr *c%d", i);
         i++;
@@ -358,18 +382,21 @@ static void defineConstructor(FILE *fp, const char *name, uint num_consts,
 static void defineCCodeDump(OperandForm* oper, FILE *fp, int i) {
   assert(oper != NULL, "what");
   CondInterface* cond = oper->_interface->is_CondInterface();
-  fprintf(fp, "         if( _c%d == BoolTest::eq ) st->print(\"%s\");\n",i,cond->_equal_format);
-  fprintf(fp, "    else if( _c%d == BoolTest::ne ) st->print(\"%s\");\n",i,cond->_not_equal_format);
-  fprintf(fp, "    else if( _c%d == BoolTest::le ) st->print(\"%s\");\n",i,cond->_less_equal_format);
-  fprintf(fp, "    else if( _c%d == BoolTest::ge ) st->print(\"%s\");\n",i,cond->_greater_equal_format);
-  fprintf(fp, "    else if( _c%d == BoolTest::lt ) st->print(\"%s\");\n",i,cond->_less_format);
-  fprintf(fp, "    else if( _c%d == BoolTest::gt ) st->print(\"%s\");\n",i,cond->_greater_format);
+  fprintf(fp, "       if( _c%d == BoolTest::eq ) st->print(\"%s\");\n",i,cond->_equal_format);
+  fprintf(fp, "  else if( _c%d == BoolTest::ne ) st->print(\"%s\");\n",i,cond->_not_equal_format);
+  fprintf(fp, "  else if( _c%d == BoolTest::le ) st->print(\"%s\");\n",i,cond->_less_equal_format);
+  fprintf(fp, "  else if( _c%d == BoolTest::ge ) st->print(\"%s\");\n",i,cond->_greater_equal_format);
+  fprintf(fp, "  else if( _c%d == BoolTest::lt ) st->print(\"%s\");\n",i,cond->_less_format);
+  fprintf(fp, "  else if( _c%d == BoolTest::gt ) st->print(\"%s\");\n",i,cond->_greater_format);
+  fprintf(fp, "  else if( _c%d == BoolTest::overflow ) st->print(\"%s\");\n",i,cond->_overflow_format);
+  fprintf(fp, "  else if( _c%d == BoolTest::no_overflow ) st->print(\"%s\");\n",i,cond->_no_overflow_format);
 }
 
 // Output code that dumps constant values, increment "i" if type is constant
 static uint dump_spec_constant(FILE *fp, const char *ideal_type, uint i, OperandForm* oper) {
   if (!strcmp(ideal_type, "ConI")) {
     fprintf(fp,"   st->print(\"#%%d\", _c%d);\n", i);
+    fprintf(fp,"   st->print(\"/0x%%08x\", _c%d);\n", i);
     ++i;
   }
   else if (!strcmp(ideal_type, "ConP")) {
@@ -380,16 +407,25 @@ static uint dump_spec_constant(FILE *fp, const char *ideal_type, uint i, Operand
     fprintf(fp,"    _c%d->dump_on(st);\n", i);
     ++i;
   }
+  else if (!strcmp(ideal_type, "ConNKlass")) {
+    fprintf(fp,"    _c%d->dump_on(st);\n", i);
+    ++i;
+  }
   else if (!strcmp(ideal_type, "ConL")) {
     fprintf(fp,"    st->print(\"#\" INT64_FORMAT, _c%d);\n", i);
+    fprintf(fp,"    st->print(\"/\" PTR64_FORMAT, _c%d);\n", i);
     ++i;
   }
   else if (!strcmp(ideal_type, "ConF")) {
     fprintf(fp,"    st->print(\"#%%f\", _c%d);\n", i);
+    fprintf(fp,"    jint _c%di = JavaValue(_c%d).get_jint();\n", i, i);
+    fprintf(fp,"    st->print(\"/0x%%x/\", _c%di);\n", i);
     ++i;
   }
   else if (!strcmp(ideal_type, "ConD")) {
     fprintf(fp,"    st->print(\"#%%f\", _c%d);\n", i);
+    fprintf(fp,"    jlong _c%dl = JavaValue(_c%d).get_jlong();\n", i, i);
+    fprintf(fp,"    st->print(\"/\" PTR64_FORMAT, _c%dl);\n", i);
     ++i;
   }
   else if (!strcmp(ideal_type, "Bool")) {
@@ -411,7 +447,7 @@ void gen_oper_format(FILE *fp, FormDict &globals, OperandForm &oper, bool for_c_
   }
 
   // Local pointer indicates remaining part of format rule
-  uint  idx = 0;                   // position of operand in match rule
+  int idx = 0;                   // position of operand in match rule
 
   // Generate internal format function, used when stored locally
   fprintf(fp, "\n#ifndef PRODUCT\n");
@@ -426,13 +462,12 @@ void gen_oper_format(FILE *fp, FormDict &globals, OperandForm &oper, bool for_c_
       oper._format->_rep_vars.reset();
       oper._format->_strings.reset();
       while ( (string = oper._format->_strings.iter()) != NULL ) {
-        fprintf(fp,"  ");
 
         // Check if this is a standard string or a replacement variable
         if ( string != NameList::_signal ) {
           // Normal string
           // Pass through to st->print
-          fprintf(fp,"st->print(\"%s\");\n", string);
+          fprintf(fp,"  st->print(\"%s\");\n", string);
         } else {
           // Replacement variable
           const char *rep_var = oper._format->_rep_vars.iter();
@@ -455,7 +490,7 @@ void gen_oper_format(FILE *fp, FormDict &globals, OperandForm &oper, bool for_c_
           }
 
           // output invocation of "$..."s format function
-          if ( op != NULL )   op->int_format(fp, globals, idx);
+          if ( op != NULL ) op->int_format(fp, globals, idx);
 
           if ( idx == -1 ) {
             fprintf(stderr,
@@ -498,13 +533,12 @@ void gen_oper_format(FILE *fp, FormDict &globals, OperandForm &oper, bool for_c_
       oper._format->_rep_vars.reset();
       oper._format->_strings.reset();
       while ( (string = oper._format->_strings.iter()) != NULL ) {
-        fprintf(fp,"  ");
 
         // Check if this is a standard string or a replacement variable
         if ( string != NameList::_signal ) {
           // Normal string
           // Pass through to st->print
-          fprintf(fp,"st->print(\"%s\");\n", string);
+          fprintf(fp,"  st->print(\"%s\");\n", string);
         } else {
           // Replacement variable
           const char *rep_var = oper._format->_rep_vars.iter();
@@ -529,7 +563,7 @@ void gen_oper_format(FILE *fp, FormDict &globals, OperandForm &oper, bool for_c_
           if ( op != NULL )   op->ext_format(fp, globals, idx);
 
           // Lookup the index position of the replacement variable
-          idx      = oper._components.operand_position_format(rep_var);
+          idx      = oper._components.operand_position_format(rep_var, &oper);
           if ( idx == -1 ) {
             fprintf(stderr,
                     "Using a name, %s, that isn't in match rule\n", rep_var);
@@ -583,7 +617,7 @@ void gen_inst_format(FILE *fp, FormDict &globals, InstructForm &inst, bool for_c
     inst._format->_rep_vars.reset();
     inst._format->_strings.reset();
     while( (string = inst._format->_strings.iter()) != NULL ) {
-      fprintf(fp,"    ");
+      fprintf(fp,"  ");
       // Check if this is a standard string or a replacement variable
       if( string == NameList::_signal ) { // Replacement variable
         const char* rep_var =  inst._format->_rep_vars.iter();
@@ -640,11 +674,12 @@ void gen_inst_format(FILE *fp, FormDict &globals, InstructForm &inst, bool for_c
   if( call_type != Form::invalid_type ) {
     switch( call_type ) {
     case Form::JAVA_DYNAMIC:
-      fprintf(fp,"    _method->print_short_name();\n");
+      fprintf(fp,"  _method->print_short_name(st);\n");
       break;
     case Form::JAVA_STATIC:
-      fprintf(fp,"    if( _method ) _method->print_short_name(st); else st->print(\" wrapper for: %%s\", _name);\n");
-      fprintf(fp,"    if( !_method ) dump_trap_args(st);\n");
+      fprintf(fp,"  if( _method ) _method->print_short_name(st);\n");
+      fprintf(fp,"  else st->print(\" wrapper for: %%s\", _name);\n");
+      fprintf(fp,"  if( !_method ) dump_trap_args(st);\n");
       break;
     case Form::JAVA_COMPILED:
     case Form::JAVA_INTERP:
@@ -652,49 +687,46 @@ void gen_inst_format(FILE *fp, FormDict &globals, InstructForm &inst, bool for_c
     case Form::JAVA_RUNTIME:
     case Form::JAVA_LEAF:
     case Form::JAVA_NATIVE:
-      fprintf(fp,"    st->print(\" %%s\", _name);");
+      fprintf(fp,"  st->print(\" %%s\", _name);");
       break;
     default:
-      assert(0,"ShouldNotReacHere");
+      assert(0,"ShouldNotReachHere");
     }
-    fprintf(fp,  "    st->print_cr(\"\");\n" );
-    fprintf(fp,  "    if (_jvms) _jvms->format(ra, this, st); else st->print_cr(\"        No JVM State Info\");\n" );
-    fprintf(fp,  "    st->print(\"        # \");\n" );
-    fprintf(fp,  "    if( _jvms ) _oop_map->print_on(st);\n");
+    fprintf(fp,  "  st->print_cr(\"\");\n" );
+    fprintf(fp,  "  if (_jvms) _jvms->format(ra, this, st); else st->print_cr(\"        No JVM State Info\");\n" );
+    fprintf(fp,  "  st->print(\"        # \");\n" );
+    fprintf(fp,  "  if( _jvms && _oop_map ) _oop_map->print_on(st);\n");
   }
   else if(inst.is_ideal_safepoint()) {
-    fprintf(fp,  "    st->print(\"\");\n" );
-    fprintf(fp,  "    if (_jvms) _jvms->format(ra, this, st); else st->print_cr(\"        No JVM State Info\");\n" );
-    fprintf(fp,  "    st->print(\"        # \");\n" );
-    fprintf(fp,  "    if( _jvms ) _oop_map->print_on(st);\n");
+    fprintf(fp,  "  st->print(\"\");\n" );
+    fprintf(fp,  "  if (_jvms) _jvms->format(ra, this, st); else st->print_cr(\"        No JVM State Info\");\n" );
+    fprintf(fp,  "  st->print(\"        # \");\n" );
+    fprintf(fp,  "  if( _jvms && _oop_map ) _oop_map->print_on(st);\n");
   }
   else if( inst.is_ideal_if() ) {
-    fprintf(fp,  "    st->print(\"  P=%%f C=%%f\",_prob,_fcnt);\n" );
+    fprintf(fp,  "  st->print(\"  P=%%f C=%%f\",_prob,_fcnt);\n" );
   }
   else if( inst.is_ideal_mem() ) {
     // Print out the field name if available to improve readability
-    fprintf(fp,  "    if (ra->C->alias_type(adr_type())->field() != NULL) {\n");
-    fprintf(fp,  "      st->print(\" ! Field \");\n");
-    fprintf(fp,  "      if( ra->C->alias_type(adr_type())->is_volatile() )\n");
-    fprintf(fp,  "        st->print(\" Volatile\");\n");
-    fprintf(fp,  "      ra->C->alias_type(adr_type())->field()->holder()->name()->print_symbol_on(st);\n");
-    fprintf(fp,  "      st->print(\".\");\n");
-    fprintf(fp,  "      ra->C->alias_type(adr_type())->field()->name()->print_symbol_on(st);\n");
-    fprintf(fp,  "    } else\n");
+    fprintf(fp,  "  if (ra->C->alias_type(adr_type())->field() != NULL) {\n");
+    fprintf(fp,  "    ciField* f = ra->C->alias_type(adr_type())->field();\n");
+    fprintf(fp,  "    st->print(\" %s Field: \");\n", commentSeperator);
+    fprintf(fp,  "    if (f->is_volatile())\n");
+    fprintf(fp,  "      st->print(\"volatile \");\n");
+    fprintf(fp,  "    f->holder()->name()->print_symbol_on(st);\n");
+    fprintf(fp,  "    st->print(\".\");\n");
+    fprintf(fp,  "    f->name()->print_symbol_on(st);\n");
+    fprintf(fp,  "    if (f->is_constant())\n");
+    fprintf(fp,  "      st->print(\" (constant)\");\n");
+    fprintf(fp,  "  } else {\n");
     // Make sure 'Volatile' gets printed out
-    fprintf(fp,  "    if( ra->C->alias_type(adr_type())->is_volatile() )\n");
-    fprintf(fp,  "      st->print(\" Volatile!\");\n");
+    fprintf(fp,  "    if (ra->C->alias_type(adr_type())->is_volatile())\n");
+    fprintf(fp,  "      st->print(\" volatile!\");\n");
+    fprintf(fp,  "  }\n");
   }
 
   // Complete the definition of the format function
-  fprintf(fp, "  }\n#endif\n");
-}
-
-static bool is_non_constant(char* x) {
-  // Tells whether the string (part of an operator interface) is non-constant.
-  // Simply detect whether there is an occurrence of a formal parameter,
-  // which will always begin with '$'.
-  return strchr(x, '$') == 0;
+  fprintf(fp, "}\n#endif\n");
 }
 
 void ArchDesc::declare_pipe_classes(FILE *fp_hpp) {
@@ -1086,7 +1118,7 @@ void ArchDesc::declare_pipe_classes(FILE *fp_hpp) {
   fprintf(fp_hpp, "  static void initialize_nops(MachNode *nop_list[%d], Compile* C);\n\n",
     _pipeline->_nopcnt);
   fprintf(fp_hpp, "#ifndef PRODUCT\n");
-  fprintf(fp_hpp, "  void dump() const;\n");
+  fprintf(fp_hpp, "  void dump(outputStream *st = tty) const;\n");
   fprintf(fp_hpp, "#endif\n");
   fprintf(fp_hpp, "};\n\n");
 
@@ -1178,6 +1210,8 @@ void ArchDesc::declareClasses(FILE *fp) {
       fprintf(fp,"    case  BoolTest::ne : return not_equal();\n");
       fprintf(fp,"    case  BoolTest::le : return less_equal();\n");
       fprintf(fp,"    case  BoolTest::ge : return greater_equal();\n");
+      fprintf(fp,"    case  BoolTest::overflow : return overflow();\n");
+      fprintf(fp,"    case  BoolTest::no_overflow: return no_overflow();\n");
       fprintf(fp,"    default : ShouldNotReachHere(); return 0;\n");
       fprintf(fp,"    }\n");
       fprintf(fp,"  };\n");
@@ -1231,12 +1265,12 @@ void ArchDesc::declareClasses(FILE *fp) {
       unsigned int position = 0;
       const char  *opret, *opname, *optype;
       oper->_matrule->base_operand(position,_globalNames,opret,opname,optype);
-      fprintf(fp,"  virtual const Type *type() const {");
+      fprintf(fp,"  virtual const Type    *type() const {");
       const char *type = getIdealType(optype);
       if( type != NULL ) {
         Form::DataType data_type = oper->is_base_constant(_globalNames);
         // Check if we are an ideal pointer type
-        if( data_type == Form::idealP || data_type == Form::idealN ) {
+        if( data_type == Form::idealP || data_type == Form::idealN || data_type == Form::idealNKlass ) {
           // Return the ideal type we already have: <TypePtr *>
           fprintf(fp," return _c0;");
         } else {
@@ -1343,6 +1377,14 @@ void ArchDesc::declareClasses(FILE *fp) {
         if( greater != NULL ) {
           define_oper_interface(fp, *oper, _globalNames, "greater", greater);
         }
+        const char *overflow = cInterface->_overflow;
+        if( overflow != NULL ) {
+          define_oper_interface(fp, *oper, _globalNames, "overflow", overflow);
+        }
+        const char *no_overflow = cInterface->_no_overflow;
+        if( no_overflow != NULL ) {
+          define_oper_interface(fp, *oper, _globalNames, "no_overflow", no_overflow);
+        }
       } // end Conditional Interface
       // Check if it is a Constant Interface
       else if (oper->_interface->is_ConstInterface() != NULL ) {
@@ -1360,8 +1402,8 @@ void ArchDesc::declareClasses(FILE *fp) {
           fprintf(fp,   " return _c0->get_con();");
           fprintf(fp, " }\n");
           // Generate query to determine if this pointer is an oop
-          fprintf(fp,"  virtual bool           constant_is_oop() const {");
-          fprintf(fp,   " return _c0->isa_oop_ptr();");
+          fprintf(fp,"  virtual relocInfo::relocType           constant_reloc() const {");
+          fprintf(fp,   " return _c0->reloc();");
           fprintf(fp, " }\n");
         }
         else if (!strcmp(oper->ideal_type(_globalNames), "ConN")) {
@@ -1370,8 +1412,18 @@ void ArchDesc::declareClasses(FILE *fp) {
           fprintf(fp,   " return _c0->get_ptrtype()->get_con();");
           fprintf(fp, " }\n");
           // Generate query to determine if this pointer is an oop
-          fprintf(fp,"  virtual bool           constant_is_oop() const {");
-          fprintf(fp,   " return _c0->get_ptrtype()->isa_oop_ptr();");
+          fprintf(fp,"  virtual relocInfo::relocType           constant_reloc() const {");
+          fprintf(fp,   " return _c0->get_ptrtype()->reloc();");
+          fprintf(fp, " }\n");
+        }
+        else if (!strcmp(oper->ideal_type(_globalNames), "ConNKlass")) {
+          // Access the locally stored constant
+          fprintf(fp,"  virtual intptr_t       constant() const {");
+          fprintf(fp,   " return _c0->get_ptrtype()->get_con();");
+          fprintf(fp, " }\n");
+          // Generate query to determine if this pointer is an oop
+          fprintf(fp,"  virtual relocInfo::relocType           constant_reloc() const {");
+          fprintf(fp,   " return _c0->get_ptrtype()->reloc();");
           fprintf(fp, " }\n");
         }
         else if (!strcmp(oper->ideal_type(_globalNames), "ConL")) {
@@ -1500,12 +1552,19 @@ void ArchDesc::declareClasses(FILE *fp) {
       fprintf(fp, "  GrowableArray<Label*> _index2label;\n");
     }
     fprintf(fp,"public:\n");
-    fprintf(fp,"  MachOper *opnd_array(uint operand_index) const { assert(operand_index < _num_opnds, \"invalid _opnd_array index\"); return _opnd_array[operand_index]; }\n");
-    fprintf(fp,"  void      set_opnd_array(uint operand_index, MachOper *operand) { assert(operand_index < _num_opnds, \"invalid _opnd_array index\"); _opnd_array[operand_index] = operand; }\n");
+    fprintf(fp,"  MachOper *opnd_array(uint operand_index) const {\n");
+    fprintf(fp,"    assert(operand_index < _num_opnds, \"invalid _opnd_array index\");\n");
+    fprintf(fp,"    return _opnd_array[operand_index];\n");
+    fprintf(fp,"  }\n");
+    fprintf(fp,"  void      set_opnd_array(uint operand_index, MachOper *operand) {\n");
+    fprintf(fp,"    assert(operand_index < _num_opnds, \"invalid _opnd_array index\");\n");
+    fprintf(fp,"    _opnd_array[operand_index] = operand;\n");
+    fprintf(fp,"  }\n");
     fprintf(fp,"private:\n");
     if ( instr->is_ideal_jump() ) {
       fprintf(fp,"  virtual void           add_case_label(int index_num, Label* blockLabel) {\n");
-      fprintf(fp,"                                          _index2label.at_put_grow(index_num, blockLabel);}\n");
+      fprintf(fp,"    _index2label.at_put_grow(index_num, blockLabel);\n");
+      fprintf(fp,"  }\n");
     }
     if( can_cisc_spill() && (instr->cisc_spill_alternate() != NULL) ) {
       fprintf(fp,"  const RegMask  *_cisc_RegMask;\n");
@@ -1519,8 +1578,9 @@ void ArchDesc::declareClasses(FILE *fp) {
     // Declare Node::methods that set operand Label's contents
     int label_position = instr->label_position();
     if( label_position != -1 ) {
-      // Set the label, stored in labelOper::_branch_label
-      fprintf(fp,"  virtual void           label_set( Label& label, uint block_num );\n");
+      // Set/Save the label, stored in labelOper::_branch_label
+      fprintf(fp,"  virtual void           label_set( Label* label, uint block_num );\n");
+      fprintf(fp,"  virtual void           save_label( Label** label, uint* block_num );\n");
     }
 
     // If this instruction contains a methodOper
@@ -1536,16 +1596,16 @@ void ArchDesc::declareClasses(FILE *fp) {
     // Each instruction attribute results in a virtual call of same name.
     // The ins_cost is not handled here.
     Attribute *attr = instr->_attribs;
-    bool is_pc_relative = false;
+    bool avoid_back_to_back = false;
     while (attr != NULL) {
       if (strcmp(attr->_ident,"ins_cost") &&
-          strcmp(attr->_ident,"ins_pc_relative")) {
-        fprintf(fp,"  int             %s() const { return %s; }\n",
+          strcmp(attr->_ident,"ins_short_branch")) {
+        fprintf(fp,"          int            %s() const { return %s; }\n",
                 attr->_ident, attr->_val);
       }
-      // Check value for ins_pc_relative, and if it is true (1), set the flag
-      if (!strcmp(attr->_ident,"ins_pc_relative") && attr->int_val(*this) != 0)
-        is_pc_relative = true;
+      // Check value for ins_avoid_back_to_back, and if it is true (1), set the flag
+      if (!strcmp(attr->_ident,"ins_avoid_back_to_back") && attr->int_val(*this) != 0)
+        avoid_back_to_back = true;
       attr = (Attribute *)attr->_next;
     }
 
@@ -1624,12 +1684,12 @@ void ArchDesc::declareClasses(FILE *fp) {
 
     // Output the declaration for number of relocation entries
     if ( instr->reloc(_globalNames) != 0 ) {
-      fprintf(fp,"  virtual int            reloc()   const;\n");
+      fprintf(fp,"  virtual int            reloc() const;\n");
     }
 
     if (instr->alignment() != 1) {
-      fprintf(fp,"  virtual int            alignment_required()   const { return %d; }\n", instr->alignment());
-      fprintf(fp,"  virtual int            compute_padding(int current_offset)   const;\n");
+      fprintf(fp,"  virtual int            alignment_required() const { return %d; }\n", instr->alignment());
+      fprintf(fp,"  virtual int            compute_padding(int current_offset) const;\n");
     }
 
     // Starting point for inputs matcher wants.
@@ -1657,20 +1717,10 @@ void ArchDesc::declareClasses(FILE *fp) {
     fprintf(fp," _num_opnds = %d; _opnds = _opnd_array; ", instr->num_opnds());
 
     bool node_flags_set = false;
-    // flag: if this instruction matches an ideal 'Goto' node
-    if ( instr->is_ideal_goto() ) {
-      fprintf(fp,"init_flags(Flag_is_Goto");
-      node_flags_set = true;
-    }
-
     // flag: if this instruction matches an ideal 'Copy*' node
     if ( instr->is_ideal_copy() != 0 ) {
-      if ( node_flags_set ) {
-        fprintf(fp," | Flag_is_Copy");
-      } else {
-        fprintf(fp,"init_flags(Flag_is_Copy");
-        node_flags_set = true;
-      }
+      fprintf(fp,"init_flags(Flag_is_Copy");
+      node_flags_set = true;
     }
 
     // Is an instruction is a constant?  If so, get its type
@@ -1688,16 +1738,6 @@ void ArchDesc::declareClasses(FILE *fp) {
       }
     }
 
-    // flag: if instruction matches 'If' | 'Goto' | 'CountedLoopEnd | 'Jump'
-    if ( instr->is_ideal_branch() ) {
-      if ( node_flags_set ) {
-        fprintf(fp," | Flag_is_Branch");
-      } else {
-        fprintf(fp,"init_flags(Flag_is_Branch");
-        node_flags_set = true;
-      }
-    }
-
     // flag: if this instruction is cisc alternate
     if ( can_cisc_spill() && instr->is_cisc_alternate() ) {
       if ( node_flags_set ) {
@@ -1708,22 +1748,22 @@ void ArchDesc::declareClasses(FILE *fp) {
       }
     }
 
-    // flag: if this instruction is pc relative
-    if ( is_pc_relative ) {
-      if ( node_flags_set ) {
-        fprintf(fp," | Flag_is_pc_relative");
-      } else {
-        fprintf(fp,"init_flags(Flag_is_pc_relative");
-        node_flags_set = true;
-      }
-    }
-
     // flag: if this instruction has short branch form
     if ( instr->has_short_branch_form() ) {
       if ( node_flags_set ) {
         fprintf(fp," | Flag_may_be_short_branch");
       } else {
         fprintf(fp,"init_flags(Flag_may_be_short_branch");
+        node_flags_set = true;
+      }
+    }
+
+    // flag: if this instruction should not be generated back to back.
+    if ( avoid_back_to_back ) {
+      if ( node_flags_set ) {
+        fprintf(fp," | Flag_avoid_back_to_back");
+      } else {
+        fprintf(fp,"init_flags(Flag_avoid_back_to_back");
         node_flags_set = true;
       }
     }
@@ -1739,12 +1779,18 @@ void ArchDesc::declareClasses(FILE *fp) {
       }
     }
 
-    if ( node_flags_set ) {
-      fprintf(fp,"); ");
+    // flag: if this instruction is implemented with a call
+    if ( instr->_has_call ) {
+      if ( node_flags_set ) {
+        fprintf(fp," | Flag_has_call");
+      } else {
+        fprintf(fp,"init_flags(Flag_has_call");
+        node_flags_set = true;
+      }
     }
 
-    if (instr->is_ideal_unlock() || instr->is_ideal_call_leaf()) {
-      fprintf(fp,"clear_flag(Flag_is_safepoint_node); ");
+    if ( node_flags_set ) {
+      fprintf(fp,"); ");
     }
 
     fprintf(fp,"}\n");
@@ -1813,13 +1859,14 @@ void ArchDesc::declareClasses(FILE *fp) {
       // as is done for pointers
       //
       // Construct appropriate constant type containing the constant value.
-      fprintf(fp,"  virtual const class Type *bottom_type() const{\n");
+      fprintf(fp,"  virtual const class Type *bottom_type() const {\n");
       switch( data_type ) {
       case Form::idealI:
         fprintf(fp,"    return  TypeInt::make(opnd_array(1)->constant());\n");
         break;
       case Form::idealP:
       case Form::idealN:
+      case Form::idealNKlass:
         fprintf(fp,"    return  opnd_array(1)->type();\n");
         break;
       case Form::idealD:
@@ -1843,7 +1890,7 @@ void ArchDesc::declareClasses(FILE *fp) {
       // !!!!! !!!!!
       // Provide explicit bottom type for conversions to int
       // On Intel the result operand is a stackSlot, untyped.
-      fprintf(fp,"  virtual const class Type *bottom_type() const{");
+      fprintf(fp,"  virtual const class Type *bottom_type() const {");
       fprintf(fp,   " return  TypeInt::INT;");
       fprintf(fp, " };\n");
     }*/
@@ -1864,7 +1911,7 @@ void ArchDesc::declareClasses(FILE *fp) {
       // BoxNode provides the address of a stack slot.
       // Define its bottom type to be TypeRawPtr::BOTTOM instead of TypePtr::BOTTOM
       // This prevent s insert_anti_dependencies from complaining. It will
-      // complain if it see that the pointer base is TypePtr::BOTTOM since
+      // complain if it sees that the pointer base is TypePtr::BOTTOM since
       // it doesn't understand what that might alias.
       fprintf(fp,"  const Type            *bottom_type() const { return TypeRawPtr::BOTTOM; } // Box?\n");
     }
@@ -2027,16 +2074,28 @@ void ArchDesc::defineStateClass(FILE *fp) {
 class OutputMachOperands : public OutputMap {
 public:
   OutputMachOperands(FILE *hpp, FILE *cpp, FormDict &globals, ArchDesc &AD)
-    : OutputMap(hpp, cpp, globals, AD) {};
+    : OutputMap(hpp, cpp, globals, AD, "MachOperands") {};
 
   void declaration() { }
   void definition()  { fprintf(_cpp, "enum MachOperands {\n"); }
   void closing()     { fprintf(_cpp, "  _LAST_MACH_OPER\n");
                        OutputMap::closing();
   }
-  void map(OpClassForm &opc)  { fprintf(_cpp, "  %s", _AD.machOperEnum(opc._ident) ); }
-  void map(OperandForm &oper) { fprintf(_cpp, "  %s", _AD.machOperEnum(oper._ident) ); }
-  void map(char        *name) { fprintf(_cpp, "  %s", _AD.machOperEnum(name)); }
+  void map(OpClassForm &opc)  {
+    const char* opc_ident_to_upper = _AD.machOperEnum(opc._ident);
+    fprintf(_cpp, "  %s", opc_ident_to_upper);
+    delete[] opc_ident_to_upper;
+  }
+  void map(OperandForm &oper) {
+    const char* oper_ident_to_upper = _AD.machOperEnum(oper._ident);
+    fprintf(_cpp, "  %s", oper_ident_to_upper);
+    delete[] oper_ident_to_upper;
+  }
+  void map(char *name) {
+    const char* name_to_upper = _AD.machOperEnum(name);
+    fprintf(_cpp, "  %s", name_to_upper);
+    delete[] name_to_upper;
+  }
 
   bool do_instructions()      { return false; }
   void map(InstructForm &inst){ assert( false, "ShouldNotCallThis()"); }
@@ -2062,7 +2121,7 @@ class OutputMachOpcodes : public OutputMap {
   int end_instructions;
 public:
   OutputMachOpcodes(FILE *hpp, FILE *cpp, FormDict &globals, ArchDesc &AD)
-    : OutputMap(hpp, cpp, globals, AD),
+    : OutputMap(hpp, cpp, globals, AD, "MachOpcodes"),
       begin_inst_chain_rule(-1), end_inst_chain_rule(-1), end_instructions(-1)
   {};
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -70,17 +70,19 @@ public interface PersistentMBean {
      * <P>
      * Persistence policy from the MBean and attribute descriptor is used to guide execution
      * of this method. The MBean should be stored if 'persistPolicy' field is:
-     * <PRE>  != "never"
+     * <PRE>{@literal  != "never"
      *   = "always"
      *   = "onTimer" and now > 'lastPersistTime' + 'persistPeriod'
      *   = "NoMoreOftenThan" and now > 'lastPersistTime' + 'persistPeriod'
      *   = "onUnregister"
-     * <P>
+     * }</PRE>
+     * <p>
      * Do not store the MBean if 'persistPolicy' field is:
+     * <PRE>{@literal
      *    = "never"
      *    = "onUpdate"
      *    = "onTimer" && now < 'lastPersistTime' + 'persistPeriod'
-     * <P></PRE>
+     * }</PRE>
      *
      * @exception MBeanException Wraps another exception or persistence is not supported
      * @exception RuntimeOperationsException Wraps exceptions from the persistence mechanism

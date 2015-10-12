@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,26 +31,65 @@
 #include <stdarg.h>
 
 // Simple class to format the ctor arguments into a fixed-sized buffer.
+class FormatBufferBase {
+ protected:
+  char* _buf;
+  inline FormatBufferBase(char* buf) : _buf(buf) {}
+ public:
+  operator const char *() const { return _buf; }
+};
+
+// Use resource area for buffer
+#define RES_BUFSZ 256
+class FormatBufferResource : public FormatBufferBase {
+ public:
+  FormatBufferResource(const char * format, ...);
+};
+
+// Use stack for buffer
 template <size_t bufsz = 256>
-class FormatBuffer {
-public:
+class FormatBuffer : public FormatBufferBase {
+ public:
   inline FormatBuffer(const char * format, ...);
   inline void append(const char* format, ...);
-  operator const char *() const { return _buf; }
+  inline void print(const char* format, ...);
+  inline void printv(const char* format, va_list ap);
 
-private:
+  char* buffer() { return _buf; }
+  int size() { return bufsz; }
+
+ private:
   FormatBuffer(const FormatBuffer &); // prevent copies
+  char _buffer[bufsz];
 
-private:
-  char _buf[bufsz];
+ protected:
+  inline FormatBuffer();
 };
 
 template <size_t bufsz>
-FormatBuffer<bufsz>::FormatBuffer(const char * format, ...) {
+FormatBuffer<bufsz>::FormatBuffer(const char * format, ...) : FormatBufferBase(_buffer) {
   va_list argp;
   va_start(argp, format);
   jio_vsnprintf(_buf, bufsz, format, argp);
   va_end(argp);
+}
+
+template <size_t bufsz>
+FormatBuffer<bufsz>::FormatBuffer() : FormatBufferBase(_buffer) {
+  _buf[0] = '\0';
+}
+
+template <size_t bufsz>
+void FormatBuffer<bufsz>::print(const char * format, ...) {
+  va_list argp;
+  va_start(argp, format);
+  jio_vsnprintf(_buf, bufsz, format, argp);
+  va_end(argp);
+}
+
+template <size_t bufsz>
+void FormatBuffer<bufsz>::printv(const char * format, va_list argp) {
+  jio_vsnprintf(_buf, bufsz, format, argp);
 }
 
 template <size_t bufsz>
@@ -68,6 +107,7 @@ void FormatBuffer<bufsz>::append(const char* format, ...) {
 
 // Used to format messages for assert(), guarantee(), fatal(), etc.
 typedef FormatBuffer<> err_msg;
+typedef FormatBufferResource err_msg_res;
 
 // assertions
 #ifdef ASSERT
@@ -134,9 +174,9 @@ do {                                                                         \
 } while (0)
 
 // out of memory
-#define vm_exit_out_of_memory(size, msg)                                     \
+#define vm_exit_out_of_memory(size, vm_err_type, msg)                        \
 do {                                                                         \
-  report_vm_out_of_memory(__FILE__, __LINE__, size, msg);                    \
+  report_vm_out_of_memory(__FILE__, __LINE__, size, vm_err_type, msg);       \
   BREAKPOINT;                                                                \
 } while (0)
 
@@ -164,18 +204,42 @@ do {                                                                         \
   BREAKPOINT;                                                                \
 } while (0);
 
+
+// types of VM error - originally in vmError.hpp
+enum VMErrorType {
+  INTERNAL_ERROR   = 0xe0000000,
+  OOM_MALLOC_ERROR = 0xe0000001,
+  OOM_MMAP_ERROR   = 0xe0000002
+};
+
 // error reporting helper functions
 void report_vm_error(const char* file, int line, const char* error_msg,
                      const char* detail_msg = NULL);
 void report_fatal(const char* file, int line, const char* message);
 void report_vm_out_of_memory(const char* file, int line, size_t size,
-                             const char* message);
+                             VMErrorType vm_err_type, const char* message);
 void report_should_not_call(const char* file, int line);
 void report_should_not_reach_here(const char* file, int line);
 void report_unimplemented(const char* file, int line);
 void report_untested(const char* file, int line, const char* message);
 
 void warning(const char* format, ...);
+
+#ifdef ASSERT
+// Compile-time asserts.
+template <bool> struct StaticAssert;
+template <> struct StaticAssert<true> {};
+
+// Only StaticAssert<true> is defined, so if cond evaluates to false we get
+// a compile time exception when trying to use StaticAssert<false>.
+#define STATIC_ASSERT(cond)                   \
+  do {                                        \
+    StaticAssert<(cond)> DUMMY_STATIC_ASSERT; \
+    (void)DUMMY_STATIC_ASSERT; /* ignore */   \
+  } while (false)
+#else
+#define STATIC_ASSERT(cond)
+#endif
 
 // out of shared space reporting
 enum SharedSpaceType {
@@ -195,7 +259,7 @@ bool is_error_reported();
 void set_error_reported();
 
 /* Test assert(), fatal(), guarantee(), etc. */
-NOT_PRODUCT(void test_error_handler(size_t test_num);)
+NOT_PRODUCT(void test_error_handler();)
 
 void pd_ps(frame f);
 void pd_obfuscate_location(char *buf, size_t buflen);

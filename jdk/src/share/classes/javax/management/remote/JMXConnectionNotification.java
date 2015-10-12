@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,7 +40,7 @@ import javax.management.ObjectName;
  *
  * <p>The notification type is one of the following:</p>
  *
- * <table>
+ * <table summary="JMXConnectionNotification Types">
  *
  * <tr>
  * <th align=left>Type</th>

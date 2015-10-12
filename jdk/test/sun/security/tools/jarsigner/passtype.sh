@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -45,7 +45,7 @@ esac
 KS=pt.jks
 JFILE=pt.jar
 
-KT="$TESTJAVA${FS}bin${FS}keytool -keystore $KS -validity 300"
+KT="$TESTJAVA${FS}bin${FS}keytool -keystore $KS -validity 300 -keyalg rsa"
 JAR=$TESTJAVA${FS}bin${FS}jar
 JARSIGNER=$TESTJAVA${FS}bin${FS}jarsigner
 

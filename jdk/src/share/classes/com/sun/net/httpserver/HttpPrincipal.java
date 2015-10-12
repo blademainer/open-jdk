@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ import java.security.Principal;
  * Represents a user authenticated by HTTP Basic or Digest
  * authentication.
  */
+@jdk.Exported
 public class HttpPrincipal implements Principal {
     private String username, realm;
 

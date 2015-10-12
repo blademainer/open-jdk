@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,6 +44,8 @@ public class SendDatagramToBadAddress {
         if (p.getProperty ("os.name").equals ("Windows 2000"))
             return (true);
         if (p.getProperty ("os.name").equals ("Linux"))
+            return (true);
+        if (p.getProperty ("os.name").startsWith ("Mac OS"))
             return (true);
         // Check for specific Solaris version from here
         v = p.getProperty ("os.arch");

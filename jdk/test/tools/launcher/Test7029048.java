@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,13 +25,13 @@
  * @test
  * @bug 7029048
  * @summary Checks for LD_LIBRARY_PATH on *nixes
- * @compile -XDignore.symbol.file ExecutionEnvironment.java TestHelper.java Test7029048.java
+ * @compile -XDignore.symbol.file ExecutionEnvironment.java Test7029048.java
  * @run main Test7029048
  */
 
 /*
- * 7029048: test for LD_LIBRARY_PATH set to different paths pointing which may
- * contain a libjvm.so and may not, but we test to ensure that the launcher
+ * 7029048: test for LD_LIBRARY_PATH set to different paths which may or
+ * may not contain a libjvm.so, but we test to ensure that the launcher
  * behaves correctly in all cases.
  */
 import java.io.File;
@@ -42,7 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class Test7029048 {
+public class Test7029048 extends TestHelper {
 
     static int passes = 0;
     static int errors = 0;
@@ -50,8 +50,6 @@ public class Test7029048 {
     private static final String LIBJVM = ExecutionEnvironment.LIBJVM;
     private static final String LD_LIBRARY_PATH =
             ExecutionEnvironment.LD_LIBRARY_PATH;
-    private static final String LD_LIBRARY_PATH_32 =
-            ExecutionEnvironment.LD_LIBRARY_PATH_32;
     private static final String LD_LIBRARY_PATH_64 =
             ExecutionEnvironment.LD_LIBRARY_PATH_64;
 
@@ -62,7 +60,7 @@ public class Test7029048 {
 
     private static final File dstLibDir = new File("lib");
     private static final File dstLibArchDir =
-            new File(dstLibDir, TestHelper.getJreArch());
+            new File(dstLibDir, getJreArch());
 
     private static final File dstServerDir = new File(dstLibArchDir, "server");
     private static final File dstServerLibjvm = new File(dstServerDir, LIBJVM);
@@ -70,24 +68,8 @@ public class Test7029048 {
     private static final File dstClientDir = new File(dstLibArchDir, "client");
     private static final File dstClientLibjvm = new File(dstClientDir, LIBJVM);
 
-    // used primarily to test the solaris variants in dual mode
-    private static final File dstOtherArchDir;
-    private static final File dstOtherServerDir;
-    private static final File dstOtherServerLibjvm;
-
     private static final Map<String, String> env = new HashMap<>();
 
-    static {
-        if (TestHelper.isDualMode) {
-            dstOtherArchDir = new File(dstLibDir, TestHelper.getComplementaryJreArch());
-            dstOtherServerDir = new File(dstOtherArchDir, "server");
-            dstOtherServerLibjvm = new File(dstOtherServerDir, LIBJVM);
-        } else {
-            dstOtherArchDir = null;
-            dstOtherServerDir = null;
-            dstOtherServerLibjvm = null;
-        }
-    }
 
     static String getValue(String name, List<String> in) {
         for (String x : in) {
@@ -99,46 +81,21 @@ public class Test7029048 {
         return null;
     }
 
-    static void run(boolean want32, String dflag, Map<String, String> env,
+    static void run(Map<String, String> env,
             int nLLPComponents, String caseID) {
-        final boolean want64 = want32 == false;
         env.put(ExecutionEnvironment.JLDEBUG_KEY, "true");
         List<String> cmdsList = new ArrayList<>();
-
-        // only for a dual-mode system
-        if (want64 && TestHelper.isDualMode) {
-            cmdsList.add(TestHelper.java64Cmd);
-        } else {
-            cmdsList.add(TestHelper.javaCmd); // a 32-bit java command for all
-        }
-
-        /*
-         * empty or null strings can confuse the ProcessBuilder. A null flag
-         * indicates that the appropriate data model is enforced on the chosen
-         * launcher variant.
-         */
-
-        if (dflag != null) {
-            cmdsList.add(dflag);
-        } else {
-            cmdsList.add(want32 ? "-d32" : "-d64");
-        }
+        cmdsList.add(javaCmd);
         cmdsList.add("-server");
         cmdsList.add("-jar");
         cmdsList.add(ExecutionEnvironment.testJarFile.getAbsolutePath());
         String[] cmds = new String[cmdsList.size()];
-        TestHelper.TestResult tr = TestHelper.doExec(env, cmdsList.toArray(cmds));
+        TestResult tr = doExec(env, cmdsList.toArray(cmds));
+        System.out.println(tr);
         analyze(tr, nLLPComponents, caseID);
     }
 
-    // no cross launch, ie. no change to the data model.
-    static void run(Map<String, String> env, int nLLPComponents, String caseID)
-            throws IOException {
-        boolean want32 = TestHelper.is32Bit;
-        run(want32, null, env, nLLPComponents, caseID);
-    }
-
-    static void analyze(TestHelper.TestResult tr, int nLLPComponents, String caseID) {
+    static void analyze(TestResult tr, int nLLPComponents, String caseID) {
         String envValue = getValue(LD_LIBRARY_PATH, tr.testOutput);
        /*
         * the envValue can never be null, since the test code should always
@@ -189,13 +146,9 @@ public class Test7029048 {
             switch (v) {
                 case LLP_SET_WITH_JVM:
                     // copy the files into the directory structures
-                    TestHelper.copyFile(srcLibjvmSo, dstServerLibjvm);
+                    copyFile(srcLibjvmSo, dstServerLibjvm);
                     // does not matter if it is client or a server
-                    TestHelper.copyFile(srcLibjvmSo, dstClientLibjvm);
-                    // does not matter if the arch do not match either
-                    if (TestHelper.isDualMode) {
-                        TestHelper.copyFile(srcLibjvmSo, dstOtherServerLibjvm);
-                    }
+                    copyFile(srcLibjvmSo, dstClientLibjvm);
                     desc = "LD_LIBRARY_PATH should be set";
                     break;
                 case LLP_SET_EMPTY_PATH:
@@ -211,19 +164,11 @@ public class Test7029048 {
                         Files.deleteIfExists(dstServerLibjvm.toPath());
                     }
 
-                    if (TestHelper.isDualMode) {
-                        if (!dstOtherServerDir.exists()) {
-                            Files.createDirectories(dstOtherServerDir.toPath());
-                        } else {
-                            Files.deleteIfExists(dstOtherServerLibjvm.toPath());
-                        }
-                    }
-
                     desc = "LD_LIBRARY_PATH should not be set";
                     break;
                 case LLP_SET_NON_EXISTENT_PATH:
                     if (dstLibDir.exists()) {
-                        TestHelper.recursiveDelete(dstLibDir);
+                        recursiveDelete(dstLibDir);
                     }
                     desc = "LD_LIBRARY_PATH should not be set";
                     break;
@@ -245,48 +190,26 @@ public class Test7029048 {
             env.put(LD_LIBRARY_PATH, dstClientDir.getAbsolutePath());
             run(env, v.value + 1, "Case 2: " + desc);
 
-            if (!TestHelper.isDualMode) {
-                continue; // nothing more to do for Linux
-            }
-
-            // Tests applicable only to solaris.
-
-            // initialize test variables for dual mode operations
-            final File dst32ServerDir = TestHelper.is32Bit
-                    ? dstServerDir
-                    : dstOtherServerDir;
-
-            final File dst64ServerDir = TestHelper.is64Bit
-                    ? dstServerDir
-                    : dstOtherServerDir;
-
-            /*
-             * Case 3: set the appropriate LLP_XX flag,
-             * java32 -d32, LLP_32 is relevant, LLP_64 is ignored
-             * java64 -d64, LLP_64 is relevant, LLP_32 is ignored
-             */
-            env.clear();
-            env.put(LD_LIBRARY_PATH_32, dst32ServerDir.getAbsolutePath());
-            env.put(LD_LIBRARY_PATH_64, dst64ServerDir.getAbsolutePath());
-            run(TestHelper.is32Bit, null, env, v.value + 1, "Case 3: " + desc);
-
-            /*
-             * Case 4: we are in dual mode environment, running 64-bit then
-             * we have the following scenarios:
-             * java32 -d64, LLP_64 is relevant, LLP_32 is ignored
-             * java64 -d32, LLP_32 is relevant, LLP_64 is ignored
-             */
-            if (TestHelper.dualModePresent()) {
-                run(true, "-d64", env, v.value + 1, "Case 4A: " + desc);
-                run(false,"-d32", env, v.value + 1, "Case 4B: " + desc);
+            if (isSolaris) {
+                /*
+                 * Case 3: set the appropriate LLP_XX flag,
+                 * java64 -d64, LLP_64 is relevant, LLP_32 is ignored
+                 */
+                env.clear();
+                env.put(LD_LIBRARY_PATH_64, dstServerDir.getAbsolutePath());
+                run(env, v.value + 1, "Case 3: " + desc);
             }
         }
         return;
     }
 
     public static void main(String... args) throws Exception {
-        if (TestHelper.isWindows) {
-            System.out.println("Warning: noop on windows");
+        if (TestHelper.isWindows || TestHelper.isMacOSX) {
+            System.out.println("Note: applicable on neither Windows nor MacOSX");
+            return;
+        }
+        if (!TestHelper.haveServerVM) {
+            System.out.println("Note: test relies on server vm, not found, exiting");
             return;
         }
         // create our test jar first
@@ -297,13 +220,10 @@ public class Test7029048 {
         if (errors > 0) {
             throw new Exception("Test7029048: FAIL: with "
                     + errors + " errors and passes " + passes);
-        } else if (TestHelper.dualModePresent() && passes < 15) {
-            throw new Exception("Test7029048: FAIL: " +
-                    "all tests did not run, expected " + 15 + " got " + passes);
-        } else if (TestHelper.isSolaris && passes < 9) {
+        } else if (isSolaris && passes < 9) {
             throw new Exception("Test7029048: FAIL: " +
                     "all tests did not run, expected " + 9 + " got " + passes);
-        } else if (TestHelper.isLinux && passes < 6) {
+        } else if (isLinux && passes < 6) {
              throw new Exception("Test7029048: FAIL: " +
                     "all tests did not run, expected " + 6 + " got " + passes);
         } else {

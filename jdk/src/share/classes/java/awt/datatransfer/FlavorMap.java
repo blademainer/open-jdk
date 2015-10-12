@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,7 @@ import java.util.Map;
 
 /**
  * A two-way Map between "natives" (Strings), which correspond to platform-
- * specfic data formats, and "flavors" (DataFlavors), which corerspond to
+ * specific data formats, and "flavors" (DataFlavors), which correspond to
  * platform-independent MIME types. FlavorMaps need not be symmetric, but
  * typically are.
  *

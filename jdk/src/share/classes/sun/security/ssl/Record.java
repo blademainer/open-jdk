@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -52,20 +52,45 @@ interface Record {
     static final int    trailerSize = 20;       // SHA1 hash size
     static final int    maxDataSize = 16384;    // 2^14 bytes of data
     static final int    maxPadding = 256;       // block cipher padding
-    static final int    maxIVLength = 256;      // block length
+    static final int    maxIVLength = 256;      // IV length
+
+    /*
+     * The size of the header plus the max IV length
+     */
+    static final int    headerPlusMaxIVSize =
+                                      headerSize        // header
+                                    + maxIVLength;      // iv
 
     /*
      * SSL has a maximum record size.  It's header, (compressed) data,
-     * padding, and a trailer for the MAC.
+     * padding, and a trailer for the message authentication information (MAC
+     * for block and stream ciphers, and message authentication tag for AEAD
+     * ciphers).
+     *
      * Some compression algorithms have rare cases where they expand the data.
      * As we don't support compression at this time, leave that out.
      */
     static final int    maxRecordSize =
-                                      headerSize        // header
-                                    + maxIVLength       // iv
-                                    + maxDataSize       // data
-                                    + maxPadding        // padding
-                                    + trailerSize;      // MAC
+                                      headerPlusMaxIVSize   // header + iv
+                                    + maxDataSize           // data
+                                    + maxPadding            // padding
+                                    + trailerSize;          // MAC or AEAD tag
+
+    static final boolean enableCBCProtection =
+            Debug.getBooleanProperty("jsse.enableCBCProtection", true);
+
+    /*
+     * For CBC protection in SSL3/TLS1, we break some plaintext into two
+     * packets.  Max application data size for the second packet.
+     */
+    static final int    maxDataSizeMinusOneByteRecord =
+                                  maxDataSize       // max data size
+                                - (                 // max one byte record size
+                                      headerPlusMaxIVSize   // header + iv
+                                    + 1             // one byte data
+                                    + maxPadding    // padding
+                                    + trailerSize   // MAC
+                                  );
 
     /*
      * The maximum large record size.
@@ -77,7 +102,7 @@ interface Record {
      * this is the amount OpenSSL is using.
      */
     static final int    maxLargeRecordSize =
-                maxRecordSize   // Max size with a conforming implemenation
+                maxRecordSize   // Max size with a conforming implementation
               + maxDataSize;    // extra 2^14 bytes for large data packets.
 
 
@@ -87,10 +112,15 @@ interface Record {
      * Allocate a smaller array.
      */
     static final int    maxAlertRecordSize =
-                                      headerSize        // header
-                                    + maxIVLength       // iv
-                                    + 2                 // alert
-                                    + maxPadding        // padding
-                                    + trailerSize;      // MAC
+                                      headerPlusMaxIVSize   // header + iv
+                                    + 2                     // alert
+                                    + maxPadding            // padding
+                                    + trailerSize;          // MAC
 
+    /*
+     * The overflow values of integers of 8, 16 and 24 bits.
+     */
+    static final int OVERFLOW_OF_INT08 = (1 << 8);
+    static final int OVERFLOW_OF_INT16 = (1 << 16);
+    static final int OVERFLOW_OF_INT24 = (1 << 24);
 }

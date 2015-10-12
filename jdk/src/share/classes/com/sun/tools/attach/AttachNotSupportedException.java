@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,7 @@ import com.sun.tools.attach.spi.AttachProvider;         // for javadoc
  * AttachProvider.attachVirtualMachine} if the provider attempts to
  * attach to a Java virtual machine with which it not comptatible.
  */
+@jdk.Exported
 public class AttachNotSupportedException extends Exception {
 
     /** use serialVersionUID for interoperability */

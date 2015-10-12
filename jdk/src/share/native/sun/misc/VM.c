@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -109,6 +109,11 @@ Java_sun_misc_VM_getThreadStateValues(JNIEnv *env, jclass cls,
     get_thread_state_info(env, JAVA_THREAD_STATE_WAITING, values, names);
     get_thread_state_info(env, JAVA_THREAD_STATE_TIMED_WAITING, values, names);
     get_thread_state_info(env, JAVA_THREAD_STATE_TERMINATED, values, names);
+}
+
+JNIEXPORT jobject JNICALL
+Java_sun_misc_VM_latestUserDefinedLoader(JNIEnv *env, jclass cls) {
+    return JVM_LatestUserDefinedLoader(env);
 }
 
 typedef void (JNICALL *GetJvmVersionInfo_fp)(JNIEnv*, jvm_version_info*, size_t);

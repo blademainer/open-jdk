@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2008, 2010 Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -58,8 +58,8 @@ class EntryFrame : public ZeroFrame {
                            JavaCallWrapper* call_wrapper,
                            TRAPS);
  public:
-  JavaCallWrapper *call_wrapper() const {
-    return (JavaCallWrapper *) value_of_word(call_wrapper_off);
+  JavaCallWrapper **call_wrapper() const {
+    return (JavaCallWrapper **) addr_of_word(call_wrapper_off);
   }
 
  public:

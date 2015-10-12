@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,7 +48,7 @@ import java.net.SocketAddress;
  * longer required to be sent after the time period expires. It is not a hard
  * timeout and may be influenced by whether the association supports the partial
  * reliability extension, <a href=http://www.ietf.org/rfc/rfc3758.txt>RFC 3758
- * <a>
+ * </a>.
  *
  * <P> {@code MessageInfo} instances are not safe for use by multiple concurrent
  * threads. If a MessageInfo is to be used by more than one thread then access
@@ -56,6 +56,7 @@ import java.net.SocketAddress;
  *
  * @since 1.7
  */
+@jdk.Exported
 public abstract class MessageInfo {
     /**
      * Initializes a new instance of this class.
@@ -94,7 +95,7 @@ public abstract class MessageInfo {
         if (streamNumber < 0 || streamNumber > 65536)
             throw new IllegalArgumentException("Invalid stream number");
 
-        return new sun.nio.ch.SctpMessageInfoImpl(null, address, streamNumber);
+        return new sun.nio.ch.sctp.MessageInfoImpl(null, address, streamNumber);
     }
     /**
      * Creates a {@code MessageInfo} instance suitable for use when
@@ -133,8 +134,8 @@ public abstract class MessageInfo {
         if (streamNumber < 0 || streamNumber > 65536)
             throw new IllegalArgumentException("Invalid stream number");
 
-        return new sun.nio.ch.SctpMessageInfoImpl(association, address,
-                streamNumber);
+        return new sun.nio.ch.sctp.MessageInfoImpl(association,
+                                                   address, streamNumber);
     }
 
     /**

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,21 +44,15 @@ public class SymbolTable extends sun.jvm.hotspot.utilities.Hashtable {
   private static synchronized void initialize(TypeDataBase db) {
     Type type = db.lookupType("SymbolTable");
     theTableField  = type.getAddressField("_the_table");
-    symbolTableSize = db.lookupIntConstant("SymbolTable::symbol_table_size").intValue();
   }
 
   // Fields
   private static AddressField theTableField;
-  private static int symbolTableSize;
 
   // Accessors
   public static SymbolTable getTheTable() {
     Address tmp = theTableField.getValue();
     return (SymbolTable) VMObjectFactory.newObject(SymbolTable.class, tmp);
-  }
-
-  public static int getSymbolTableSize() {
-    return symbolTableSize;
   }
 
   public SymbolTable(Address addr) {

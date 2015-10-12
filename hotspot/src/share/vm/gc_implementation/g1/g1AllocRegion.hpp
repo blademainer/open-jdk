@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,7 +36,7 @@ class ar_ext_msg;
 
 // A class that holds a region that is active in satisfying allocation
 // requests, potentially issued in parallel. When the active region is
-// full it will be retired it replaced with a new one. The
+// full it will be retired and replaced with a new one. The
 // implementation assumes that fast-path allocations will be lock-free
 // and a lock will need to be taken when the active region needs to be
 // replaced.
@@ -55,15 +55,24 @@ private:
   // then _alloc_region is NULL and this object should not be used to
   // satisfy allocation requests (it was done this way to force the
   // correct use of init() and release()).
-  HeapRegion* _alloc_region;
+  HeapRegion* volatile _alloc_region;
+
+  // It keeps track of the distinct number of regions that are used
+  // for allocation in the active interval of this object, i.e.,
+  // between a call to init() and a call to release(). The count
+  // mostly includes regions that are freshly allocated, as well as
+  // the region that is re-used using the set() method. This count can
+  // be used in any heuristics that might want to bound how many
+  // distinct regions this object can used during an active interval.
+  uint _count;
 
   // When we set up a new active region we save its used bytes in this
   // field so that, when we retire it, we can calculate how much space
   // we allocated in it.
   size_t _used_bytes_before;
 
-  // Specifies whether the allocate calls will do BOT updates or not.
-  bool _bot_updates;
+  // When true, indicates that allocate calls should do BOT updates.
+  const bool _bot_updates;
 
   // Useful for debugging and tracing.
   const char* _name;
@@ -123,9 +132,12 @@ public:
   static void setup(G1CollectedHeap* g1h, HeapRegion* dummy_region);
 
   HeapRegion* get() const {
+    HeapRegion * hr = _alloc_region;
     // Make sure that the dummy region does not escape this class.
-    return (_alloc_region == _dummy_region) ? NULL : _alloc_region;
+    return (hr == _dummy_region) ? NULL : hr;
   }
+
+  uint count() { return _count; }
 
   // The following two are the building blocks for the allocation method.
 
@@ -152,6 +164,12 @@ public:
 
   // Should be called before we start using this object.
   void init();
+
+  // This can be used to set the active region to a specific
+  // region. (Use Example: we try to retain the last old GC alloc
+  // region that we've used during a GC and we can use set() to
+  // re-instate it at the beginning of the next GC.)
+  void set(HeapRegion* alloc_region);
 
   // Should be called when we want to release the active region which
   // is returned after it's been retired.

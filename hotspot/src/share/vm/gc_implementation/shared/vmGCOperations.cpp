@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,35 +36,48 @@
 #include "runtime/interfaceSupport.hpp"
 #include "utilities/dtrace.hpp"
 #include "utilities/preserveException.hpp"
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
+#ifndef USDT2
 HS_DTRACE_PROBE_DECL1(hotspot, gc__begin, bool);
 HS_DTRACE_PROBE_DECL(hotspot, gc__end);
+#endif /* !USDT2 */
 
 // The same dtrace probe can't be inserted in two different files, so we
 // have to call it here, so it's only in one file.  Can't create new probes
 // for the other file anymore.   The dtrace probes have to remain stable.
 void VM_GC_Operation::notify_gc_begin(bool full) {
+#ifndef USDT2
   HS_DTRACE_PROBE1(hotspot, gc__begin, full);
   HS_DTRACE_WORKAROUND_TAIL_CALL_BUG();
+#else /* USDT2 */
+  HOTSPOT_GC_BEGIN(
+                   full);
+#endif /* USDT2 */
 }
 
 void VM_GC_Operation::notify_gc_end() {
+#ifndef USDT2
   HS_DTRACE_PROBE(hotspot, gc__end);
   HS_DTRACE_WORKAROUND_TAIL_CALL_BUG();
+#else /* USDT2 */
+  HOTSPOT_GC_END(
+);
+#endif /* USDT2 */
 }
 
 void VM_GC_Operation::acquire_pending_list_lock() {
   // we may enter this with pending exception set
-  instanceRefKlass::acquire_pending_list_lock(&_pending_list_basic_lock);
+  InstanceRefKlass::acquire_pending_list_lock(&_pending_list_basic_lock);
 }
 
 
 void VM_GC_Operation::release_and_notify_pending_list_lock() {
 
-  instanceRefKlass::release_and_notify_pending_list_lock(&_pending_list_basic_lock);
+  InstanceRefKlass::release_and_notify_pending_list_lock(&_pending_list_basic_lock);
 }
 
 // Allocations may fail in several threads at about the same time,
@@ -132,30 +145,37 @@ bool VM_GC_HeapInspection::skip_operation() const {
   return false;
 }
 
+bool VM_GC_HeapInspection::collect() {
+  if (GC_locker::is_active()) {
+    return false;
+  }
+  Universe::heap()->collect_as_vm_thread(GCCause::_heap_inspection);
+  return true;
+}
+
 void VM_GC_HeapInspection::doit() {
   HandleMark hm;
-  CollectedHeap* ch = Universe::heap();
-  ch->ensure_parsability(false); // must happen, even if collection does
-                                 // not happen (e.g. due to GC_locker)
+  Universe::heap()->ensure_parsability(false); // must happen, even if collection does
+                                               // not happen (e.g. due to GC_locker)
+                                               // or _full_gc being false
   if (_full_gc) {
-    // The collection attempt below would be skipped anyway if
-    // the gc locker is held. The following dump may then be a tad
-    // misleading to someone expecting only live objects to show
-    // up in the dump (see CR 6944195). Just issue a suitable warning
-    // in that case and do not attempt to do a collection.
-    // The latter is a subtle point, because even a failed attempt
-    // to GC will, in fact, induce one in the future, which we
-    // probably want to avoid in this case because the GC that we may
-    // be about to attempt holds value for us only
-    // if it happens now and not if it happens in the eventual
-    // future.
-    if (GC_locker::is_active()) {
+    if (!collect()) {
+      // The collection attempt was skipped because the gc locker is held.
+      // The following dump may then be a tad misleading to someone expecting
+      // only live objects to show up in the dump (see CR 6944195). Just issue
+      // a suitable warning in that case and do not attempt to do a collection.
+      // The latter is a subtle point, because even a failed attempt
+      // to GC will, in fact, induce one in the future, which we
+      // probably want to avoid in this case because the GC that we may
+      // be about to attempt holds value for us only
+      // if it happens now and not if it happens in the eventual
+      // future.
       warning("GC locker is held; pre-dump GC was skipped");
-    } else {
-      ch->collect_as_vm_thread(GCCause::_heap_inspection);
     }
   }
-  HeapInspection::heap_inspection(_out, _need_prologue /* need_prologue */);
+  HeapInspection inspect(_csv_format, _print_help, _print_class_stats,
+                         _columns);
+  inspect.heap_inspection(_out);
 }
 
 
@@ -180,31 +200,65 @@ void VM_GenCollectFull::doit() {
   gch->do_full_collection(gch->must_clear_all_soft_refs(), _max_level);
 }
 
-void VM_GenCollectForPermanentAllocation::doit() {
+void VM_CollectForMetadataAllocation::doit() {
   SvcGCMarker sgcm(SvcGCMarker::FULL);
 
-  SharedHeap* heap = (SharedHeap*)Universe::heap();
+  CollectedHeap* heap = Universe::heap();
   GCCauseSetter gccs(heap, _gc_cause);
-  switch (heap->kind()) {
-    case (CollectedHeap::GenCollectedHeap): {
-      GenCollectedHeap* gch = (GenCollectedHeap*)heap;
-      gch->do_full_collection(gch->must_clear_all_soft_refs(),
-                              gch->n_gens() - 1);
-      break;
-    }
-#ifndef SERIALGC
-    case (CollectedHeap::G1CollectedHeap): {
-      G1CollectedHeap* g1h = (G1CollectedHeap*)heap;
-      g1h->do_full_collection(_gc_cause == GCCause::_last_ditch_collection);
-      break;
-    }
-#endif // SERIALGC
-    default:
-      ShouldNotReachHere();
+
+  // Check again if the space is available.  Another thread
+  // may have similarly failed a metadata allocation and induced
+  // a GC that freed space for the allocation.
+  if (!MetadataAllocationFailALot) {
+    _result = _loader_data->metaspace_non_null()->allocate(_size, _mdtype);
   }
-  _res = heap->perm_gen()->allocate(_size, false);
-  assert(heap->is_in_reserved_or_null(_res), "result not in heap");
-  if (_res == NULL && GC_locker::is_active_and_needs_gc()) {
+
+  if (_result == NULL) {
+    if (UseConcMarkSweepGC) {
+      if (CMSClassUnloadingEnabled) {
+        MetaspaceGC::set_should_concurrent_collect(true);
+      }
+      // For CMS expand since the collection is going to be concurrent.
+      _result =
+        _loader_data->metaspace_non_null()->expand_and_allocate(_size, _mdtype);
+    }
+    if (_result == NULL) {
+      // Don't clear the soft refs yet.
+      if (Verbose && PrintGCDetails && UseConcMarkSweepGC) {
+        gclog_or_tty->print_cr("\nCMS full GC for Metaspace");
+      }
+      heap->collect_as_vm_thread(GCCause::_metadata_GC_threshold);
+      // After a GC try to allocate without expanding.  Could fail
+      // and expansion will be tried below.
+      _result =
+        _loader_data->metaspace_non_null()->allocate(_size, _mdtype);
+    }
+    if (_result == NULL) {
+      // If still failing, allow the Metaspace to expand.
+      // See delta_capacity_until_GC() for explanation of the
+      // amount of the expansion.
+      // This should work unless there really is no more space
+      // or a MaxMetaspaceSize has been specified on the command line.
+      _result =
+        _loader_data->metaspace_non_null()->expand_and_allocate(_size, _mdtype);
+      if (_result == NULL) {
+        // If expansion failed, do a last-ditch collection and try allocating
+        // again.  A last-ditch collection will clear softrefs.  This
+        // behavior is similar to the last-ditch collection done for perm
+        // gen when it was full and a collection for failed allocation
+        // did not free perm gen space.
+        heap->collect_as_vm_thread(GCCause::_last_ditch_collection);
+        _result =
+          _loader_data->metaspace_non_null()->allocate(_size, _mdtype);
+      }
+    }
+    if (Verbose && PrintGCDetails && _result == NULL) {
+      gclog_or_tty->print_cr("\nAfter Metaspace GC failed to allocate size "
+                             SIZE_FORMAT, _size);
+    }
+  }
+
+  if (_result == NULL && GC_locker::is_active_and_needs_gc()) {
     set_gc_locked();
   }
 }

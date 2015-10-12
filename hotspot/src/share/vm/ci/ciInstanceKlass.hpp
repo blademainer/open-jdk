@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,14 +27,13 @@
 
 #include "ci/ciConstantPoolCache.hpp"
 #include "ci/ciFlags.hpp"
-#include "ci/ciInstanceKlassKlass.hpp"
 #include "ci/ciKlass.hpp"
 #include "ci/ciSymbol.hpp"
 
 // ciInstanceKlass
 //
-// This class represents a klassOop in the HotSpot virtual machine
-// whose Klass part is an instanceKlass.  It may or may not
+// This class represents a Klass* in the HotSpot virtual machine
+// whose Klass part is an InstanceKlass.  It may or may not
 // be loaded.
 class ciInstanceKlass : public ciKlass {
   CI_PACKAGE_ACCESS
@@ -48,11 +47,12 @@ private:
   jobject                _loader;
   jobject                _protection_domain;
 
-  instanceKlass::ClassState _init_state;           // state of class
+  InstanceKlass::ClassState _init_state;           // state of class
   bool                   _is_shared;
   bool                   _has_finalizer;
   bool                   _has_subklass;
   bool                   _has_nonstatic_fields;
+  bool                   _has_default_methods;
 
   ciFlags                _flags;
   jint                   _nonstatic_field_size;
@@ -65,9 +65,11 @@ private:
   ciConstantPoolCache*   _field_cache;  // cached map index->field
   GrowableArray<ciField*>* _nonstatic_fields;
 
-  enum { implementors_limit = instanceKlass::implementors_limit };
-  ciInstanceKlass*       _implementors[implementors_limit];
-  jint                   _nof_implementors;
+  // The possible values of the _implementor fall into following three cases:
+  //   NULL: no implementor.
+  //   A ciInstanceKlass that's not itself: one implementor.
+  //   Itsef: more than one implementors.
+  ciInstanceKlass*       _implementor;
 
   GrowableArray<ciField*>* _non_static_fields;
 
@@ -75,8 +77,8 @@ protected:
   ciInstanceKlass(KlassHandle h_k);
   ciInstanceKlass(ciSymbol* name, jobject loader, jobject protection_domain);
 
-  instanceKlass* get_instanceKlass() const {
-    return (instanceKlass*)get_Klass();
+  InstanceKlass* get_instanceKlass() const {
+    return (InstanceKlass*)get_Klass();
   }
 
   oop loader();
@@ -97,12 +99,11 @@ protected:
 
   void compute_shared_init_state();
   bool compute_shared_has_subklass();
-  int  compute_shared_nof_implementors();
   int  compute_nonstatic_fields();
   GrowableArray<ciField*>* compute_nonstatic_fields_impl(GrowableArray<ciField*>* super_fields);
 
   // Update the init_state for shared klasses
-  void update_if_shared(instanceKlass::ClassState expected) {
+  void update_if_shared(InstanceKlass::ClassState expected) {
     if (_is_shared && _init_state != expected) {
       if (is_loaded()) compute_shared_init_state();
     }
@@ -111,18 +112,18 @@ protected:
 public:
   // Has this klass been initialized?
   bool                   is_initialized() {
-    update_if_shared(instanceKlass::fully_initialized);
-    return _init_state == instanceKlass::fully_initialized;
+    update_if_shared(InstanceKlass::fully_initialized);
+    return _init_state == InstanceKlass::fully_initialized;
   }
   // Is this klass being initialized?
   bool                   is_being_initialized() {
-    update_if_shared(instanceKlass::being_initialized);
-    return _init_state == instanceKlass::being_initialized;
+    update_if_shared(InstanceKlass::being_initialized);
+    return _init_state == InstanceKlass::being_initialized;
   }
   // Has this klass been linked?
   bool                   is_linked() {
-    update_if_shared(instanceKlass::linked);
-    return _init_state >= instanceKlass::linked;
+    update_if_shared(InstanceKlass::linked);
+    return _init_state >= InstanceKlass::linked;
   }
 
   // General klass information.
@@ -158,10 +159,22 @@ public:
     assert(is_loaded(), "must be loaded");
     return _nonstatic_oop_map_size; }
   ciInstanceKlass*       super();
-  jint                   nof_implementors()  {
+  jint                   nof_implementors() {
+    ciInstanceKlass* impl;
     assert(is_loaded(), "must be loaded");
-    if (_is_shared)  return compute_shared_nof_implementors();
-    return _nof_implementors;
+    impl = implementor();
+    if (impl == NULL) {
+      return 0;
+    } else if (impl != this) {
+      return 1;
+    } else {
+      return 2;
+    }
+  }
+
+  bool has_default_methods()  {
+    assert(is_loaded(), "must be loaded");
+    return _has_default_methods;
   }
 
   ciInstanceKlass* get_canonical_holder(int offset);
@@ -207,12 +220,16 @@ public:
   // but consider adding to vmSymbols.hpp instead.
 
   bool is_leaf_type();
-  ciInstanceKlass* implementor(int n);
+  ciInstanceKlass* implementor();
 
   // Is the defining class loader of this class the default loader?
-  bool uses_default_loader();
+  bool uses_default_loader() const;
 
-  bool is_java_lang_Object();
+  bool is_java_lang_Object() const;
+
+  BasicType box_klass_type() const;
+  bool is_box_klass() const;
+  bool is_boxed_value_offset(int offset) const;
 
   // Is this klass in the given package?
   bool is_in_package(const char* packagename) {
@@ -221,8 +238,18 @@ public:
   bool is_in_package(const char* packagename, int len);
 
   // What kind of ciObject is this?
-  bool is_instance_klass() { return true; }
-  bool is_java_klass()     { return true; }
+  bool is_instance_klass() const { return true; }
+  bool is_java_klass() const     { return true; }
+
+  virtual ciKlass* exact_klass() {
+    if (is_loaded() && is_final() && !is_interface()) {
+      return this;
+    }
+    return NULL;
+  }
+
+  // Dump the current state of this klass for compilation replay.
+  virtual void dump_replay_data(outputStream* out);
 };
 
 #endif // SHARE_VM_CI_CIINSTANCEKLASS_HPP

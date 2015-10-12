@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,7 +41,7 @@ public class HashtableEntry extends BasicHashtableEntry {
   }
 
   private static synchronized void initialize(TypeDataBase db) {
-    Type type = db.lookupType("HashtableEntry<intptr_t>");
+    Type type = db.lookupType("IntptrHashtableEntry");
     literalField   = type.getAddressField("_literal");
   }
 

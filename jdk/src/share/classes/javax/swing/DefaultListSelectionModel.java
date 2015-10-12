@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,7 +41,7 @@ import javax.swing.event.*;
  * future Swing releases. The current serialization support is
  * appropriate for short term storage or RMI between applications running
  * the same version of Swing.  As of 1.4, support for long term storage
- * of all JavaBeans<sup><font size="-2">TM</font></sup>
+ * of all JavaBeans&trade;
  * has been added to the <code>java.beans</code> package.
  * Please see {@link java.beans.XMLEncoder}.
  *
@@ -252,6 +252,10 @@ public class DefaultListSelectionModel implements ListSelectionModel, Cloneable,
 
     // Updates first and last change indices
     private void markAsDirty(int r) {
+        if (r == -1) {
+            return;
+        }
+
         firstAdjustedIndex = Math.min(firstAdjustedIndex, r);
         lastAdjustedIndex =  Math.max(lastAdjustedIndex, r);
     }
@@ -358,16 +362,12 @@ public class DefaultListSelectionModel implements ListSelectionModel, Cloneable,
     private void updateLeadAnchorIndices(int anchorIndex, int leadIndex) {
         if (leadAnchorNotificationEnabled) {
             if (this.anchorIndex != anchorIndex) {
-                if (this.anchorIndex != -1) { // The unassigned state.
-                    markAsDirty(this.anchorIndex);
-                }
+                markAsDirty(this.anchorIndex);
                 markAsDirty(anchorIndex);
             }
 
             if (this.leadIndex != leadIndex) {
-                if (this.leadIndex != -1) { // The unassigned state.
-                    markAsDirty(this.leadIndex);
-                }
+                markAsDirty(this.leadIndex);
                 markAsDirty(leadIndex);
             }
         }
@@ -637,7 +637,7 @@ public class DefaultListSelectionModel implements ListSelectionModel, Cloneable,
      * Remove the indices in the interval index0,index1 (inclusive) from
      * the selection model.  This is typically called to sync the selection
      * model width a corresponding change in the data model.  Note
-     * that (as always) index0 need not be <= index1.
+     * that (as always) index0 need not be &lt;= index1.
      */
     public void removeIndexInterval(int index0, int index1)
     {
@@ -786,7 +786,7 @@ public class DefaultListSelectionModel implements ListSelectionModel, Cloneable,
      * leadIndex and newLeadIndex is the new one.
      * <p>
      * If the value at the anchor index is not selected, do the same thing in
-     * reverse selecting values in the old range and deslecting values in the
+     * reverse selecting values in the old range and deselecting values in the
      * new one.
      * <p>
      * Generate a single event for this change and notify all listeners.

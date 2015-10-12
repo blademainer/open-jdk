@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,15 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
+
 
 import javax.swing.*;
 import javax.swing.table.*;
@@ -45,7 +54,7 @@ import javax.swing.UIManager.LookAndFeelInfo;
 /**
  * Another JTable example, showing how column attributes can be refined
  * even when columns have been created automatically. Here we create some
- * specialised renderers and editors as well as changing widths and colors
+ * specialized renderers and editors as well as changing widths and colors
  * for some of the columns in the SwingSet demo table.
  *
  * @author Philip Milne

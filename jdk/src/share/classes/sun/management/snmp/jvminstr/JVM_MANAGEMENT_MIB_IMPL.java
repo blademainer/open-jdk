@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -90,14 +90,14 @@ public class JVM_MANAGEMENT_MIB_IMPL extends JVM_MANAGEMENT_MIB {
         SnmpOidTable table = null;
         if(tableRef == null) {
             table =  new JVM_MANAGEMENT_MIBOidTable();
-            tableRef = new WeakReference<SnmpOidTable>(table);
+            tableRef = new WeakReference<>(table);
             return table;
         }
 
         table = tableRef.get();
         if(table == null) {
             table = new JVM_MANAGEMENT_MIBOidTable();
-            tableRef = new WeakReference<SnmpOidTable>(table);
+            tableRef = new WeakReference<>(table);
         }
 
         return table;
@@ -188,7 +188,7 @@ public class JVM_MANAGEMENT_MIB_IMPL extends JVM_MANAGEMENT_MIB {
                     sendTrap(trap, list);
                 }catch(Exception e) {
                     log.error("handleNotification",
-                              "Exception occured : " + e);
+                              "Exception occurred : " + e);
                 }
             }
         }
@@ -198,7 +198,7 @@ public class JVM_MANAGEMENT_MIB_IMPL extends JVM_MANAGEMENT_MIB {
      * List of notification targets.
      */
     private ArrayList<NotificationTarget> notificationTargets =
-            new ArrayList<NotificationTarget>();
+            new ArrayList<>();
     private final NotificationEmitter emitter;
     private final NotificationHandler handler;
 
@@ -215,7 +215,7 @@ public class JVM_MANAGEMENT_MIB_IMPL extends JVM_MANAGEMENT_MIB {
     }
 
     private synchronized void sendTrap(SnmpOid trap, SnmpVarBindList list) {
-        final Iterator iterator = notificationTargets.iterator();
+        final Iterator<NotificationTarget> iterator = notificationTargets.iterator();
         final SnmpAdaptorServer adaptor =
             (SnmpAdaptorServer) getSnmpAdaptor();
 
@@ -232,7 +232,7 @@ public class JVM_MANAGEMENT_MIB_IMPL extends JVM_MANAGEMENT_MIB {
         while(iterator.hasNext()) {
             NotificationTarget target = null;
             try {
-                target = (NotificationTarget) iterator.next();
+                target = iterator.next();
                 SnmpPeer peer =
                     new SnmpPeer(target.getAddress(), target.getPort());
                 SnmpParameters p = new SnmpParameters();
@@ -243,7 +243,7 @@ public class JVM_MANAGEMENT_MIB_IMPL extends JVM_MANAGEMENT_MIB {
                 adaptor.snmpV2Trap(peer, trap, list, null);
             }catch(Exception e) {
                 log.error("sendTrap",
-                          "Exception occured while sending trap to [" +
+                          "Exception occurred while sending trap to [" +
                           target + "]. Exception : " + e);
                 log.debug("sendTrap",e);
             }

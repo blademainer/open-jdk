@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -140,7 +140,7 @@ public class FileChannelImpl
                 if (!isOpen())
                     return 0;
                 do {
-                    n = IOUtil.read(fd, dst, -1, nd, positionLock);
+                    n = IOUtil.read(fd, dst, -1, nd);
                 } while ((n == IOStatus.INTERRUPTED) && isOpen());
                 return IOStatus.normalize(n);
             } finally {
@@ -192,7 +192,7 @@ public class FileChannelImpl
                 if (!isOpen())
                     return 0;
                 do {
-                    n = IOUtil.write(fd, src, -1, nd, positionLock);
+                    n = IOUtil.write(fd, src, -1, nd);
                 } while ((n == IOStatus.INTERRUPTED) && isOpen());
                 return IOStatus.normalize(n);
             } finally {
@@ -302,12 +302,10 @@ public class FileChannelImpl
         }
     }
 
-    public FileChannel truncate(long size) throws IOException {
+    public FileChannel truncate(long newSize) throws IOException {
         ensureOpen();
-        if (size < 0)
-            throw new IllegalArgumentException();
-        if (size > size())
-            return this;
+        if (newSize < 0)
+            throw new IllegalArgumentException("Negative size");
         if (!writable)
             throw new NonWritableChannelException();
         synchronized (positionLock) {
@@ -320,6 +318,14 @@ public class FileChannelImpl
                 if (!isOpen())
                     return null;
 
+                // get current size
+                long size;
+                do {
+                    size = nd.size(fd);
+                } while ((size == IOStatus.INTERRUPTED) && isOpen());
+                if (!isOpen())
+                    return null;
+
                 // get current position
                 do {
                     p = position0(fd, -1);
@@ -328,16 +334,18 @@ public class FileChannelImpl
                     return null;
                 assert p >= 0;
 
-                // truncate file
-                do {
-                    rv = nd.truncate(fd, size);
-                } while ((rv == IOStatus.INTERRUPTED) && isOpen());
-                if (!isOpen())
-                    return null;
+                // truncate file if given size is less than the current size
+                if (newSize < size) {
+                    do {
+                        rv = nd.truncate(fd, newSize);
+                    } while ((rv == IOStatus.INTERRUPTED) && isOpen());
+                    if (!isOpen())
+                        return null;
+                }
 
-                // set position to size if greater than size
-                if (p > size)
-                    p = size;
+                // if position is beyond new size then adjust it
+                if (p > newSize)
+                    p = newSize;
                 do {
                     rv = (int)position0(fd, p);
                 } while ((rv == IOStatus.INTERRUPTED) && isOpen());
@@ -663,6 +671,17 @@ public class FileChannelImpl
         if (!readable)
             throw new NonReadableChannelException();
         ensureOpen();
+        if (nd.needsPositionLock()) {
+            synchronized (positionLock) {
+                return readInternal(dst, position);
+            }
+        } else {
+            return readInternal(dst, position);
+        }
+    }
+
+    private int readInternal(ByteBuffer dst, long position) throws IOException {
+        assert !nd.needsPositionLock() || Thread.holdsLock(positionLock);
         int n = 0;
         int ti = -1;
         try {
@@ -671,7 +690,7 @@ public class FileChannelImpl
             if (!isOpen())
                 return -1;
             do {
-                n = IOUtil.read(fd, dst, position, nd, positionLock);
+                n = IOUtil.read(fd, dst, position, nd);
             } while ((n == IOStatus.INTERRUPTED) && isOpen());
             return IOStatus.normalize(n);
         } finally {
@@ -689,6 +708,17 @@ public class FileChannelImpl
         if (!writable)
             throw new NonWritableChannelException();
         ensureOpen();
+        if (nd.needsPositionLock()) {
+            synchronized (positionLock) {
+                return writeInternal(src, position);
+            }
+        } else {
+            return writeInternal(src, position);
+        }
+    }
+
+    private int writeInternal(ByteBuffer src, long position) throws IOException {
+        assert !nd.needsPositionLock() || Thread.holdsLock(positionLock);
         int n = 0;
         int ti = -1;
         try {
@@ -697,7 +727,7 @@ public class FileChannelImpl
             if (!isOpen())
                 return -1;
             do {
-                n = IOUtil.write(fd, src, position, nd, positionLock);
+                n = IOUtil.write(fd, src, position, nd);
             } while ((n == IOStatus.INTERRUPTED) && isOpen());
             return IOStatus.normalize(n);
         } finally {
@@ -779,6 +809,8 @@ public class FileChannelImpl
         throws IOException
     {
         ensureOpen();
+        if (mode == null)
+            throw new NullPointerException("Mode is null");
         if (position < 0L)
             throw new IllegalArgumentException("Negative position");
         if (size < 0L)
@@ -787,6 +819,7 @@ public class FileChannelImpl
             throw new IllegalArgumentException("Position + size overflow");
         if (size > Integer.MAX_VALUE)
             throw new IllegalArgumentException("Size exceeds Integer.MAX_VALUE");
+
         int imode = -1;
         if (mode == MapMode.READ_ONLY)
             imode = MAP_RO;
@@ -807,7 +840,15 @@ public class FileChannelImpl
             ti = threads.add();
             if (!isOpen())
                 return null;
-            if (size() < position + size) { // Extend file size
+
+            long filesize;
+            do {
+                filesize = nd.size(fd);
+            } while ((filesize == IOStatus.INTERRUPTED) && isOpen());
+            if (!isOpen())
+                return null;
+
+            if (filesize < position + size) { // Extend file size
                 if (!writable) {
                     throw new IOException("Channel not open for writing " +
                         "- cannot extend file to required size");
@@ -816,6 +857,8 @@ public class FileChannelImpl
                 do {
                     rv = nd.truncate(fd, position + size);
                 } while ((rv == IOStatus.INTERRUPTED) && isOpen());
+                if (!isOpen())
+                    return null;
             }
             if (size == 0) {
                 addr = 0;
@@ -1129,7 +1172,7 @@ public class FileChannelImpl
     private static native long initIDs();
 
     static {
-        Util.load();
+        IOUtil.load();
         allocationGranularity = initIDs();
     }
 

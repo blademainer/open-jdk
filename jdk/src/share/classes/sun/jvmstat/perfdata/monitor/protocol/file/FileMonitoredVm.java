@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@ import java.io.*;
 
 /**
  * Concrete implementation of the AbstractMonitoredVm class for the
- * <em>file:</em> protcol for the HotSpot PerfData monitoring implementation.
+ * <em>file:</em> protocol for the HotSpot PerfData monitoring implementation.
  * <p>
  * This class provides the ability to attach to the instrumentation buffer
  * (saved or live) of a target Java Virtual Machine by providing a

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -172,11 +172,11 @@ public class Blit extends GraphicsPrimitive
             while (si.nextSpan(span)) {
                 int w = span[2] - span[0];
                 int h = span[3] - span[1];
-                srcRas = srcRas.createChild(srcx + span[0], srcy + span[1],
-                                            w, h, 0, 0, null);
-                dstRas = dstRas.createWritableChild(span[0], span[1],
-                                                    w, h, 0, 0, null);
-                ctx.compose(srcRas, dstRas, dstRas);
+                Raster tmpSrcRas = srcRas.createChild(srcx + span[0], srcy + span[1],
+                                                      w, h, 0, 0, null);
+                WritableRaster tmpDstRas = dstRas.createWritableChild(span[0], span[1],
+                                                                      w, h, 0, 0, null);
+                ctx.compose(tmpSrcRas, tmpDstRas, tmpDstRas);
             }
             ctx.dispose();
         }

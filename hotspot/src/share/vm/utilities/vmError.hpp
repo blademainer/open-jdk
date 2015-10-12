@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,16 +27,13 @@
 
 #include "utilities/globalDefinitions.hpp"
 
-
+class Decoder;
 class VM_ReportJavaOutOfMemory;
 
 class VMError : public StackObj {
   friend class VM_ReportJavaOutOfMemory;
+  friend class Decoder;
 
-  enum ErrorType {
-    internal_error = 0xe0000000,
-    oom_error      = 0xe0000001
-  };
   int          _id;          // Solaris/Linux signals: 0 - SIGRTMAX
                              // Windows exceptions: 0xCxxxxxxx system errors
                              //                     0x8xxxxxxx system warnings
@@ -95,9 +92,15 @@ class VMError : public StackObj {
   // accessor
   const char* message() const    { return _message; }
   const char* detail_msg() const { return _detail_msg; }
-  bool should_report_bug(unsigned int id) { return id != oom_error; }
+  bool should_report_bug(unsigned int id) {
+    return (id != OOM_MALLOC_ERROR) && (id != OOM_MMAP_ERROR);
+  }
+
+  static fdStream out;
+  static fdStream log; // error log used by VMError::report_and_die()
 
 public:
+
   // Constructor for crashes
   VMError(Thread* thread, unsigned int sig, address pc, void* siginfo,
           void* context);
@@ -107,7 +110,7 @@ public:
 
   // Constructor for VM OOM errors
   VMError(Thread* thread, const char* filename, int lineno, size_t size,
-          const char* message);
+          VMErrorType vm_err_type, const char* message);
   // Constructor for non-fatal errors
   VMError(const char* message);
 
@@ -133,6 +136,10 @@ public:
 
   // check to see if fatal error reporting is in progress
   static bool fatal_error_in_progress() { return first_error != NULL; }
+
+  static jlong get_first_error_tid() {
+    return first_error_tid;
+  }
 };
 
 #endif // SHARE_VM_UTILITIES_VMERROR_HPP

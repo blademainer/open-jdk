@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2000, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,8 +35,9 @@ package com.sun.jdi;
  * @author James McIlree
  * @since  1.3
  */
-public interface PrimitiveValue extends Value
-{
+@jdk.Exported
+public interface PrimitiveValue extends Value {
+
     /**
      * Converts this value to a BooleanValue and returns the result
      * as a boolean.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,16 +22,6 @@
  *
  */
 
-#ifndef CPU_X86_VM_INTERP_MASM_X86_32_HPP
-#define CPU_X86_VM_INTERP_MASM_X86_32_HPP
-
-#include "assembler_x86.inline.hpp"
-#include "interpreter/invocationCounter.hpp"
-
-// This file specializes the assember with interpreter-specific macros
-
-
-class InterpreterMacroAssembler: public MacroAssembler {
 #ifndef CC_INTERP
  protected:
   // Interpreter specific version of call_VM_base
@@ -57,7 +47,7 @@ class InterpreterMacroAssembler: public MacroAssembler {
 #endif /* CC_INTERP */
 
  public:
-  InterpreterMacroAssembler(CodeBuffer* code) : MacroAssembler(code) {}
+  InterpreterMacroAssembler(CodeBuffer* code) : MacroAssembler(code), _locals_register(rdi), _bcp_register(rsi) {}
 
   void load_earlyret_value(TosState state);
 
@@ -77,14 +67,20 @@ class InterpreterMacroAssembler: public MacroAssembler {
 
   // Helpers for runtime call arguments/results
   void get_method(Register reg)                            { movptr(reg, Address(rbp, frame::interpreter_frame_method_offset * wordSize)); }
-  void get_constant_pool(Register reg)                     { get_method(reg); movptr(reg, Address(reg, methodOopDesc::constants_offset())); }
-  void get_constant_pool_cache(Register reg)               { get_constant_pool(reg); movptr(reg, Address(reg, constantPoolOopDesc::cache_offset_in_bytes())); }
-  void get_cpool_and_tags(Register cpool, Register tags)   { get_constant_pool(cpool); movptr(tags, Address(cpool, constantPoolOopDesc::tags_offset_in_bytes()));
+  void get_const(Register reg)                             { get_method(reg); movptr(reg, Address(reg, Method::const_offset())); }
+  void get_constant_pool(Register reg)                     { get_const(reg); movptr(reg, Address(reg, ConstMethod::constants_offset())); }
+  void get_constant_pool_cache(Register reg)               { get_constant_pool(reg); movptr(reg, Address(reg, ConstantPool::cache_offset_in_bytes())); }
+  void get_cpool_and_tags(Register cpool, Register tags)   { get_constant_pool(cpool); movptr(tags, Address(cpool, ConstantPool::tags_offset_in_bytes()));
   }
   void get_unsigned_2_byte_index_at_bcp(Register reg, int bcp_offset);
   void get_cache_and_index_at_bcp(Register cache, Register index, int bcp_offset, size_t index_size = sizeof(u2));
+  void get_cache_and_index_and_bytecode_at_bcp(Register cache, Register index, Register bytecode, int byte_no, int bcp_offset, size_t index_size = sizeof(u2));
   void get_cache_entry_pointer_at_bcp(Register cache, Register tmp, int bcp_offset, size_t index_size = sizeof(u2));
   void get_cache_index_at_bcp(Register index, int bcp_offset, size_t index_size = sizeof(u2));
+  void get_method_counters(Register method, Register mcs, Label& skip);
+
+  // load cpool->resolved_references(index);
+  void load_resolved_reference_at_index(Register result, Register index);
 
   // Expression stack
   void f2ieee();                                           // truncate ftos to 32bits
@@ -225,7 +221,3 @@ class InterpreterMacroAssembler: public MacroAssembler {
   // support for jvmti
   void notify_method_entry();
   void notify_method_exit(TosState state, NotifyMethodExitMode mode);
-
-};
-
-#endif // CPU_X86_VM_INTERP_MASM_X86_32_HPP

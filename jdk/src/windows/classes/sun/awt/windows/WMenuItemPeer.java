@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -158,14 +158,14 @@ class WMenuItemPeer extends WObjectPeer implements MenuItemPeer {
     private static Font defaultMenuFont;
 
     static {
-        defaultMenuFont = (Font) AccessController.doPrivileged(
-            new PrivilegedAction() {
-                public Object run() {
+        defaultMenuFont = AccessController.doPrivileged(
+            new PrivilegedAction <Font> () {
+                public Font run() {
                     try {
                         ResourceBundle rb = ResourceBundle.getBundle("sun.awt.windows.awtLocalization");
                         return Font.decode(rb.getString("menuFont"));
                     } catch (MissingResourceException e) {
-                        if (log.isLoggable(PlatformLogger.FINE)) {
+                        if (log.isLoggable(PlatformLogger.Level.FINE)) {
                             log.fine("WMenuItemPeer: " + e.getMessage()+". Using default MenuItem font.", e);
                         }
                         return new Font("SanSerif", Font.PLAIN, 11);
@@ -183,7 +183,9 @@ class WMenuItemPeer extends WObjectPeer implements MenuItemPeer {
      */
     private static native void initIDs();
 
-    // Needed for MenuComponentPeer.
-    public void setFont(Font f) {
+    private native void _setFont(Font f);
+
+    public void setFont(final Font f) {
+        _setFont(f);
     }
 }

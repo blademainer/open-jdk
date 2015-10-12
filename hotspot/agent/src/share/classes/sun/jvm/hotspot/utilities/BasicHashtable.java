@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,10 +41,10 @@ public class BasicHashtable extends VMObject {
   }
 
   private static synchronized void initialize(TypeDataBase db) {
-    Type type = db.lookupType("BasicHashtable");
+    Type type = db.lookupType("BasicHashtable<mtInternal>");
     tableSizeField = type.getCIntegerField("_table_size");
     bucketsField   = type.getAddressField("_buckets");
-    bucketSize = db.lookupType("HashtableBucket").getSize();
+    bucketSize = db.lookupType("HashtableBucket<mtInternal>").getSize();
   }
 
   // Fields

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,16 +25,17 @@
 #ifndef SHARE_VM_GC_IMPLEMENTATION_SHARED_GSPACECOUNTERS_HPP
 #define SHARE_VM_GC_IMPLEMENTATION_SHARED_GSPACECOUNTERS_HPP
 
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/shared/generationCounters.hpp"
 #include "memory/generation.hpp"
 #include "runtime/perfData.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
 // A GSpaceCounter is a holder class for performance counters
 // that track a space;
 
-class GSpaceCounters: public CHeapObj {
+class GSpaceCounters: public CHeapObj<mtGC> {
   friend class VMStructs;
 
  private:
@@ -54,7 +55,7 @@ class GSpaceCounters: public CHeapObj {
                  GenerationCounters* gc, bool sampled=true);
 
   ~GSpaceCounters() {
-    if (_name_space != NULL) FREE_C_HEAP_ARRAY(char, _name_space);
+    if (_name_space != NULL) FREE_C_HEAP_ARRAY(char, _name_space, mtGC);
   }
 
   inline void update_capacity() {

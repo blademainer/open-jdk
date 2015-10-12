@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,25 +42,3 @@ struct ComponentIDs {
     jmethodID getParent;
     jmethodID getLocationOnScreen;
 };
-
-/* field and method IDs for Container */
-struct ContainerIDs {
-    jfieldID layoutMgr;
-    jmethodID getComponents;
-    jmethodID findComponentAt;
-};
-
-/* fieldIDs for MComponentPeer fields that may be accessed from C */
-struct MComponentPeerIDs {
-    jfieldID pData;
-    jfieldID target;
-    jfieldID jniGlobalRef;
-    jfieldID graphicsConfig;
-    jfieldID drawState;
-    jmethodID isFocusableMID;
-};
-
-#ifndef HEADLESS
-extern void processTree(Widget from, Widget to, Boolean action);
-#endif // HEADLESS
-

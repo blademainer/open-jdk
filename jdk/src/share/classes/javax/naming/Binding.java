@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,7 +48,7 @@ package javax.naming;
 public class Binding extends NameClassPair {
     /**
      * Contains this binding's object.
-     * It is initialized by the constuctor and can be updated using
+     * It is initialized by the constructor and can be updated using
      * <tt>setObject</tt>.
      * @serial
      * @see #getObject

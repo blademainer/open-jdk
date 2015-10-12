@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -65,6 +65,8 @@ import java.awt.image.ImageObserver;
 import java.awt.Transparency;
 import java.awt.font.GlyphVector;
 import java.awt.font.TextLayout;
+
+import sun.awt.image.SurfaceManager;
 import sun.font.FontDesignMetrics;
 import sun.font.FontUtilities;
 import sun.java2d.pipe.PixelDrawPipe;
@@ -82,15 +84,15 @@ import sun.java2d.loops.CompositeType;
 import sun.java2d.loops.SurfaceType;
 import sun.java2d.loops.Blit;
 import sun.java2d.loops.MaskFill;
-import sun.font.FontManager;
 import java.awt.font.FontRenderContext;
 import sun.java2d.loops.XORComposite;
 import sun.awt.ConstrainableGraphics;
 import sun.awt.SunHints;
 import java.util.Map;
 import java.util.Iterator;
-import sun.java2d.DestSurfaceProvider;
 import sun.misc.PerformanceLogger;
+
+import java.lang.annotation.Native;
 
 /**
  * This is a the master Graphics2D superclass for all of the Sun
@@ -109,18 +111,29 @@ public final class SunGraphics2D
      * Attribute States
      */
     /* Paint */
+    @Native
     public static final int PAINT_CUSTOM       = 6; /* Any other Paint object */
+    @Native
     public static final int PAINT_TEXTURE      = 5; /* Tiled Image */
+    @Native
     public static final int PAINT_RAD_GRADIENT = 4; /* Color RadialGradient */
+    @Native
     public static final int PAINT_LIN_GRADIENT = 3; /* Color LinearGradient */
+    @Native
     public static final int PAINT_GRADIENT     = 2; /* Color Gradient */
+    @Native
     public static final int PAINT_ALPHACOLOR   = 1; /* Non-opaque Color */
+    @Native
     public static final int PAINT_OPAQUECOLOR  = 0; /* Opaque Color */
 
     /* Composite*/
+    @Native
     public static final int COMP_CUSTOM = 3;/* Custom Composite */
+    @Native
     public static final int COMP_XOR    = 2;/* XOR Mode Composite */
+    @Native
     public static final int COMP_ALPHA  = 1;/* AlphaComposite */
+    @Native
     public static final int COMP_ISCOPY = 0;/* simple stores into destination,
                                              * i.e. Src, SrcOverNoEa, and other
                                              * alpha modes which replace
@@ -128,21 +141,33 @@ public final class SunGraphics2D
                                              */
 
     /* Stroke */
+    @Native
     public static final int STROKE_CUSTOM = 3; /* custom Stroke */
+    @Native
     public static final int STROKE_WIDE   = 2; /* BasicStroke */
+    @Native
     public static final int STROKE_THINDASHED   = 1; /* BasicStroke */
+    @Native
     public static final int STROKE_THIN   = 0; /* BasicStroke */
 
     /* Transform */
+    @Native
     public static final int TRANSFORM_GENERIC = 4; /* any 3x2 */
+    @Native
     public static final int TRANSFORM_TRANSLATESCALE = 3; /* scale XY */
+    @Native
     public static final int TRANSFORM_ANY_TRANSLATE = 2; /* non-int translate */
+    @Native
     public static final int TRANSFORM_INT_TRANSLATE = 1; /* int translate */
+    @Native
     public static final int TRANSFORM_ISIDENT = 0; /* Identity */
 
     /* Clipping */
+    @Native
     public static final int CLIP_SHAPE       = 2; /* arbitrary clip */
+    @Native
     public static final int CLIP_RECTANGULAR = 1; /* rectangular clip */
+    @Native
     public static final int CLIP_DEVICE      = 0; /* no clipping set */
 
     /* The following fields are used when the current Paint is a Color. */
@@ -189,7 +214,7 @@ public final class SunGraphics2D
     public int renderHint;
     public int antialiasHint;
     public int textAntialiasHint;
-    private int fractionalMetricsHint;
+    protected int fractionalMetricsHint;
 
     /* A gamma adjustment to the colour used in lcd text blitting */
     public int lcdTextContrast;
@@ -203,13 +228,15 @@ public final class SunGraphics2D
 
     public RenderingHints hints;
 
-    public Region constrainClip;                // lightweight bounds
+    public Region constrainClip;        // lightweight bounds in pixels
     public int constrainX;
     public int constrainY;
 
     public Region clipRegion;
     public Shape usrClip;
-    protected Region devClip;           // Actual physical drawable
+    protected Region devClip;           // Actual physical drawable in pixels
+
+    private final int devScale;         // Actual physical scale factor
 
     // cached state for text rendering
     private boolean validFontInfo;
@@ -251,6 +278,12 @@ public final class SunGraphics2D
         interpolationType = AffineTransformOp.TYPE_NEAREST_NEIGHBOR;
 
         validateColor();
+
+        devScale = sd.getDefaultScale();
+        if (devScale != 1) {
+            transform.setToScale(devScale, devScale);
+            invalidateTransform();
+        }
 
         font = f;
         if (font == null) {
@@ -316,6 +349,49 @@ public final class SunGraphics2D
 
     /**
      * Constrain rendering for lightweight objects.
+     */
+    public void constrain(int x, int y, int w, int h, Region region) {
+        if ((x | y) != 0) {
+            translate(x, y);
+        }
+        if (transformState > TRANSFORM_TRANSLATESCALE) {
+            clipRect(0, 0, w, h);
+            return;
+        }
+        // changes parameters according to the current scale and translate.
+        final double scaleX = transform.getScaleX();
+        final double scaleY = transform.getScaleY();
+        x = constrainX = (int) transform.getTranslateX();
+        y = constrainY = (int) transform.getTranslateY();
+        w = Region.dimAdd(x, Region.clipScale(w, scaleX));
+        h = Region.dimAdd(y, Region.clipScale(h, scaleY));
+
+        Region c = constrainClip;
+        if (c == null) {
+            c = Region.getInstanceXYXY(x, y, w, h);
+        } else {
+            c = c.getIntersectionXYXY(x, y, w, h);
+        }
+        if (region != null) {
+            region = region.getScaledRegion(scaleX, scaleY);
+            region = region.getTranslatedRegion(x, y);
+            c = c.getIntersection(region);
+        }
+
+        if (c == constrainClip) {
+            // Common case to ignore
+            return;
+        }
+
+        constrainClip = c;
+        if (!devClip.isInsideQuickCheck(c)) {
+            devClip = devClip.getIntersection(c);
+            validateCompClip();
+        }
+    }
+
+    /**
+     * Constrain rendering for lightweight objects.
      *
      * REMIND: This method will back off to the "workaround"
      * of using translate and clipRect if the Graphics
@@ -326,33 +402,9 @@ public final class SunGraphics2D
      * @exception IllegalStateException If the Graphics
      * to be constrained has a complex transform.
      */
+    @Override
     public void constrain(int x, int y, int w, int h) {
-        if ((x|y) != 0) {
-            translate(x, y);
-        }
-        if (transformState >= TRANSFORM_TRANSLATESCALE) {
-            clipRect(0, 0, w, h);
-            return;
-        }
-        x = constrainX = transX;
-        y = constrainY = transY;
-        w = Region.dimAdd(x, w);
-        h = Region.dimAdd(y, h);
-        Region c = constrainClip;
-        if (c == null) {
-            c = Region.getInstanceXYXY(x, y, w, h);
-        } else {
-            c = c.getIntersectionXYXY(x, y, w, h);
-            if (c == constrainClip) {
-                // Common case to ignore
-                return;
-            }
-        }
-        constrainClip = c;
-        if (!devClip.isInsideQuickCheck(c)) {
-            devClip = devClip.getIntersection(c);
-            validateCompClip();
-        }
+        constrain(x, y, w, h, null);
     }
 
     protected static ValidatePipe invalidpipe = new ValidatePipe();
@@ -370,6 +422,17 @@ public final class SunGraphics2D
     }
 
     public void validatePipe() {
+        /* This workaround is for the situation when we update the Pipelines
+         * for invalid SurfaceData and run further code when the current
+         * pipeline doesn't support the type of new SurfaceData created during
+         * the current pipeline's work (in place of the invalid SurfaceData).
+         * Usually SurfaceData and Pipelines are repaired (through revalidateAll)
+         * and called again in the exception handlers */
+
+        if (!surfaceData.isValid()) {
+            throw new InvalidPipeException("attempt to validate Pipe with invalid SurfaceData");
+        }
+
         surfaceData.validatePipe(this);
     }
 
@@ -941,7 +1004,7 @@ public final class SunGraphics2D
                 }
             }
         }
-        Class paintClass = paint.getClass();
+        Class<? extends Paint> paintClass = paint.getClass();
         if (paintClass == GradientPaint.class) {
             paintState = PAINT_GRADIENT;
         } else if (paintClass == LinearGradientPaint.class) {
@@ -1280,7 +1343,7 @@ public final class SunGraphics2D
         interpolationHint = -1;
         interpolationType = AffineTransformOp.TYPE_NEAREST_NEIGHBOR;
         boolean customHintPresent = false;
-        Iterator iter = hints.keySet().iterator();
+        Iterator<?> iter = hints.keySet().iterator();
         while (iter.hasNext()) {
             Object key = iter.next();
             if (key == SunHints.KEY_RENDERING ||
@@ -1311,7 +1374,7 @@ public final class SunGraphics2D
      */
     public void addRenderingHints(Map<?,?> hints) {
         boolean customHintPresent = false;
-        Iterator iter = hints.keySet().iterator();
+        Iterator<?> iter = hints.keySet().iterator();
         while (iter.hasNext()) {
             Object key = iter.next();
             if (key == SunHints.KEY_RENDERING ||
@@ -1525,11 +1588,13 @@ public final class SunGraphics2D
      * @see TransformChain
      * @see AffineTransform
      */
+    @Override
     public void setTransform(AffineTransform Tx) {
-        if ((constrainX|constrainY) == 0) {
+        if ((constrainX | constrainY) == 0 && devScale == 1) {
             transform.setTransform(Tx);
         } else {
-            transform.setToTranslation(constrainX, constrainY);
+            transform.setTransform(devScale, 0, 0, devScale, constrainX,
+                                   constrainY);
             transform.concatenate(Tx);
         }
         invalidateTransform();
@@ -1587,12 +1652,15 @@ public final class SunGraphics2D
      * @see #transform
      * @see #setTransform
      */
+    @Override
     public AffineTransform getTransform() {
-        if ((constrainX|constrainY) == 0) {
+        if ((constrainX | constrainY) == 0 && devScale == 1) {
             return new AffineTransform(transform);
         }
-        AffineTransform tx =
-            AffineTransform.getTranslateInstance(-constrainX, -constrainY);
+        final double invScale = 1.0 / devScale;
+        AffineTransform tx = new AffineTransform(invScale, 0, 0, invScale,
+                                                 -constrainX * invScale,
+                                                 -constrainY * invScale);
         tx.concatenate(transform);
         return tx;
     }
@@ -1727,20 +1795,10 @@ public final class SunGraphics2D
     }
 
     public Rectangle getClipBounds() {
-        Rectangle r;
         if (clipState == CLIP_DEVICE) {
-            r = null;
-        } else if (transformState <= TRANSFORM_INT_TRANSLATE) {
-            if (usrClip instanceof Rectangle) {
-                r = new Rectangle((Rectangle) usrClip);
-            } else {
-                r = usrClip.getBounds();
-            }
-            r.translate(-transX, -transY);
-        } else {
-            r = getClip().getBounds();
+            return null;
         }
-        return r;
+        return getClipBounds(new Rectangle());
     }
 
     public Rectangle getClipBounds(Rectangle r) {
@@ -1749,11 +1807,11 @@ public final class SunGraphics2D
                 if (usrClip instanceof Rectangle) {
                     r.setBounds((Rectangle) usrClip);
                 } else {
-                    r.setBounds(usrClip.getBounds());
+                    r.setFrame(usrClip.getBounds2D());
                 }
                 r.translate(-transX, -transY);
             } else {
-                r.setBounds(getClip().getBounds());
+                r.setFrame(getClip().getBounds2D());
             }
         } else if (r == null) {
             throw new NullPointerException("null rectangle parameter");
@@ -1804,7 +1862,12 @@ public final class SunGraphics2D
             width += x;
             height += y;
         }
-        if (!getCompClip().intersectsQuickCheckXYXY(x, y, width, height)) {
+
+        try {
+            if (!getCompClip().intersectsQuickCheckXYXY(x, y, width, height)) {
+                return false;
+            }
+        } catch (InvalidPipeException e) {
             return false;
         }
         // REMIND: We could go one step further here and examine the
@@ -1923,10 +1986,10 @@ public final class SunGraphics2D
             matrix[2] = matrix[0] + rect.getWidth();
             matrix[3] = matrix[1] + rect.getHeight();
             tx.transform(matrix, 0, matrix, 0, 2);
-            rect = new Rectangle2D.Float();
-            rect.setFrameFromDiagonal(matrix[0], matrix[1],
-                                      matrix[2], matrix[3]);
-            return rect;
+            fixRectangleOrientation(matrix, rect);
+            return new Rectangle2D.Double(matrix[0], matrix[1],
+                                          matrix[2] - matrix[0],
+                                          matrix[3] - matrix[1]);
         }
 
         if (tx.isIdentity()) {
@@ -1934,6 +1997,22 @@ public final class SunGraphics2D
         }
 
         return tx.createTransformedShape(clip);
+    }
+
+    /**
+     * Sets orientation of the rectangle according to the clip.
+     */
+    private static void fixRectangleOrientation(double[] m, Rectangle2D clip) {
+        if (clip.getWidth() > 0 != (m[2] - m[0] > 0)) {
+            double t = m[0];
+            m[0] = m[2];
+            m[2] = t;
+        }
+        if (clip.getHeight() > 0 != (m[3] - m[1] > 0)) {
+            double t = m[1];
+            m[1] = m[3];
+            m[3] = t;
+        }
     }
 
     public void clipRect(int x, int y, int w, int h) {
@@ -1988,8 +2067,8 @@ public final class SunGraphics2D
         try {
             doCopyArea(x, y, w, h, dx, dy);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 doCopyArea(x, y, w, h, dx, dy);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2120,8 +2199,8 @@ public final class SunGraphics2D
         try {
             drawpipe.drawLine(this, x1, y1, x2, y2);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 drawpipe.drawLine(this, x1, y1, x2, y2);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2137,8 +2216,8 @@ public final class SunGraphics2D
         try {
             drawpipe.drawRoundRect(this, x, y, w, h, arcW, arcH);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 drawpipe.drawRoundRect(this, x, y, w, h, arcW, arcH);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2154,8 +2233,8 @@ public final class SunGraphics2D
         try {
             fillpipe.fillRoundRect(this, x, y, w, h, arcW, arcH);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 fillpipe.fillRoundRect(this, x, y, w, h, arcW, arcH);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2171,8 +2250,8 @@ public final class SunGraphics2D
         try {
             drawpipe.drawOval(this, x, y, w, h);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 drawpipe.drawOval(this, x, y, w, h);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2188,8 +2267,8 @@ public final class SunGraphics2D
         try {
             fillpipe.fillOval(this, x, y, w, h);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 fillpipe.fillOval(this, x, y, w, h);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2206,8 +2285,8 @@ public final class SunGraphics2D
         try {
             drawpipe.drawArc(this, x, y, w, h, startAngl, arcAngl);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 drawpipe.drawArc(this, x, y, w, h, startAngl, arcAngl);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2224,8 +2303,8 @@ public final class SunGraphics2D
         try {
             fillpipe.fillArc(this, x, y, w, h, startAngl, arcAngl);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 fillpipe.fillArc(this, x, y, w, h, startAngl, arcAngl);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2241,8 +2320,8 @@ public final class SunGraphics2D
         try {
             drawpipe.drawPolyline(this, xPoints, yPoints, nPoints);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 drawpipe.drawPolyline(this, xPoints, yPoints, nPoints);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2258,8 +2337,8 @@ public final class SunGraphics2D
         try {
             drawpipe.drawPolygon(this, xPoints, yPoints, nPoints);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 drawpipe.drawPolygon(this, xPoints, yPoints, nPoints);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2275,8 +2354,8 @@ public final class SunGraphics2D
         try {
             fillpipe.fillPolygon(this, xPoints, yPoints, nPoints);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 fillpipe.fillPolygon(this, xPoints, yPoints, nPoints);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2292,8 +2371,8 @@ public final class SunGraphics2D
         try {
             drawpipe.drawRect(this, x, y, w, h);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 drawpipe.drawRect(this, x, y, w, h);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2309,8 +2388,8 @@ public final class SunGraphics2D
         try {
             fillpipe.fillRect(this, x, y, w, h);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 fillpipe.fillRect(this, x, y, w, h);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2358,7 +2437,6 @@ public final class SunGraphics2D
         Paint p = paint;
         setComposite(AlphaComposite.Src);
         setColor(getBackground());
-        validatePipe();
         fillRect(x, y, w, h);
         setPaint(p);
         setComposite(c);
@@ -2382,8 +2460,8 @@ public final class SunGraphics2D
         try {
             shapepipe.draw(this, s);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 shapepipe.draw(this, s);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2412,8 +2490,8 @@ public final class SunGraphics2D
         try {
             shapepipe.fill(this, s);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 shapepipe.fill(this, s);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2560,10 +2638,17 @@ public final class SunGraphics2D
         // Include padding for interpolation/antialiasing if necessary
         int pad = isIntegerTranslate ? 0 : 3;
 
+        Region clip;
+        try {
+            clip = getCompClip();
+        } catch (InvalidPipeException e) {
+            return;
+        }
+
         // Determine the region of the image that may contribute to
         // the clipped drawing area
         Rectangle region = getImageRegion(img,
-                                          getCompClip(),
+                                          clip,
                                           transform,
                                           xform,
                                           pad, pad);
@@ -2806,8 +2891,8 @@ public final class SunGraphics2D
         try {
             textpipe.drawString(this, str, x, y);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 textpipe.drawString(this, str, x, y);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2835,8 +2920,8 @@ public final class SunGraphics2D
         try {
             textpipe.drawString(this, str, x, y);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 textpipe.drawString(this, str, x, y);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2881,8 +2966,8 @@ public final class SunGraphics2D
         try {
             textpipe.drawGlyphVector(this, gv, x, y);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 textpipe.drawGlyphVector(this, gv, x, y);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2914,8 +2999,8 @@ public final class SunGraphics2D
         try {
             textpipe.drawChars(this, data, offset, length, x, y);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 textpipe.drawChars(this, data, offset, length, x, y);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2951,8 +3036,8 @@ public final class SunGraphics2D
         try {
             textpipe.drawChars(this, chData, 0, length, x, y);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 textpipe.drawChars(this, chData, 0, length, x, y);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -2964,6 +3049,37 @@ public final class SunGraphics2D
         }
     }
 // end of text rendering methods
+
+    private static boolean isHiDPIImage(final Image img) {
+        return SurfaceManager.getImageScale(img) != 1;
+    }
+
+    private boolean drawHiDPIImage(Image img, int dx1, int dy1, int dx2,
+                                   int dy2, int sx1, int sy1, int sx2, int sy2,
+                                   Color bgcolor, ImageObserver observer) {
+        final int scale = SurfaceManager.getImageScale(img);
+        sx1 = Region.clipScale(sx1, scale);
+        sx2 = Region.clipScale(sx2, scale);
+        sy1 = Region.clipScale(sy1, scale);
+        sy2 = Region.clipScale(sy2, scale);
+        try {
+            return imagepipe.scaleImage(this, img, dx1, dy1, dx2, dy2, sx1, sy1,
+                                        sx2, sy2, bgcolor, observer);
+        } catch (InvalidPipeException e) {
+            try {
+                revalidateAll();
+                return imagepipe.scaleImage(this, img, dx1, dy1, dx2, dy2, sx1,
+                                            sy1, sx2, sy2, bgcolor, observer);
+            } catch (InvalidPipeException e2) {
+                // Still catching the exception; we are not yet ready to
+                // validate the surfaceData correctly.  Fail for now and
+                // try again next time around.
+                return false;
+            }
+        } finally {
+            surfaceData.markDirty();
+        }
+    }
 
     /**
      * Draws an image scaled to x,y,w,h in nonblocking mode with a
@@ -2978,8 +3094,9 @@ public final class SunGraphics2D
      * Not part of the advertised API but a useful utility method
      * to call internally.  This is for the case where we are
      * drawing to/from given coordinates using a given width/height,
-     * but we guarantee that the weidth/height of the src and dest
-     * areas are equal (no scale needed).
+     * but we guarantee that the surfaceData's width/height of the src and dest
+     * areas are equal (no scale needed). Note that this method intentionally
+     * ignore scale factor of the source image, and copy it as is.
      */
     public boolean copyImage(Image img, int dx, int dy, int sx, int sy,
                              int width, int height, Color bgcolor,
@@ -2988,8 +3105,8 @@ public final class SunGraphics2D
             return imagepipe.copyImage(this, img, dx, dy, sx, sy,
                                        width, height, bgcolor, observer);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 return imagepipe.copyImage(this, img, dx, dy, sx, sy,
                                            width, height, bgcolor, observer);
             } catch (InvalidPipeException e2) {
@@ -3017,7 +3134,15 @@ public final class SunGraphics2D
         if ((width == 0) || (height == 0)) {
             return true;
         }
-        if (width == img.getWidth(null) && height == img.getHeight(null)) {
+
+        final int imgW = img.getWidth(null);
+        final int imgH = img.getHeight(null);
+        if (isHiDPIImage(img)) {
+            return drawHiDPIImage(img, x, y, x + width, y + height, 0, 0, imgW,
+                                  imgH, bg, observer);
+        }
+
+        if (width == imgW && height == imgH) {
             return copyImage(img, x, y, 0, 0, width, height, bg, observer);
         }
 
@@ -3025,8 +3150,8 @@ public final class SunGraphics2D
             return imagepipe.scaleImage(this, img, x, y, width, height,
                                         bg, observer);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 return imagepipe.scaleImage(this, img, x, y, width, height,
                                             bg, observer);
             } catch (InvalidPipeException e2) {
@@ -3058,11 +3183,18 @@ public final class SunGraphics2D
             return true;
         }
 
+        if (isHiDPIImage(img)) {
+            final int imgW = img.getWidth(null);
+            final int imgH = img.getHeight(null);
+            return drawHiDPIImage(img, x, y, x + imgW, y + imgH, 0, 0, imgW,
+                                  imgH, bg, observer);
+        }
+
         try {
             return imagepipe.copyImage(this, img, x, y, bg, observer);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 return imagepipe.copyImage(this, img, x, y, bg, observer);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -3106,6 +3238,11 @@ public final class SunGraphics2D
             return true;
         }
 
+        if (isHiDPIImage(img)) {
+            return drawHiDPIImage(img, dx1, dy1, dx2, dy2, sx1, sy1, sx2, sy2,
+                                  bgcolor, observer);
+        }
+
         if (((sx2 - sx1) == (dx2 - dx1)) &&
             ((sy2 - sy1) == (dy2 - dy1)))
         {
@@ -3138,8 +3275,8 @@ public final class SunGraphics2D
                                           sx1, sy1, sx2, sy2, bgcolor,
                                           observer);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 return imagepipe.scaleImage(this, img, dx1, dy1, dx2, dy2,
                                               sx1, sy1, sx2, sy2, bgcolor,
                                               observer);
@@ -3184,11 +3321,23 @@ public final class SunGraphics2D
             return drawImage(img, 0, 0, null, observer);
         }
 
+        if (isHiDPIImage(img)) {
+            final int w = img.getWidth(null);
+            final int h = img.getHeight(null);
+            final AffineTransform tx = new AffineTransform(transform);
+            transform(xform);
+            boolean result = drawHiDPIImage(img, 0, 0, w, h, 0, 0, w, h, null,
+                                            observer);
+            transform.setTransform(tx);
+            invalidateTransform();
+            return result;
+        }
+
         try {
             return imagepipe.transformImage(this, img, xform, observer);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 return imagepipe.transformImage(this, img, xform, observer);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to
@@ -3213,8 +3362,8 @@ public final class SunGraphics2D
         try {
             imagepipe.transformImage(this, bImg, op, x, y);
         } catch (InvalidPipeException e) {
-            revalidateAll();
             try {
+                revalidateAll();
                 imagepipe.transformImage(this, bImg, op, x, y);
             } catch (InvalidPipeException e2) {
                 // Still catching the exception; we are not yet ready to

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,7 @@
  * @bug 6589834
  * @summary deoptimization problem with -XX:+DeoptimizeALot
  *
- * @run main/othervm -server Test_ia32
+ * @run main Test_ia32
  */
 
 /***************************************************************************************

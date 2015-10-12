@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,6 +49,7 @@ import sun.security.ssl.HandshakeMessage.*;
 import sun.security.ssl.CipherSuite.*;
 
 import static sun.security.ssl.CipherSuite.PRF.*;
+import static sun.security.ssl.CipherSuite.CipherType.*;
 
 /**
  * Handshaker ... processes handshake records from an SSL V3.0
@@ -112,6 +113,12 @@ abstract class Handshaker {
      */
     private CipherSuiteList    activeCipherSuites;
 
+    // The server name indication and matchers
+    List<SNIServerName>         serverNames =
+                                    Collections.<SNIServerName>emptyList();
+    Collection<SNIMatcher>      sniMatchers =
+                                    Collections.<SNIMatcher>emptyList();
+
     private boolean             isClient;
     private boolean             needCertVerify;
 
@@ -138,6 +145,14 @@ abstract class Handshaker {
     /* True if it's OK to start a new SSL session */
     boolean             enableNewSession;
 
+    // Whether local cipher suites preference should be honored during
+    // handshaking?
+    //
+    // Note that in this provider, this option only applies to server side.
+    // Local cipher suites preference is always honored in client side in
+    // this provider.
+    boolean preferLocalCipherSuites = false;
+
     // Temporary storage for the individual keys. Set by
     // calculateConnectionKeys() and cleared once the ciphers are
     // activated.
@@ -154,7 +169,7 @@ abstract class Handshaker {
      * Data is protected by the SSLEngine.this lock.
      */
     private volatile boolean taskDelegated = false;
-    private volatile DelegatedTask delegatedTask = null;
+    private volatile DelegatedTask<?> delegatedTask = null;
     private volatile Exception thrown = null;
 
     // Could probably use a java.util.concurrent.atomic.AtomicReference
@@ -178,6 +193,16 @@ abstract class Handshaker {
     // By default, allow such legacy hello messages.
     static final boolean allowLegacyHelloMessages = Debug.getBooleanProperty(
                     "sun.security.ssl.allowLegacyHelloMessages", true);
+
+    // To prevent the TLS renegotiation issues, by setting system property
+    // "jdk.tls.rejectClientInitiatedRenegotiation" to true, applications in
+    // server side can disable all client initiated SSL renegotiations
+    // regardless of the support of TLS protocols.
+    //
+    // By default, allow client initiated renegotiations.
+    static final boolean rejectClientInitiatedRenego =
+            Debug.getBooleanProperty(
+                "jdk.tls.rejectClientInitiatedRenegotiation", false);
 
     // need to dispose the object when it is invalidated
     boolean invalidated;
@@ -287,14 +312,7 @@ abstract class Handshaker {
         }
     }
 
-    String getRawHostnameSE() {
-        if (conn != null) {
-            return conn.getRawHostname();
-        } else {
-            return engine.getPeerHost();
-        }
-    }
-
+    // ONLY used by ClientHandshaker to setup the peer host in SSLSession.
     String getHostSE() {
         if (conn != null) {
             return conn.getHost();
@@ -303,6 +321,7 @@ abstract class Handshaker {
         }
     }
 
+    // ONLY used by ServerHandshaker to setup the peer host in SSLSession.
     String getHostAddressSE() {
         if (conn != null) {
             return conn.getInetAddress().getHostAddress();
@@ -313,14 +332,6 @@ abstract class Handshaker {
              * a reverse DNS lookup, potentially slowing things down.
              */
             return engine.getPeerHost();
-        }
-    }
-
-    boolean isLoopbackSE() {
-        if (conn != null) {
-            return conn.getInetAddress().isLoopbackAddress();
-        } else {
-            return false;
         }
     }
 
@@ -436,6 +447,29 @@ abstract class Handshaker {
     }
 
     /**
+     * Sets the server name indication of the handshake.
+     */
+    void setSNIServerNames(List<SNIServerName> serverNames) {
+        // The serverNames parameter is unmodifiable.
+        this.serverNames = serverNames;
+    }
+
+    /**
+     * Sets the server name matchers of the handshaking.
+     */
+    void setSNIMatchers(Collection<SNIMatcher> sniMatchers) {
+        // The sniMatchers parameter is unmodifiable.
+        this.sniMatchers = sniMatchers;
+    }
+
+    /**
+     * Sets the cipher suites preference.
+     */
+    void setUseCipherSuitesOrder(boolean on) {
+        this.preferLocalCipherSuites = on;
+    }
+
+    /**
      * Prior to handshaking, activate the handshake and initialize the version,
      * input stream and output stream.
      */
@@ -473,11 +507,7 @@ abstract class Handshaker {
         // We accumulate digests of the handshake messages so that
         // we can read/write CertificateVerify and Finished messages,
         // getting assurance against some particular active attacks.
-        Set<String> localSupportedHashAlgorithms =
-            SignatureAndHashAlgorithm.getHashAlgorithmNames(
-                getLocalSupportedSignAlgs());
-        handshakeHash = new HandshakeHash(!isClient, needCertVerify,
-            localSupportedHashAlgorithms);
+        handshakeHash = new HandshakeHash(needCertVerify);
 
         // Generate handshake input/output stream.
         input = new HandshakeInStream(handshakeHash);
@@ -510,7 +540,9 @@ abstract class Handshaker {
     }
 
     /**
-     * Check if the given ciphersuite is enabled and available.
+     * Check if the given ciphersuite is enabled and available within the
+     * current active cipher suites.
+     *
      * Does not check if the required server certificates are available.
      */
     boolean isNegotiable(CipherSuite s) {
@@ -518,7 +550,17 @@ abstract class Handshaker {
             activeCipherSuites = getActiveCipherSuites();
         }
 
-        return activeCipherSuites.contains(s) && s.isNegotiable();
+        return isNegotiable(activeCipherSuites, s);
+    }
+
+    /**
+     * Check if the given ciphersuite is enabled and available within the
+     * proposed cipher suite list.
+     *
+     * Does not check if the required server certificates are available.
+     */
+    final static boolean isNegotiable(CipherSuiteList proposed, CipherSuite s) {
+        return proposed.contains(s) && s.isNegotiable();
     }
 
     /**
@@ -702,33 +744,47 @@ abstract class Handshaker {
     /**
      * Create a new read MAC and return it to caller.
      */
-    MAC newReadMAC() throws NoSuchAlgorithmException, InvalidKeyException {
-        MacAlg macAlg = cipherSuite.macAlg;
-        MAC mac;
-        if (isClient) {
-            mac = macAlg.newMac(protocolVersion, svrMacSecret);
-            svrMacSecret = null;
+    Authenticator newReadAuthenticator()
+            throws NoSuchAlgorithmException, InvalidKeyException {
+
+        Authenticator authenticator = null;
+        if (cipherSuite.cipher.cipherType == AEAD_CIPHER) {
+            authenticator = new Authenticator(protocolVersion);
         } else {
-            mac = macAlg.newMac(protocolVersion, clntMacSecret);
-            clntMacSecret = null;
+            MacAlg macAlg = cipherSuite.macAlg;
+            if (isClient) {
+                authenticator = macAlg.newMac(protocolVersion, svrMacSecret);
+                svrMacSecret = null;
+            } else {
+                authenticator = macAlg.newMac(protocolVersion, clntMacSecret);
+                clntMacSecret = null;
+            }
         }
-        return mac;
+
+        return authenticator;
     }
 
     /**
      * Create a new write MAC and return it to caller.
      */
-    MAC newWriteMAC() throws NoSuchAlgorithmException, InvalidKeyException {
-        MacAlg macAlg = cipherSuite.macAlg;
-        MAC mac;
-        if (isClient) {
-            mac = macAlg.newMac(protocolVersion, clntMacSecret);
-            clntMacSecret = null;
+    Authenticator newWriteAuthenticator()
+            throws NoSuchAlgorithmException, InvalidKeyException {
+
+        Authenticator authenticator = null;
+        if (cipherSuite.cipher.cipherType == AEAD_CIPHER) {
+            authenticator = new Authenticator(protocolVersion);
         } else {
-            mac = macAlg.newMac(protocolVersion, svrMacSecret);
-            svrMacSecret = null;
+            MacAlg macAlg = cipherSuite.macAlg;
+            if (isClient) {
+                authenticator = macAlg.newMac(protocolVersion, clntMacSecret);
+                clntMacSecret = null;
+            } else {
+                authenticator = macAlg.newMac(protocolVersion, svrMacSecret);
+                svrMacSecret = null;
+            }
         }
-        return mac;
+
+        return authenticator;
     }
 
     /*
@@ -804,6 +860,7 @@ abstract class Handshaker {
             processLoop();
         } else {
             delegateTask(new PrivilegedExceptionAction<Void>() {
+                @Override
                 public Void run() throws Exception {
                     processLoop();
                     return null;
@@ -845,7 +902,7 @@ abstract class Handshaker {
             }
 
             /*
-             * Process the messsage.  We require
+             * Process the message.  We require
              * that processMessage() consumes the entire message.  In
              * lieu of explicit error checks (how?!) we assume that the
              * data will look like garbage on encoding/processing errors,
@@ -1047,96 +1104,23 @@ abstract class Handshaker {
                 clnt_random.random_bytes, svr_random.random_bytes,
                 prfHashAlg, prfHashLength, prfBlockSize);
 
-        SecretKey masterSecret;
         try {
             KeyGenerator kg = JsseJce.getKeyGenerator(masterAlg);
             kg.init(spec);
-            masterSecret = kg.generateKey();
-        } catch (GeneralSecurityException e) {
+            return kg.generateKey();
+        } catch (InvalidAlgorithmParameterException |
+                NoSuchAlgorithmException iae) {
+            // unlikely to happen, otherwise, must be a provider exception
+            //
             // For RSA premaster secrets, do not signal a protocol error
             // due to the Bleichenbacher attack. See comments further down.
-            if (!preMasterSecret.getAlgorithm().equals(
-                    "TlsRsaPremasterSecret")) {
-                throw new ProviderException(e);
-            }
-
             if (debug != null && Debug.isOn("handshake")) {
                 System.out.println("RSA master secret generation error:");
-                e.printStackTrace(System.out);
-                System.out.println("Generating new random premaster secret");
+                iae.printStackTrace(System.out);
             }
+            throw new ProviderException(iae);
 
-            if (requestedVersion != null) {
-                preMasterSecret =
-                    RSAClientKeyExchange.generateDummySecret(requestedVersion);
-            } else {
-                preMasterSecret =
-                    RSAClientKeyExchange.generateDummySecret(protocolVersion);
-            }
-
-            // recursive call with new premaster secret
-            return calculateMasterSecret(preMasterSecret, null);
         }
-
-        // if no version check requested (client side handshake), or version
-        // information is not available (not an RSA premaster secret),
-        // return master secret immediately.
-        if ((requestedVersion == null) ||
-                !(masterSecret instanceof TlsMasterSecret)) {
-            return masterSecret;
-        }
-
-        // we have checked the ClientKeyExchange message when reading TLS
-        // record, the following check is necessary to ensure that
-        // JCE provider does not ignore the checking, or the previous
-        // checking process bypassed the premaster secret version checking.
-        TlsMasterSecret tlsKey = (TlsMasterSecret)masterSecret;
-        int major = tlsKey.getMajorVersion();
-        int minor = tlsKey.getMinorVersion();
-        if ((major < 0) || (minor < 0)) {
-            return masterSecret;
-        }
-
-        // check if the premaster secret version is ok
-        // the specification says that it must be the maximum version supported
-        // by the client from its ClientHello message. However, many
-        // implementations send the negotiated version, so accept both
-        // for SSL v3.0 and TLS v1.0.
-        // NOTE that we may be comparing two unsupported version numbers, which
-        // is why we cannot use object reference equality in this special case.
-        ProtocolVersion premasterVersion =
-                                    ProtocolVersion.valueOf(major, minor);
-        boolean versionMismatch = (premasterVersion.v != requestedVersion.v);
-
-        /*
-         * we never checked the client_version in server side
-         * for TLS v1.0 and SSL v3.0. For compatibility, we
-         * maintain this behavior.
-         */
-        if (versionMismatch && requestedVersion.v <= ProtocolVersion.TLS10.v) {
-            versionMismatch = (premasterVersion.v != protocolVersion.v);
-        }
-
-        if (versionMismatch == false) {
-            // check passed, return key
-            return masterSecret;
-        }
-
-        // Due to the Bleichenbacher attack, do not signal a protocol error.
-        // Generate a random premaster secret and continue with the handshake,
-        // which will fail when verifying the finished messages.
-        // For more information, see comments in PreMasterSecret.
-        if (debug != null && Debug.isOn("handshake")) {
-            System.out.println("RSA PreMasterSecret version error: expected"
-                + protocolVersion + " or " + requestedVersion + ", decrypted: "
-                + premasterVersion);
-            System.out.println("Generating new random premaster secret");
-        }
-        preMasterSecret =
-            RSAClientKeyExchange.generateDummySecret(requestedVersion);
-
-        // recursive call with new premaster secret
-        return calculateMasterSecret(preMasterSecret, null);
     }
 
     /*
@@ -1178,11 +1162,23 @@ abstract class Handshaker {
         int prfHashLength = prf.getPRFHashLength();
         int prfBlockSize = prf.getPRFBlockSize();
 
+        // TLS v1.1 or later uses an explicit IV in CBC cipher suites to
+        // protect against the CBC attacks.  AEAD/GCM cipher suites in TLS
+        // v1.2 or later use a fixed IV as the implicit part of the partially
+        // implicit nonce technique described in RFC 5116.
+        int ivSize = cipher.ivSize;
+        if (cipher.cipherType == AEAD_CIPHER) {
+            ivSize = cipher.fixedIvSize;
+        } else if (protocolVersion.v >= ProtocolVersion.TLS11.v &&
+                cipher.cipherType == BLOCK_CIPHER) {
+            ivSize = 0;
+        }
+
         TlsKeyMaterialParameterSpec spec = new TlsKeyMaterialParameterSpec(
             masterKey, protocolVersion.major, protocolVersion.minor,
             clnt_random.random_bytes, svr_random.random_bytes,
             cipher.algorithm, cipher.keySize, expandedKeySize,
-            cipher.ivSize, hashSize,
+            ivSize, hashSize,
             prfHashAlg, prfHashLength, prfBlockSize);
 
         try {
@@ -1190,14 +1186,15 @@ abstract class Handshaker {
             kg.init(spec);
             TlsKeyMaterialSpec keySpec = (TlsKeyMaterialSpec)kg.generateKey();
 
+            // Return null if cipher keys are not supposed to be generated.
             clntWriteKey = keySpec.getClientCipherKey();
             svrWriteKey = keySpec.getServerCipherKey();
 
             // Return null if IVs are not supposed to be generated.
-            // e.g. TLS 1.1+.
             clntWriteIV = keySpec.getClientIv();
             svrWriteIV = keySpec.getServerIv();
 
+            // Return null if MAC keys are not supposed to be generated.
             clntMacSecret = keySpec.getClientMacKey();
             svrMacSecret = keySpec.getServerMacKey();
         } catch (GeneralSecurityException e) {
@@ -1222,10 +1219,14 @@ abstract class Handshaker {
                 printHex(dump, masterKey.getEncoded());
 
                 // Outputs:
-                System.out.println("Client MAC write Secret:");
-                printHex(dump, clntMacSecret.getEncoded());
-                System.out.println("Server MAC write Secret:");
-                printHex(dump, svrMacSecret.getEncoded());
+                if (clntMacSecret != null) {
+                    System.out.println("Client MAC write Secret:");
+                    printHex(dump, clntMacSecret.getEncoded());
+                    System.out.println("Server MAC write Secret:");
+                    printHex(dump, svrMacSecret.getEncoded());
+                } else {
+                    System.out.println("... no MAC keys used for this cipher");
+                }
 
                 if (clntWriteKey != null) {
                     System.out.println("Client write key:");
@@ -1316,7 +1317,7 @@ abstract class Handshaker {
         thrown = null;
     }
 
-    DelegatedTask getTask() {
+    DelegatedTask<?> getTask() {
         if (!taskDelegated) {
             taskDelegated = true;
             return delegatedTask;
@@ -1358,8 +1359,7 @@ abstract class Handshaker {
                 thrown = null;
 
                 if (e instanceof RuntimeException) {
-                    throw (RuntimeException)
-                        new RuntimeException(msg).initCause(e);
+                    throw new RuntimeException(msg, e);
                 } else if (e instanceof SSLHandshakeException) {
                     throw (SSLHandshakeException)
                         new SSLHandshakeException(msg).initCause(e);
@@ -1377,8 +1377,7 @@ abstract class Handshaker {
                      * If it's SSLException or any other Exception,
                      * we'll wrap it in an SSLException.
                      */
-                    throw (SSLException)
-                        new SSLException(msg).initCause(e);
+                    throw new SSLException(msg, e);
                 }
             }
         }

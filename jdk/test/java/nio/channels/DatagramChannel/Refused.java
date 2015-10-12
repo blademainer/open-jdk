@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -104,16 +104,9 @@ public class Refused {
             Thread.sleep(2000);
             inBuf.clear();
             server.read(inBuf);
-            if (onSolarisOrLinux())
-                throw new Exception("Expected PUE not thrown");
         } catch (PortUnreachableException pue) {
             System.err.println("received PUE");
         }
         server.close();
-    }
-
-    static boolean onSolarisOrLinux() {
-        String osName = System.getProperty("os.name");
-        return osName.startsWith("SunOS") || osName.startsWith("Linux");
     }
 }

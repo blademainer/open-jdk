@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -47,6 +47,7 @@ import sun.rmi.server.UnicastServerRef;
  *
  * @author Ann Wollrath
  */
+@SuppressWarnings("deprecation")
 public abstract class Transport {
 
     /** "transport" package log level */
@@ -62,7 +63,7 @@ public abstract class Transport {
         Log.getLog("sun.rmi.transport.misc", "transport", Transport.logLevel);
 
     /** References the current transport when a call is being serviced */
-    private static final ThreadLocal currentTransport = new ThreadLocal();
+    private static final ThreadLocal<Transport> currentTransport = new ThreadLocal<>();
 
     /** ObjID for DGCImpl */
     private static final ObjID dgcID = new ObjID(ObjID.DGC_ID);
@@ -104,7 +105,7 @@ public abstract class Transport {
      * returns null.
      **/
     static Transport currentTransport() {
-        return (Transport) currentTransport.get();
+        return currentTransport.get();
     }
 
     /**

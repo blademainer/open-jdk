@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1998, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,6 @@
 # @bug 4100915
 mkdir classes
 javac -d classes *.java
-java -classpath classes -Djava.policy=Allow.policy Test 
+java ${TESTVMOPTS} -classpath classes -Djava.policy=Allow.policy Test 
 # ENABLE next line when new method for invoking a main with a SecureClassLoader is known
 #java -classpath classes -Djava.policy=NotAllow.policy Test -expectSecurityException

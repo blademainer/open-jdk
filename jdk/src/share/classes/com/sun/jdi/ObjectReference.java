@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,8 +55,9 @@ import java.util.Map;
  * @author James McIlree
  * @since  1.3
  */
-public interface ObjectReference extends Value
-{
+@jdk.Exported
+public interface ObjectReference extends Value {
+
     /**
      * Gets the {@link ReferenceType} that mirrors the type
      * of this object. The type may be a subclass or implementor of the

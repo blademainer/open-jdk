@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
  * @bug 4313887 6838333 7017446
  * @summary Unit test for java.nio.file.WatchService
  * @library ..
- * @run main/timeout=120 Basic
+ * @run main Basic
  */
 
 import java.nio.file.*;
@@ -281,11 +281,11 @@ public class Basic {
 
             System.out.println("poll with timeout...");
             try {
-                long start = System.currentTimeMillis();
+                long start = System.nanoTime();
                 key = watcher.poll(3000, TimeUnit.MILLISECONDS);
                 if (key != null)
                     throw new RuntimeException("no keys registered");
-                long waited = System.currentTimeMillis() - start;
+                long waited = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
                 if (waited < 2900)
                     throw new RuntimeException("poll was too short");
             } catch (InterruptedException x) {
@@ -358,14 +358,14 @@ public class Basic {
         }
 
         // assume that poll throws exception immediately
-        long start = System.currentTimeMillis();
+        long start = System.nanoTime();
         try {
             watcher.poll(10000, TimeUnit.MILLISECONDS);
             throw new RuntimeException("ClosedWatchServiceException not thrown");
         } catch (InterruptedException x) {
             throw new RuntimeException(x);
         } catch (ClosedWatchServiceException  x) {
-            long waited = System.currentTimeMillis() - start;
+            long waited = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
             if (waited > 5000)
                 throw new RuntimeException("poll was too long");
         }

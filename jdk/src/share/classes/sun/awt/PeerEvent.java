@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,9 @@ package sun.awt;
 
 import java.awt.event.InvocationEvent;
 
+@SuppressWarnings("serial")
 public class PeerEvent extends InvocationEvent {
+
     public static final long PRIORITY_EVENT = 0x01;
     public static final long ULTIMATE_PRIORITY_EVENT = 0x02;
     public static final long LOW_PRIORITY_EVENT = 0x04;

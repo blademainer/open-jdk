@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -192,16 +192,32 @@ option gc {
     format "0.0"
   }
   column {
-    header "^PC^"	/* Perm Space Capacity - Current */
-    data sun.gc.generation.2.space.0.capacity
+    header "^MC^"	/* Metaspace Capacity - Current */
+    data sun.gc.metaspace.capacity
     align center
     width 6
     scale K
     format "0.0"
   }
   column {
-    header "^PU^"	/* Perm Space Used */
-    data sun.gc.generation.2.space.0.used
+    header "^MU^"	/* Metaspae Used */
+    data sun.gc.metaspace.used
+    align center
+    width 6
+    scale K
+    format "0.0"
+  }
+  column {
+    header "^CCSC^"	/* Compressed Class Space Capacity - Current */
+    data sun.gc.compressedclassspace.capacity
+    align center
+    width 6
+    scale K
+    format "0.0"
+  }
+  column {
+    header "^CCSU^"	/* Compressed Class Space Used */
+    data sun.gc.compressedclassspace.used
     align center
     width 6
     scale K
@@ -298,7 +314,7 @@ option gccapacity {
     format "0.0"
   }
   column {
-    header "^OGCMN^"	/* Old Generation Capacity - Minumum */
+    header "^OGCMN^"	/* Old Generation Capacity - Minimum */
     data sun.gc.generation.1.minCapacity
     scale K
     align right
@@ -330,32 +346,48 @@ option gccapacity {
     format "0.0"
   }
   column {
-    header "^PGCMN^"	/* Perm Generation Capacity - Minimum */
-    data sun.gc.generation.2.minCapacity
+    header "^MCMN^"	/* Metaspace Capacity - Minimum */
+    data sun.gc.metaspace.minCapacity
     scale K
     align right
     width 8
     format "0.0"
   }
   column {
-    header "^PGCMX^"	/* Perm Generation Capacity - Maximum */
-    data sun.gc.generation.2.maxCapacity
+    header "^MCMX^"	/* Metaspace Capacity - Maximum */
+    data sun.gc.metaspace.maxCapacity
     scale K
     align right
     width 8
     format "0.0"
   }
   column {
-    header "^PGC^"	/* Perm Generation Capacity - Current */
-    data sun.gc.generation.2.capacity
+    header "^MC^"	/* Metaspace Capacity - Current */
+    data sun.gc.metaspace.capacity
     scale K
     align right
     width 8
     format "0.0"
   }
   column {
-    header "^PC^"	/* Perm Space Capacity - Current */
-    data sun.gc.generation.2.space.0.capacity
+    header "^CCSMN^"    /* Compressed Class Space Capacity - Minimum */
+    data sun.gc.compressedclassspace.minCapacity
+    scale K
+    align right
+    width 8
+    format "0.0"
+  }
+  column {
+    header "^CCSMX^"	/* Compressed Class Space Capacity - Maximum */
+    data sun.gc.compressedclassspace.maxCapacity
+    scale K
+    align right
+    width 8
+    format "0.0"
+  }
+  column {
+    header "^CCSC^"	/* Compressed Class Space Capacity - Current */
+    data sun.gc.compressedclassspace.capacity
     scale K
     align right
     width 8
@@ -412,8 +444,16 @@ option gccause {
     format "0.00"
   }
   column {
-    header "^P^"	/* Perm Space - Percent Used */
-    data (1-((sun.gc.generation.2.space.0.capacity - sun.gc.generation.2.space.0.used)/sun.gc.generation.2.space.0.capacity)) * 100
+    header "^M^"	/* Metaspace - Percent Used */
+    data (1-((sun.gc.metaspace.capacity - sun.gc.metaspace.used)/sun.gc.metaspace.capacity)) * 100
+    align right
+    width 6
+    scale raw
+    format "0.00"
+  }
+  column {
+    header "^CCS^"	/* Compressed Class Space - Percent Used */
+    data (1-((sun.gc.compressedclassspace.capacity - sun.gc.compressedclassspace.used)/sun.gc.compressedclassspace.capacity)) * 100
     align right
     width 6
     scale raw
@@ -654,16 +694,32 @@ option gcnewcapacity {
 
 option gcold {
   column {
-    header "^PC^"	/* Perm Space Capacity - Current */
-    data sun.gc.generation.2.space.0.capacity
+    header "^MC^"	/* Metaspace Capacity - Current */
+    data sun.gc.metaspace.capacity
     width 8
     align right
     scale K
     format "0.0"
   }
   column {
-    header "^PU^"	/* Perm Space Used */
-    data sun.gc.generation.2.space.0.used
+    header "^MU^"	/* Metaspace Space Used */
+    data sun.gc.metaspace.used
+    width 8
+    align right
+    scale K
+    format "0.0"
+  }
+  column {
+    header "^CCSC^"	/* Compressed Class Space Capacity - Current */
+    data sun.gc.compressedclassspace.capacity
+    width 8
+    align right
+    scale K
+    format "0.0"
+  }
+  column {
+    header "^CCSU^"	/* Compressed Class Space Used */
+    data sun.gc.compressedclassspace.used
     width 8
     align right
     scale K
@@ -720,7 +776,7 @@ option gcold {
 
 option gcoldcapacity {
   column {
-    header "^OGCMN^"	/* Old Generation Capacity - Minumum */
+    header "^OGCMN^"	/* Old Generation Capacity - Minimum */
     data sun.gc.generation.1.minCapacity
     scale K
     align right
@@ -784,34 +840,50 @@ option gcoldcapacity {
   }
 }
 
-option gcpermcapacity {
+option gcmetacapacity {
   column {
-    header "^PGCMN^"	/* Perm Generation Capacity - Minumum */
-    data sun.gc.generation.2.minCapacity
+    header "^MCMN^"	/* Metaspace Capacity - Minimum */
+    data sun.gc.metaspace.minCapacity
     scale K
     align right
     width 10
     format "0.0"
   }
   column {
-    header "^PGCMX^"	/* Perm Generation Capacity - Maximum */
-    data sun.gc.generation.2.maxCapacity
+    header "^MCMX^"	/* Metaspace Capacity - Maximum */
+    data sun.gc.metaspace.maxCapacity
     scale K
     align right
     width 10
     format "0.0"
   }
   column {
-    header "^PGC^"	/* Perm Generation Capacity - Current */
-    data sun.gc.generation.2.capacity
+    header "^MC^"	/* Metaspace Capacity - Current */
+    data sun.gc.metaspace.capacity
     scale K
     align right
     width 10
     format "0.0"
   }
   column {
-    header "^PC^"	/* Perm Space Capacity - Current */
-    data sun.gc.generation.2.space.0.capacity
+    header "^CCSMN^"	/* Compressed Class Space Capacity - Minimum */
+    data sun.gc.compressedclassspace.minCapacity
+    scale K
+    align right
+    width 10
+    format "0.0"
+  }
+  column {
+    header "^CCSMX^"	/* Compressed Class Space Capacity - Maximum */
+    data sun.gc.compressedclassspace.maxCapacity
+    scale K
+    align right
+    width 10
+    format "0.0"
+  }
+  column {
+    header "^CCSC^"	/* Compressed Class Space Capacity - Current */
+    data sun.gc.compressedclassspace.capacity
     scale K
     align right
     width 10
@@ -884,8 +956,16 @@ option gcutil {
     format "0.00"
   }
   column {
-    header "^P^"	/* Perm Space - Percent Used */
-    data (1-((sun.gc.generation.2.space.0.capacity - sun.gc.generation.2.space.0.used)/sun.gc.generation.2.space.0.capacity)) * 100
+    header "^M^"	/* Metaspace Space - Percent Used */
+    data (1-((sun.gc.metaspace.capacity - sun.gc.metaspace.used)/sun.gc.metaspace.capacity)) * 100
+    align right
+    width 6
+    scale raw
+    format "0.00"
+  }
+  column {
+    header "^CCS^"	/* Compressed Class Space Space - Percent Used */
+    data (1-((sun.gc.compressedclassspace.capacity - sun.gc.compressedclassspace.used)/sun.gc.compressedclassspace.capacity)) * 100
     align right
     width 6
     scale raw

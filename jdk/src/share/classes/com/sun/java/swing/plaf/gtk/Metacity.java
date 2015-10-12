@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -477,6 +477,10 @@ class Metacity implements SynthConstants {
                 String[] dirs = new String[] {
                     userHome + sep + ".themes",
                     System.getProperty("swing.metacitythemedir"),
+                    "/usr/X11R6/share/themes",
+                    "/usr/X11R6/share/gnome/themes",
+                    "/usr/local/share/themes",
+                    "/usr/local/share/gnome/themes",
                     "/usr/share/themes",
                     "/usr/gnome/share/themes",  // Debian/Redhat/Solaris
                     "/opt/gnome2/share/themes"  // SuSE

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,21 +28,17 @@ import sun.misc.*;
 
 public class ExitOnThrow {
 
-    private static volatile boolean ran = false;
-
     public static void main(String[] args) throws Exception {
         Cleaner.create(new Object(),
                        new Runnable() {
                                public void run() {
-                                   ran = true;
                                    throw new RuntimeException("Foo!");
                                }
                            });
-        while (!ran) {
+        while (true) {
             System.gc();
             Thread.sleep(100);
         }
-        System.exit(0);
     }
 
 }

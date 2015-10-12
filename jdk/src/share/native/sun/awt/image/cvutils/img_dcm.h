@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,7 @@
  * the macros used by the generic scaleloop function.
  *
  * This implementation can decode the pixel information associated
- * with any Java DirectColorModel object.  This implemenation will
+ * with any Java DirectColorModel object.  This implementation will
  * scale the decoded color components to 8-bit quantities if needed.
  * Another file is provided to optimize DCM parsing when the masks
  * are guaranteed to be at least 8-bits wide.  This implementation
@@ -51,8 +51,6 @@
 #define PixelDecode             PixelDCMDecode
 #define DecodeDeclared
 #endif
-
-#include "java_awt_image_DirectColorModel.h"
 
 #define DeclareDCMVars                                          \
     IfAlpha(int alpha_mask;                                     \

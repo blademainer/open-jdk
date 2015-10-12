@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,8 +27,6 @@ package sun.net.httpserver;
 
 import java.net.*;
 import java.io.*;
-import java.nio.*;
-import java.security.*;
 import java.nio.channels.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -36,7 +34,8 @@ import java.util.logging.Logger;
 import java.util.logging.Level;
 import javax.net.ssl.*;
 import com.sun.net.httpserver.*;
-import com.sun.net.httpserver.spi.*;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import sun.net.httpserver.HttpConnection.State;
 
 /**
@@ -247,7 +246,14 @@ class ServerImpl implements TimeSource {
     }
 
     public InetSocketAddress getAddress() {
-        return (InetSocketAddress)schan.socket().getLocalSocketAddress();
+        return AccessController.doPrivileged(
+                new PrivilegedAction<InetSocketAddress>() {
+                    public InetSocketAddress run() {
+                        return
+                            (InetSocketAddress)schan.socket()
+                                .getLocalSocketAddress();
+                    }
+                });
     }
 
     Selector getSelector () {
@@ -324,15 +330,7 @@ class ServerImpl implements TimeSource {
         public void run() {
             while (!finished) {
                 try {
-                    ListIterator<HttpConnection> li =
-                        connsToRegister.listIterator();
-                    for (HttpConnection c : connsToRegister) {
-                        reRegister(c);
-                    }
-                    connsToRegister.clear();
-
                     List<Event> list = null;
-                    selector.select(1000);
                     synchronized (lolock) {
                         if (events.size() > 0) {
                             list = events;
@@ -346,8 +344,14 @@ class ServerImpl implements TimeSource {
                         }
                     }
 
-                    /* process the selected list now  */
+                    for (HttpConnection c : connsToRegister) {
+                        reRegister(c);
+                    }
+                    connsToRegister.clear();
 
+                    selector.select(1000);
+
+                    /* process the selected list now  */
                     Set<SelectionKey> selected = selector.selectedKeys();
                     Iterator<SelectionKey> iter = selected.iterator();
                     while (iter.hasNext()) {
@@ -358,6 +362,12 @@ class ServerImpl implements TimeSource {
                                 continue;
                             }
                             SocketChannel chan = schan.accept();
+
+                            // Set TCP_NODELAY, if appropriate
+                            if (ServerConfig.noDelay()) {
+                                chan.socket().setTcpNoDelay(true);
+                            }
+
                             if (chan == null) {
                                 continue; /* cancel something ? */
                             }
@@ -399,10 +409,10 @@ class ServerImpl implements TimeSource {
                 } catch (IOException e) {
                     logger.log (Level.FINER, "Dispatcher (4)", e);
                 } catch (Exception e) {
-                    e.printStackTrace();
                     logger.log (Level.FINER, "Dispatcher (7)", e);
                 }
             }
+            try {selector.close(); } catch (Exception e) {}
         }
 
         private void handleException (SelectionKey key, Exception e) {
@@ -590,8 +600,8 @@ class ServerImpl implements TimeSource {
                         rheaders.set ("Connection", "close");
                     } else if (chdr.equalsIgnoreCase ("keep-alive")) {
                         rheaders.set ("Connection", "keep-alive");
-                        int idle=(int)ServerConfig.getIdleInterval()/1000;
-                        int max=(int)ServerConfig.getMaxIdleConnections();
+                        int idle=(int)(ServerConfig.getIdleInterval()/1000);
+                        int max=ServerConfig.getMaxIdleConnections();
                         String val = "timeout="+idle+", max="+max;
                         rheaders.set ("Keep-Alive", val);
                     }

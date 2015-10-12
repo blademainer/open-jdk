@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,6 +29,8 @@ import java.util.*;
 import java.lang.reflect.*;
 
 import java.security.*;
+import java.security.spec.ECGenParameterSpec;
+import java.security.spec.ECParameterSpec;
 
 public abstract class PKCS11Test {
 
@@ -54,6 +56,16 @@ public abstract class PKCS11Test {
 
     static String NSPR_PREFIX = "";
 
+    // NSS version info
+    public static enum ECCState { None, Basic, Extended };
+    static double nss_version = -1;
+    static ECCState nss_ecc_status = ECCState.Extended;
+
+    // The NSS library we need to search for in getNSSLibDir()
+    // Default is "libsoftokn3.so", listed as "softokn3"
+    // The other is "libnss3.so", listed as "nss3".
+    static String nss_library = "softokn3";
+
     static Provider getSunPKCS11(String config) throws Exception {
         Class clazz = Class.forName("sun.security.pkcs11.SunPKCS11");
         Constructor cons = clazz.getConstructor(new Class[] {String.class});
@@ -72,10 +84,37 @@ public abstract class PKCS11Test {
     }
 
     public static void main(PKCS11Test test) throws Exception {
-        System.out.println("Beginning test run " + test.getClass().getName() + "...");
-        testDefault(test);
-        testNSS(test);
-        testDeimos(test);
+        Provider[] oldProviders = Security.getProviders();
+        try {
+            System.out.println("Beginning test run " + test.getClass().getName() + "...");
+            testDefault(test);
+            testNSS(test);
+            testDeimos(test);
+        } finally {
+            // NOTE: Do not place a 'return' in any finally block
+            // as it will suppress exceptions and hide test failures.
+            Provider[] newProviders = Security.getProviders();
+            boolean found = true;
+            // Do not restore providers if nothing changed. This is especailly
+            // useful for ./Provider/Login.sh, where a SecurityManager exists.
+            if (oldProviders.length == newProviders.length) {
+                found = false;
+                for (int i = 0; i<oldProviders.length; i++) {
+                    if (oldProviders[i] != newProviders[i]) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (found) {
+                for (Provider p: newProviders) {
+                    Security.removeProvider(p.getName());
+                }
+                for (Provider p: oldProviders) {
+                    Security.addProvider(p);
+                }
+            }
+        }
     }
 
     public static void testDeimos(PKCS11Test test) throws Exception {
@@ -106,6 +145,13 @@ public abstract class PKCS11Test {
     }
 
     private static String PKCS11_BASE;
+    static {
+        try {
+            PKCS11_BASE = getBase();
+        } catch (Exception e) {
+            // ignore
+        }
+    }
 
     private final static String PKCS11_REL_PATH = "sun/security/pkcs11";
 
@@ -137,38 +183,148 @@ public abstract class PKCS11Test {
         }
         String osid = osName + "-"
                 + props.getProperty("os.arch") + "-" + props.getProperty("sun.arch.data.model");
-        String ostype = osMap.get(osid);
-        if (ostype == null) {
+        String[] nssLibDirs = osMap.get(osid);
+        if (nssLibDirs == null) {
             System.out.println("Unsupported OS, skipping: " + osid);
             return null;
-//          throw new Exception("Unsupported OS " + osid);
         }
-        if (ostype.length() == 0) {
+        if (nssLibDirs.length == 0) {
             System.out.println("NSS not supported on this platform, skipping test");
             return null;
         }
-        String base = getBase();
-        String libdir = base + SEP + "nss" + SEP + "lib" + SEP + ostype + SEP;
-        System.setProperty("pkcs11test.nss.libdir", libdir);
-        return libdir;
+        String nssLibDir = null;
+        for (String dir : nssLibDirs) {
+            if (new File(dir).exists() &&
+                new File(dir + System.mapLibraryName(nss_library)).exists()) {
+                nssLibDir = dir;
+                System.setProperty("pkcs11test.nss.libdir", nssLibDir);
+                break;
+            }
+        }
+        return nssLibDir;
+    }
+
+    protected static void safeReload(String lib) throws Exception {
+        try {
+            System.load(lib);
+        } catch (UnsatisfiedLinkError e) {
+            if (e.getMessage().contains("already loaded")) {
+                return;
+            }
+        }
     }
 
     static boolean loadNSPR(String libdir) throws Exception {
         // load NSS softoken dependencies in advance to avoid resolver issues
-        try {
-            System.load(libdir + System.mapLibraryName(NSPR_PREFIX + "nspr4"));
-        } catch (UnsatisfiedLinkError e) {
-            // GLIBC problem on older linux-amd64 machines
-            if (libdir.contains("linux-amd64")) {
-                System.out.println(e);
-                System.out.println("NSS does not work on this platform, skipping.");
-                return false;
-            }
-            throw e;
-        }
-        System.load(libdir + System.mapLibraryName(NSPR_PREFIX + "plc4"));
-        System.load(libdir + System.mapLibraryName(NSPR_PREFIX + "plds4"));
+        safeReload(libdir + System.mapLibraryName(NSPR_PREFIX + "nspr4"));
+        safeReload(libdir + System.mapLibraryName(NSPR_PREFIX + "plc4"));
+        safeReload(libdir + System.mapLibraryName(NSPR_PREFIX + "plds4"));
+        safeReload(libdir + System.mapLibraryName("sqlite3"));
+        safeReload(libdir + System.mapLibraryName("nssutil3"));
         return true;
+    }
+
+    // Check the provider being used is NSS
+    public static boolean isNSS(Provider p) {
+        return p.getName().toUpperCase().equals("SUNPKCS11-NSS");
+    }
+
+    static double getNSSVersion() {
+        if (nss_version == -1)
+            getNSSInfo();
+        return nss_version;
+    }
+
+    static ECCState getNSSECC() {
+        if (nss_version == -1)
+            getNSSInfo();
+        return nss_ecc_status;
+    }
+
+    /* Read the library to find out the verison */
+    static void getNSSInfo() {
+        String nssHeader = "$Header: NSS";
+        boolean found = false;
+        String s = null;
+        int i = 0;
+        String libfile = "";
+
+        try {
+            libfile = getNSSLibDir() + System.mapLibraryName(nss_library);
+            FileInputStream is = new FileInputStream(libfile);
+            byte[] data = new byte[1000];
+            int read = 0;
+
+            while (is.available() > 0) {
+                if (read == 0) {
+                    read = is.read(data, 0, 1000);
+                } else {
+                    // Prepend last 100 bytes in case the header was split
+                    // between the reads.
+                    System.arraycopy(data, 900, data, 0, 100);
+                    read = 100 + is.read(data, 100, 900);
+                }
+
+                s = new String(data, 0, read);
+                if ((i = s.indexOf(nssHeader)) > 0) {
+                    found = true;
+                    // If the nssHeader is before 920 we can break, otherwise
+                    // we may not have the whole header so do another read.  If
+                    // no bytes are in the stream, that is ok, found is true.
+                    if (i < 920) {
+                        break;
+                    }
+                }
+            }
+
+            is.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        if (!found) {
+            System.out.println("NSS version not found, set to 0.0: "+libfile);
+            nss_version = 0.0;
+            return;
+        }
+
+        // the index after whitespace after nssHeader
+        int afterheader = s.indexOf("NSS", i) + 4;
+        String version = s.substring(afterheader, s.indexOf(' ', afterheader));
+
+        // If a "dot dot" release, strip the extra dots for double parsing
+        String[] dot = version.split("\\.");
+        if (dot.length > 2) {
+            version = dot[0]+"."+dot[1];
+            for (int j = 2; dot.length > j; j++) {
+                version += dot[j];
+            }
+        }
+
+        // Convert to double for easier version value checking
+        try {
+            nss_version = Double.parseDouble(version);
+        } catch (NumberFormatException e) {
+            System.out.println("Failed to parse NSS version. Set to 0.0");
+            e.printStackTrace();
+        }
+
+        System.out.print("NSS version = "+version+".  ");
+
+        // Check for ECC
+        if (s.indexOf("Basic") > 0) {
+            nss_ecc_status = ECCState.Basic;
+            System.out.println("ECC Basic.");
+        } else if (s.indexOf("Extended") > 0) {
+            nss_ecc_status = ECCState.Extended;
+            System.out.println("ECC Extended.");
+        }
+    }
+
+    // Used to set the nss_library file to search for libsoftokn3.so
+    public static void useNSS() {
+        nss_library = "nss3";
     }
 
     public static void testNSS(PKCS11Test test) throws Exception {
@@ -182,7 +338,7 @@ public abstract class PKCS11Test {
             return;
         }
 
-        String libfile = libdir + System.mapLibraryName("softokn3");
+        String libfile = libdir + System.mapLibraryName(nss_library);
 
         String customDBdir = System.getProperty("CUSTOM_DB_DIR");
         String dbdir = (customDBdir != null) ?
@@ -203,18 +359,112 @@ public abstract class PKCS11Test {
         test.premain(p);
     }
 
+    // Generate a vector of supported elliptic curves of a given provider
+    static Vector<ECParameterSpec> getKnownCurves(Provider p) throws Exception {
+        int index;
+        int begin;
+        int end;
+        String curve;
+        KeyPair kp = null;
 
-    private static final Map<String,String> osMap;
+        Vector<ECParameterSpec> results = new Vector<ECParameterSpec>();
+        // Get Curves to test from SunEC.
+        String kcProp = Security.getProvider("SunEC").
+                getProperty("AlgorithmParameters.EC SupportedCurves");
 
+        if (kcProp == null) {
+            throw new RuntimeException(
+            "\"AlgorithmParameters.EC SupportedCurves property\" not found");
+        }
+
+        System.out.println("Finding supported curves using list from SunEC\n");
+        index = 0;
+        for (;;) {
+            // Each set of curve names is enclosed with brackets.
+            begin = kcProp.indexOf('[', index);
+            end = kcProp.indexOf(']', index);
+            if (begin == -1 || end == -1) {
+                break;
+            }
+
+            /*
+             * Each name is separated by a comma.
+             * Just get the first name in the set.
+             */
+            index = end + 1;
+            begin++;
+            end = kcProp.indexOf(',', begin);
+            if (end == -1) {
+                // Only one name in the set.
+                end = index -1;
+            }
+
+            curve = kcProp.substring(begin, end);
+            ECParameterSpec e = getECParameterSpec(p, curve);
+            System.out.print("\t "+ curve + ": ");
+            try {
+                KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC", p);
+                kpg.initialize(e);
+                kp = kpg.generateKeyPair();
+                results.add(e);
+                System.out.println("Supported");
+            } catch (ProviderException ex) {
+                System.out.println("Unsupported: PKCS11: " +
+                        ex.getCause().getMessage());
+            } catch (InvalidAlgorithmParameterException ex) {
+                System.out.println("Unsupported: Key Length: " +
+                        ex.getMessage());
+            }
+        }
+
+        if (results.size() == 0) {
+            throw new RuntimeException("No supported EC curves found");
+        }
+
+        return results;
+    }
+
+    private static ECParameterSpec getECParameterSpec(Provider p, String name)
+            throws Exception {
+
+        AlgorithmParameters parameters =
+            AlgorithmParameters.getInstance("EC", p);
+
+        parameters.init(new ECGenParameterSpec(name));
+
+        return parameters.getParameterSpec(ECParameterSpec.class);
+    }
+
+    // Check support for a curve with a provided Vector of EC support
+    boolean checkSupport(Vector<ECParameterSpec> supportedEC,
+            ECParameterSpec curve) {
+        boolean found = false;
+        for (ECParameterSpec ec: supportedEC) {
+            if (ec.equals(curve)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static final Map<String,String[]> osMap;
+
+    // Location of the NSS libraries on each supported platform
     static {
-        osMap = new HashMap<String,String>();
-        osMap.put("SunOS-sparc-32", "solaris-sparc");
-        osMap.put("SunOS-sparcv9-64", "solaris-sparcv9");
-        osMap.put("SunOS-x86-32", "solaris-i586");
-        osMap.put("SunOS-amd64-64", "solaris-amd64");
-        osMap.put("Linux-i386-32", "linux-i586");
-        osMap.put("Linux-amd64-64", "linux-amd64");
-        osMap.put("Windows-x86-32", "windows-i586");
+        osMap = new HashMap<String,String[]>();
+        osMap.put("SunOS-sparc-32", new String[]{"/usr/lib/mps/"});
+        osMap.put("SunOS-sparcv9-64", new String[]{"/usr/lib/mps/64/"});
+        osMap.put("SunOS-x86-32", new String[]{"/usr/lib/mps/"});
+        osMap.put("SunOS-amd64-64", new String[]{"/usr/lib/mps/64/"});
+        osMap.put("Linux-i386-32", new String[]{
+            "/usr/lib/i386-linux-gnu/", "/usr/lib/"});
+        osMap.put("Linux-amd64-64", new String[]{
+            "/usr/lib/x86_64-linux-gnu/", "/usr/lib/x86_64-linux-gnu/nss/",
+            "/usr/lib64/"});
+        osMap.put("Windows-x86-32", new String[]{
+            PKCS11_BASE + "/nss/lib/windows-i586/".replace('/', SEP)});
+        osMap.put("Windows-amd64-64", new String[]{
+            PKCS11_BASE + "/nss/lib/windows-amd64/".replace('/', SEP)});
     }
 
     private final static char[] hexDigits = "0123456789abcdef".toCharArray();

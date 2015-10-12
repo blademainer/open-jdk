@@ -8,15 +8,20 @@ BEGIN	{
 	    matched++;
 	}
 
-# or match on a jar file name - note, jar files ending with
+# or match on a jar or war file name - note, jar files ending with
 # ".jar" is only a convention , not a requirement. Theoretically,
 # any valid file name could occur here.
-/^[0-9]+ .*\.jar$/	{
+/^[0-9]+ .*\.(jar|war)$/	{
 	    matched++;
 }
 
 # or match on the condition that the class name is not available
-/^[0-9]+ -- process information unavailable$/	{
+/^[0-9]+ -- .*$/	{
+	    matched++;
+	}
+
+# or match an empty class name
+/^[0-9]+ $/	{
 	    matched++;
 	}
 

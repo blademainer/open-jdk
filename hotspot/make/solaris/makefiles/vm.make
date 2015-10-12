@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -19,7 +19,7 @@
 # Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
 # or visit www.oracle.com if you need additional information or have any
 # questions.
-#  
+#
 #
 
 # Rules to build JVM and related libraries, included from vm.make in the build
@@ -48,17 +48,24 @@ include $(MAKEFILES_DIR)/$(BUILDARCH).make
 # Src_Dirs_V is everything in src/share/vm/*, plus the right os/*/vm and cpu/*/vm
 # The adfiles directory contains ad_<arch>.[ch]pp.
 # The jvmtifiles directory contains jvmti*.[ch]pp
-Src_Dirs_V += $(GENERATED)/adfiles $(GENERATED)/jvmtifiles
+Src_Dirs_V += $(GENERATED)/adfiles $(GENERATED)/jvmtifiles $(GENERATED)/tracefiles
 VPATH += $(Src_Dirs_V:%=%:)
 
 # set INCLUDES for C preprocessor
 Src_Dirs_I += $(GENERATED)
 INCLUDES += $(Src_Dirs_I:%=-I%)
 
-ifeq (${VERSION}, debug)
-  SYMFLAG = -g
+# SYMFLAG is used by {dtrace,jsig,saproc}.make.
+ifeq ($(ENABLE_FULL_DEBUG_SYMBOLS),1)
+  # always build with debug info when we can create .debuginfo files
+  # and disable 'lazy debug info' so the .so has everything.
+  SYMFLAG = -g -xs
 else
-  SYMFLAG =
+  ifeq (${VERSION}, debug)
+    SYMFLAG = -g
+  else
+    SYMFLAG =
+  endif
 endif
 
 # The following variables are defined in the generated flags.make file.
@@ -69,15 +76,29 @@ BUILD_TARGET  = -DHOTSPOT_BUILD_TARGET="\"$(TARGET)\""
 BUILD_USER    = -DHOTSPOT_BUILD_USER="\"$(HOTSPOT_BUILD_USER)\""
 VM_DISTRO     = -DHOTSPOT_VM_DISTRO="\"$(HOTSPOT_VM_DISTRO)\""
 
-CPPFLAGS =           \
+CXXFLAGS =           \
   ${SYSDEFS}         \
   ${INCLUDES}        \
   ${BUILD_VERSION}   \
   ${BUILD_TARGET}    \
   ${BUILD_USER}      \
   ${HS_LIB_ARCH}     \
-  ${JRE_VERSION}     \
   ${VM_DISTRO}
+
+# This is VERY important! The version define must only be supplied to vm_version.o
+# If not, ccache will not re-use the cache at all, since the version string might contain
+# a time and date.
+CXXFLAGS/vm_version.o += ${JRE_VERSION}
+
+CXXFLAGS/BYFILE = $(CXXFLAGS/$@)
+
+# File specific flags
+CXXFLAGS += $(CXXFLAGS/BYFILE)
+
+# Large File Support
+ifneq ($(LP64), 1)
+CXXFLAGS/ostream.o += -D_FILE_OFFSET_BITS=64
+endif # ifneq ($(LP64), 1)
 
 # CFLAGS_WARN holds compiler options to suppress/enable warnings.
 CFLAGS += $(CFLAGS_WARN)
@@ -120,9 +141,7 @@ else
 LIBS += -lsocket -lsched -ldl $(LIBM) -lthread -lc -ldemangle
 endif # sparcWorks
 
-ifeq ("${Platform_arch}", "sparc")
 LIBS += -lkstat
-endif
 
 # By default, link the *.o into the library, not the executable.
 LINK_INTO$(LINK_INTO) = LIBJVM
@@ -134,11 +153,21 @@ JDK_LIBDIR = $(JAVA_HOME)/jre/lib/$(LIBARCH)
 include $(MAKEFILES_DIR)/dtrace.make
 
 #----------------------------------------------------------------------
+# add_gnu_debuglink tool
+include $(MAKEFILES_DIR)/add_gnu_debuglink.make
+
+#----------------------------------------------------------------------
+# fix_empty_sec_hdr_flags tool
+include $(MAKEFILES_DIR)/fix_empty_sec_hdr_flags.make
+
+#----------------------------------------------------------------------
 # JVM
 
 JVM      = jvm
 LIBJVM   = lib$(JVM).so
-LIBJVM_G = lib$(JVM)$(G_SUFFIX).so
+
+LIBJVM_DEBUGINFO   = lib$(JVM).debuginfo
+LIBJVM_DIZ         = lib$(JVM).diz
 
 SPECIAL_PATHS:=adlc c1 dist gc_implementation opto shark libadt
 
@@ -151,7 +180,13 @@ SOURCE_PATHS+=$(HS_COMMON_SRC)/cpu/$(Platform_arch)/vm
 SOURCE_PATHS+=$(HS_COMMON_SRC)/os_cpu/$(Platform_os_arch)/vm
 
 CORE_PATHS=$(foreach path,$(SOURCE_PATHS),$(call altsrc,$(path)) $(path))
-CORE_PATHS+=$(GENERATED)/jvmtifiles
+CORE_PATHS+=$(GENERATED)/jvmtifiles $(GENERATED)/tracefiles
+
+ifneq ($(INCLUDE_TRACE), false)
+CORE_PATHS+=$(shell if [ -d $(HS_ALT_SRC)/share/vm/jfr ]; then \
+  find $(HS_ALT_SRC)/share/vm/jfr -type d; \
+  fi)
+endif
 
 COMPILER1_PATHS := $(call altsrc,$(HS_COMMON_SRC)/share/vm/c1)
 COMPILER1_PATHS += $(HS_COMMON_SRC)/share/vm/c1
@@ -171,7 +206,7 @@ Src_Dirs/ZERO      := $(CORE_PATHS)
 Src_Dirs/SHARK     := $(CORE_PATHS)
 Src_Dirs := $(Src_Dirs/$(TYPE))
 
-COMPILER2_SPECIFIC_FILES := opto libadt bcEscapeAnalyzer.cpp chaitin\* c2_\* runtime_\*
+COMPILER2_SPECIFIC_FILES := opto libadt bcEscapeAnalyzer.cpp c2_\* runtime_\*
 COMPILER1_SPECIFIC_FILES := c1_\*
 SHARK_SPECIFIC_FILES     := shark
 ZERO_SPECIFIC_FILES      := zero
@@ -212,13 +247,23 @@ JVM_OBJ_FILES = $(Obj_Files) $(DTRACE_OBJS)
 
 vm_version.o: $(filter-out vm_version.o,$(JVM_OBJ_FILES))
 
-mapfile : $(MAPFILE) $(MAPFILE_DTRACE_OPT)
+mapfile : $(MAPFILE) $(MAPFILE_DTRACE_OPT) vm.def
+	rm -f $@
+	cat $(MAPFILE) $(MAPFILE_DTRACE_OPT) \
+	    | $(NAWK) '{                                         \
+	              if ($$0 ~ "INSERT VTABLE SYMBOLS HERE") {  \
+	                  system ("cat vm.def");                 \
+	              } else {                                   \
+	                  print $$0;                             \
+	              }                                          \
+	          }' > $@
+
+mapfile_extended : mapfile $(MAPFILE_DTRACE_OPT)
 	rm -f $@
 	cat $^ > $@
 
-mapfile_reorder : mapfile $(MAPFILE_DTRACE_OPT) $(REORDERFILE)
-	rm -f $@
-	cat $^ > $@
+vm.def: $(Obj_Files)
+	sh $(GAMMADIR)/make/solaris/makefiles/build_vm_def.sh *.o > $@
 
 ifeq ($(LINK_INTO),AOUT)
   LIBJVM.o                 =
@@ -226,7 +271,7 @@ ifeq ($(LINK_INTO),AOUT)
   LIBS_VM                  = $(LIBS)
 else
   LIBJVM.o                 = $(JVM_OBJ_FILES)
-  LIBJVM_MAPFILE$(LDNOMAP) = mapfile_reorder
+  LIBJVM_MAPFILE$(LDNOMAP) = mapfile_extended
   LFLAGS_VM$(LDNOMAP)      += $(MAPFLAG:FILENAME=$(LIBJVM_MAPFILE))
   LFLAGS_VM                += $(SONAMEFLAG:SONAME=$(LIBJVM))
 ifndef USE_GCC
@@ -241,34 +286,61 @@ endif
 endif
 
 ifdef USE_GCC
-LINK_VM = $(LINK_LIB.c)
-else
 LINK_VM = $(LINK_LIB.CC)
+else
+LINK_VM = $(LINK_LIB.CXX)
 endif
 # making the library:
-$(LIBJVM): $(LIBJVM.o) $(LIBJVM_MAPFILE) 
+$(LIBJVM): $(ADD_GNU_DEBUGLINK) $(FIX_EMPTY_SEC_HDR_FLAGS) $(LIBJVM.o) $(LIBJVM_MAPFILE)
 ifeq ($(filter -sbfast -xsbfast, $(CFLAGS_BROWSE)),)
 	@echo Linking vm...
-	$(QUIETLY) $(LINK_LIB.CC/PRE_HOOK)
-	$(QUIETLY) $(LINK_VM) $(LFLAGS_VM) -o $@ $(LIBJVM.o) $(LIBS_VM)
-	$(QUIETLY) $(LINK_LIB.CC/POST_HOOK)
+	$(QUIETLY) $(LINK_LIB.CXX/PRE_HOOK)
+	$(QUIETLY) $(LINK_VM) $(LFLAGS_VM) -o $@ $(sort $(LIBJVM.o)) $(LIBS_VM)
+	$(QUIETLY) $(LINK_LIB.CXX/POST_HOOK)
 	$(QUIETLY) rm -f $@.1 && ln -s $@ $@.1
-	$(QUIETLY) [ -f $(LIBJVM_G) ] || ln -s $@ $(LIBJVM_G)
-	$(QUIETLY) [ -f $(LIBJVM_G).1 ] || ln -s $@.1 $(LIBJVM_G).1
+ifeq ($(ENABLE_FULL_DEBUG_SYMBOLS),1)
+# gobjcopy crashes on "empty" section headers with the SHF_ALLOC flag set.
+# Clear the SHF_ALLOC flag (if set) from empty section headers.
+# An empty section header has sh_addr == 0 and sh_size == 0.
+# This problem has only been seen on Solaris X64, but we call this tool
+# on all Solaris builds just in case.
+	$(QUIETLY) $(FIX_EMPTY_SEC_HDR_FLAGS) $@
+	$(QUIETLY) $(OBJCOPY) --only-keep-debug $@ $(LIBJVM_DEBUGINFO)
+# $(OBJCOPY) --add-gnu-debuglink=... corrupts SUNW_* sections.
+# Use $(ADD_GNU_DEBUGLINK) until a fixed $(OBJCOPY) is available.
+#	$(QUIETLY) $(OBJCOPY) --add-gnu-debuglink=$(LIBJVM_DEBUGINFO) $@
+	$(QUIETLY) $(ADD_GNU_DEBUGLINK) $(LIBJVM_DEBUGINFO) $@
+  ifeq ($(STRIP_POLICY),all_strip)
+	$(QUIETLY) $(STRIP) $@
+  else
+    ifeq ($(STRIP_POLICY),min_strip)
+	$(QUIETLY) $(STRIP) -x $@
+    # implied else here is no stripping at all
+    endif
+  endif
+  ifeq ($(ZIP_DEBUGINFO_FILES),1)
+	$(ZIPEXE) -q -y $(LIBJVM_DIZ) $(LIBJVM_DEBUGINFO)
+	$(RM) $(LIBJVM_DEBUGINFO)
+  endif
+endif
 endif # filter -sbfast -xsbfast
 
 
-DEST_JVM = $(JDK_LIBDIR)/$(VM_SUBDIR)/$(LIBJVM)
+DEST_SUBDIR        = $(JDK_LIBDIR)/$(VM_SUBDIR)
+DEST_JVM           = $(DEST_SUBDIR)/$(LIBJVM)
+DEST_JVM_DEBUGINFO = $(DEST_SUBDIR)/$(LIBJVM_DEBUGINFO)
+DEST_JVM_DIZ       = $(DEST_SUBDIR)/$(LIBJVM_DIZ)
 
 install_jvm: $(LIBJVM)
 	@echo "Copying $(LIBJVM) to $(DEST_JVM)"
+	$(QUIETLY) test -f $(LIBJVM_DEBUGINFO) && \
+	    cp -f $(LIBJVM_DEBUGINFO) $(DEST_JVM_DEBUGINFO)
+	$(QUIETLY) test -f $(LIBJVM_DIZ) && \
+	    cp -f $(LIBJVM_DIZ) $(DEST_JVM_DIZ)
 	$(QUIETLY) cp -f $(LIBJVM) $(DEST_JVM) && echo "Done"
 
 #----------------------------------------------------------------------
 # Other files
-
-# Gamma launcher
-include $(MAKEFILES_DIR)/launcher.make
 
 # Signal interposition library
 include $(MAKEFILES_DIR)/jsig.make

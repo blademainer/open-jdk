@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,28 +23,20 @@
  */
 
 #include "precompiled.hpp"
-#include "interp_masm_x86_64.hpp"
+#include "interp_masm_x86.hpp"
 #include "interpreter/interpreter.hpp"
 #include "interpreter/interpreterRuntime.hpp"
 #include "oops/arrayOop.hpp"
 #include "oops/markOop.hpp"
-#include "oops/methodDataOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/methodData.hpp"
+#include "oops/method.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/jvmtiRedefineClassesTrace.hpp"
 #include "prims/jvmtiThreadState.hpp"
 #include "runtime/basicLock.hpp"
 #include "runtime/biasedLocking.hpp"
 #include "runtime/sharedRuntime.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
+#include "runtime/thread.inline.hpp"
 
 
 // Implementation of InterpreterMacroAssembler
@@ -200,7 +192,7 @@ void InterpreterMacroAssembler::get_unsigned_2_byte_index_at_bcp(
   Register reg,
   int bcp_offset) {
   assert(bcp_offset >= 0, "bcp is still pointing to start of bytecode");
-  movl(reg, Address(r13, bcp_offset));
+  load_unsigned_short(reg, Address(r13, bcp_offset));
   bswapl(reg);
   shrl(reg, 16);
 }
@@ -218,10 +210,9 @@ void InterpreterMacroAssembler::get_cache_index_at_bcp(Register index,
     // Check if the secondary index definition is still ~x, otherwise
     // we have to change the following assembler code to calculate the
     // plain index.
-    assert(constantPoolCacheOopDesc::decode_secondary_index(~123) == 123, "else change next line");
+    assert(ConstantPool::decode_invokedynamic_index(~123) == 123, "else change next line");
     notl(index);  // convert to plain index
   } else if (index_size == sizeof(u1)) {
-    assert(EnableInvokeDynamic, "tiny index used only for JSR 292");
     load_unsigned_byte(index, Address(r13, bcp_offset));
   } else {
     ShouldNotReachHere();
@@ -233,12 +224,33 @@ void InterpreterMacroAssembler::get_cache_and_index_at_bcp(Register cache,
                                                            Register index,
                                                            int bcp_offset,
                                                            size_t index_size) {
-  assert(cache != index, "must use different registers");
+  assert_different_registers(cache, index);
   get_cache_index_at_bcp(index, bcp_offset, index_size);
   movptr(cache, Address(rbp, frame::interpreter_frame_cache_offset * wordSize));
   assert(sizeof(ConstantPoolCacheEntry) == 4 * wordSize, "adjust code below");
   // convert from field index to ConstantPoolCacheEntry index
+  assert(exact_log2(in_words(ConstantPoolCacheEntry::size())) == 2, "else change next line");
   shll(index, 2);
+}
+
+
+void InterpreterMacroAssembler::get_cache_and_index_and_bytecode_at_bcp(Register cache,
+                                                                        Register index,
+                                                                        Register bytecode,
+                                                                        int byte_no,
+                                                                        int bcp_offset,
+                                                                        size_t index_size) {
+  get_cache_and_index_at_bcp(cache, index, bcp_offset, index_size);
+  // We use a 32-bit load here since the layout of 64-bit words on
+  // little-endian machines allow us that.
+  movl(bytecode, Address(cache, index, Address::times_ptr, ConstantPoolCache::base_offset() + ConstantPoolCacheEntry::indices_offset()));
+  const int shift_count = (1 + byte_no) * BitsPerByte;
+  assert((byte_no == TemplateTable::f1_byte && shift_count == ConstantPoolCacheEntry::bytecode_1_shift) ||
+         (byte_no == TemplateTable::f2_byte && shift_count == ConstantPoolCacheEntry::bytecode_2_shift),
+         "correct shift count");
+  shrl(bytecode, shift_count);
+  assert(ConstantPoolCacheEntry::bytecode_1_mask == ConstantPoolCacheEntry::bytecode_2_mask, "common mask");
+  andl(bytecode, ConstantPoolCacheEntry::bytecode_1_mask);
 }
 
 
@@ -251,13 +263,46 @@ void InterpreterMacroAssembler::get_cache_entry_pointer_at_bcp(Register cache,
   assert(sizeof(ConstantPoolCacheEntry) == 4 * wordSize, "adjust code below");
   // convert from field index to ConstantPoolCacheEntry index
   // and from word offset to byte offset
+  assert(exact_log2(in_bytes(ConstantPoolCacheEntry::size_in_bytes())) == 2 + LogBytesPerWord, "else change next line");
   shll(tmp, 2 + LogBytesPerWord);
   movptr(cache, Address(rbp, frame::interpreter_frame_cache_offset * wordSize));
   // skip past the header
-  addptr(cache, in_bytes(constantPoolCacheOopDesc::base_offset()));
+  addptr(cache, in_bytes(ConstantPoolCache::base_offset()));
   addptr(cache, tmp);  // construct pointer to cache entry
 }
 
+void InterpreterMacroAssembler::get_method_counters(Register method,
+                                                    Register mcs, Label& skip) {
+  Label has_counters;
+  movptr(mcs, Address(method, Method::method_counters_offset()));
+  testptr(mcs, mcs);
+  jcc(Assembler::notZero, has_counters);
+  call_VM(noreg, CAST_FROM_FN_PTR(address,
+          InterpreterRuntime::build_method_counters), method);
+  movptr(mcs, Address(method,Method::method_counters_offset()));
+  testptr(mcs, mcs);
+  jcc(Assembler::zero, skip); // No MethodCounters allocated, OutOfMemory
+  bind(has_counters);
+}
+
+// Load object from cpool->resolved_references(index)
+void InterpreterMacroAssembler::load_resolved_reference_at_index(
+                                           Register result, Register index) {
+  assert_different_registers(result, index);
+  // convert from field index to resolved_references() index and from
+  // word index to byte offset. Since this is a java object, it can be compressed
+  Register tmp = index;  // reuse
+  shll(tmp, LogBytesPerHeapOop);
+
+  get_constant_pool(result);
+  // load pointer for resolved_references[] objArray
+  movptr(result, Address(result, ConstantPool::resolved_references_offset_in_bytes()));
+  // JNIHandles::resolve(obj);
+  movptr(result, Address(result, 0));
+  // Add in the index
+  addptr(result, tmp);
+  load_heap_oop(result, Address(result, arrayOopDesc::base_offset_in_bytes(T_OBJECT)));
+}
 
 // Generate a subtype check: branch to ok_is_subtype if sub_klass is a
 // subtype of super_klass.
@@ -402,12 +447,12 @@ void InterpreterMacroAssembler::jump_from_interpreted(Register method, Register 
     // interp_only is an int, on little endian it is sufficient to test the byte only
     // Is a cmpl faster?
     cmpb(Address(r15_thread, JavaThread::interp_only_mode_offset()), 0);
-    jcc(Assembler::zero, run_compiled_code);
-    jmp(Address(method, methodOopDesc::interpreter_entry_offset()));
+    jccb(Assembler::zero, run_compiled_code);
+    jmp(Address(method, Method::interpreter_entry_offset()));
     bind(run_compiled_code);
   }
 
-  jmp(Address(method, methodOopDesc::from_interpreted_offset()));
+  jmp(Address(method, Method::from_interpreted_offset()));
 
 }
 
@@ -503,7 +548,7 @@ void InterpreterMacroAssembler::remove_activation(
 
  // get method access flags
   movptr(rbx, Address(rbp, frame::interpreter_frame_method_offset * wordSize));
-  movl(rcx, Address(rbx, methodOopDesc::access_flags_offset()));
+  movl(rcx, Address(rbx, Method::access_flags_offset()));
   testl(rcx, JVM_ACC_SYNCHRONIZED);
   jcc(Assembler::zero, unlocked);
 
@@ -811,7 +856,7 @@ void InterpreterMacroAssembler::set_method_data_pointer_for_bcp() {
 
   get_method(rbx);
   // Test MDO to avoid the call if it is NULL.
-  movptr(rax, Address(rbx, in_bytes(methodOopDesc::method_data_offset())));
+  movptr(rax, Address(rbx, in_bytes(Method::method_data_offset())));
   testptr(rax, rax);
   jcc(Assembler::zero, set_mdp);
   // rbx: method
@@ -819,8 +864,8 @@ void InterpreterMacroAssembler::set_method_data_pointer_for_bcp() {
   call_VM_leaf(CAST_FROM_FN_PTR(address, InterpreterRuntime::bcp_to_di), rbx, r13);
   // rax: mdi
   // mdo is guaranteed to be non-zero here, we checked for it before the call.
-  movptr(rbx, Address(rbx, in_bytes(methodOopDesc::method_data_offset())));
-  addptr(rbx, in_bytes(methodDataOopDesc::data_offset()));
+  movptr(rbx, Address(rbx, in_bytes(Method::method_data_offset())));
+  addptr(rbx, in_bytes(MethodData::data_offset()));
   addptr(rax, rbx);
   bind(set_mdp);
   movptr(Address(rbp, frame::interpreter_frame_mdx_offset * wordSize), rax);
@@ -843,8 +888,8 @@ void InterpreterMacroAssembler::verify_method_data_pointer() {
   // consistent with the bcp.  The converse is highly probable also.
   load_unsigned_short(c_rarg2,
                       Address(c_rarg3, in_bytes(DataLayout::bci_offset())));
-  addptr(c_rarg2, Address(rbx, methodOopDesc::const_offset()));
-  lea(c_rarg2, Address(c_rarg2, constMethodOopDesc::codes_offset()));
+  addptr(c_rarg2, Address(rbx, Method::const_offset()));
+  lea(c_rarg2, Address(c_rarg2, ConstMethod::codes_offset()));
   cmpptr(c_rarg2, r13);
   jcc(Assembler::equal, verify_continue);
   // rbx: method
@@ -1021,7 +1066,6 @@ void InterpreterMacroAssembler::profile_not_taken_branch(Register mdp) {
     bind(profile_continue);
   }
 }
-
 
 void InterpreterMacroAssembler::profile_call(Register mdp) {
   if (ProfileInterpreter) {

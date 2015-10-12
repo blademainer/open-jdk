@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,8 +30,6 @@ import java.awt.image.*;
 import java.awt.peer.*;
 
 import java.beans.*;
-
-import java.lang.reflect.*;
 
 import java.util.*;
 import java.util.List;
@@ -92,7 +90,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
     }
 
     // WComponentPeer overrides
-
+    @SuppressWarnings("unchecked")
     protected void disposeImpl() {
         AppContext appContext = SunToolkit.targetToAppContext(target);
         synchronized (appContext) {
@@ -132,6 +130,10 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         if ((value && ((Window)target).isVisible()) || !value) {
             setAlwaysOnTopNative(value);
         }
+    }
+
+    public void updateAlwaysOnTopState() {
+        setAlwaysOnTop(((Window)target).isAlwaysOnTop());
     }
 
     public void updateFocusableWindowState() {
@@ -213,6 +215,12 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         createAwtWindow(parent);
     }
 
+    @Override
+    final WComponentPeer getNativeParent() {
+        final Container owner = ((Window) target).getOwner();
+        return (WComponentPeer) WToolkit.targetToPeer(owner);
+    }
+
     // should be overriden in WDialogPeer
     protected void realShow() {
         super.show();
@@ -243,6 +251,13 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
             if (!isOpaque) {
                 updateWindow(true);
             }
+        }
+
+        // See https://javafx-jira.kenai.com/browse/RT-32570
+        WComponentPeer owner = getNativeParent();
+        if (owner != null && owner.isLightweightFramePeer()) {
+            Rectangle b = getBounds();
+            handleExpose(0, 0, b.width, b.height);
         }
     }
 
@@ -378,6 +393,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         return modalBlocker != null;
     }
 
+     @SuppressWarnings("deprecation")
     public void setModalBlocked(Dialog dialog, boolean blocked) {
         synchronized (((Component)getTarget()).getTreeLock()) // State lock should always be after awtLock
         {
@@ -417,6 +433,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
      * The list is sorted by the time of activation, so the latest
      * active window is always at the end.
      */
+    @SuppressWarnings("unchecked")
     public static long[] getActiveWindowHandles() {
         AppContext appContext = AppContext.getAppContext();
         synchronized (appContext) {
@@ -450,7 +467,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
 
     public void updateGC() {
         int scrn = getScreenImOn();
-        if (screenLog.isLoggable(PlatformLogger.FINER)) {
+        if (screenLog.isLoggable(PlatformLogger.Level.FINER)) {
             log.finer("Screen number: " + scrn);
         }
 
@@ -475,7 +492,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         // is now mostly on.
         winGraphicsConfig = (Win32GraphicsConfig)newDev
                             .getDefaultConfiguration();
-        if (screenLog.isLoggable(PlatformLogger.FINE)) {
+        if (screenLog.isLoggable(PlatformLogger.Level.FINE)) {
             if (winGraphicsConfig == null) {
                 screenLog.fine("Assertion (winGraphicsConfig != null) failed");
             }
@@ -571,6 +588,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         super.print(g);
     }
 
+    @SuppressWarnings("deprecation")
     private void replaceSurfaceDataRecursively(Component c) {
         if (c instanceof Container) {
             for (Component child : ((Container)c).getComponents()) {
@@ -691,13 +709,13 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
             // its shape only. To restore the correct visual appearance
             // of the window (i.e. w/ the correct shape) we have to reset
             // the shape.
-            Shape shape = ((Window)target).getShape();
+            Shape shape = target.getShape();
             if (shape != null) {
-                ((Window)target).setShape(shape);
+                target.setShape(shape);
             }
         }
 
-        if (((Window)target).isVisible()) {
+        if (target.isVisible()) {
             updateWindow(true);
         }
     }
@@ -719,7 +737,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
             TranslucentWindowPainter currentPainter = painter;
             if (currentPainter != null) {
                 currentPainter.updateWindow(repaint);
-            } else if (log.isLoggable(PlatformLogger.FINER)) {
+            } else if (log.isLoggable(PlatformLogger.Level.FINER)) {
                 log.finer("Translucent window painter is null in updateWindow");
             }
         }
@@ -730,6 +748,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
      * then the method registers ActiveWindowListener, GuiDisposedListener listeners;
      * it executes the initilialization only once per AppContext.
      */
+    @SuppressWarnings("unchecked")
     private static void initActiveWindowsTracking(Window w) {
         AppContext appContext = AppContext.getAppContext();
         synchronized (appContext) {
@@ -754,7 +773,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
         public void propertyChange(PropertyChangeEvent e) {
             boolean isDisposed = (Boolean)e.getNewValue();
             if (isDisposed != true) {
-                if (log.isLoggable(PlatformLogger.FINE)) {
+                if (log.isLoggable(PlatformLogger.Level.FINE)) {
                     log.fine(" Assertion (newValue != true) failed for AppContext.GUI_DISPOSED ");
                 }
             }
@@ -774,6 +793,7 @@ public class WWindowPeer extends WPanelPeer implements WindowPeer,
      * updates the list of active windows per AppContext, so the latest active
      * window is always at the end of the list. The list is stored in AppContext.
      */
+    @SuppressWarnings( value = {"deprecation", "unchecked"})
     private static class ActiveWindowListener implements PropertyChangeListener {
         public void propertyChange(PropertyChangeEvent e) {
             Window w = (Window)e.getNewValue();

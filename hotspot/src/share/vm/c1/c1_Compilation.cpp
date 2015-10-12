@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,13 +32,17 @@
 #include "c1/c1_ValueMap.hpp"
 #include "c1/c1_ValueStack.hpp"
 #include "code/debugInfoRec.hpp"
+#include "compiler/compileLog.hpp"
+#include "c1/c1_RangeCheckElimination.hpp"
 
 
 typedef enum {
   _t_compile,
   _t_setup,
-  _t_optimizeIR,
   _t_buildIR,
+  _t_optimize_blocks,
+  _t_optimize_null_checks,
+  _t_rangeCheckElimination,
   _t_emit_lir,
   _t_linearScan,
   _t_lirGeneration,
@@ -51,8 +55,10 @@ typedef enum {
 static const char * timer_name[] = {
   "compile",
   "setup",
-  "optimizeIR",
   "buildIR",
+  "optimize_blocks",
+  "optimize_null_checks",
+  "rangeCheckElimination",
   "emit_lir",
   "linearScan",
   "lirGeneration",
@@ -67,10 +73,28 @@ static int totalInstructionNodes = 0;
 class PhaseTraceTime: public TraceTime {
  private:
   JavaThread* _thread;
+  CompileLog* _log;
+  TimerName _timer;
 
  public:
-  PhaseTraceTime(TimerName timer):
-    TraceTime("", &timers[timer], CITime || CITimeEach, Verbose) {
+  PhaseTraceTime(TimerName timer)
+  : TraceTime("", &timers[timer], CITime || CITimeEach, Verbose),
+    _log(NULL), _timer(timer)
+  {
+    if (Compilation::current() != NULL) {
+      _log = Compilation::current()->log();
+    }
+
+    if (_log != NULL) {
+      _log->begin_head("phase name='%s'", timer_name[_timer]);
+      _log->stamp();
+      _log->end_head();
+    }
+  }
+
+  ~PhaseTraceTime() {
+    if (_log != NULL)
+      _log->done("phase name='%s'", timer_name[_timer]);
   }
 };
 
@@ -113,7 +137,15 @@ void Compilation::build_hir() {
   CHECK_BAILOUT();
 
   // setup ir
+  CompileLog* log = this->log();
+  if (log != NULL) {
+    log->begin_head("parse method='%d' ",
+                    log->identify(_method));
+    log->stamp();
+    log->end_head();
+  }
   _hir = new IR(this, method(), osr_bci());
+  if (log)  log->done("parse");
   if (!_hir->is_valid()) {
     bailout("invalid parsing");
     return;
@@ -135,9 +167,9 @@ void Compilation::build_hir() {
   if (UseC1Optimizations) {
     NEEDS_CLEANUP
     // optimization
-    PhaseTraceTime timeit(_t_optimizeIR);
+    PhaseTraceTime timeit(_t_optimize_blocks);
 
-    _hir->optimize();
+    _hir->optimize_blocks();
   }
 
   _hir->verify();
@@ -156,12 +188,46 @@ void Compilation::build_hir() {
   _hir->compute_code();
 
   if (UseGlobalValueNumbering) {
-    ResourceMark rm;
+    // No resource mark here! LoopInvariantCodeMotion can allocate ValueStack objects.
     int instructions = Instruction::number_of_instructions();
     GlobalValueNumbering gvn(_hir);
     assert(instructions == Instruction::number_of_instructions(),
            "shouldn't have created an instructions");
   }
+
+  _hir->verify();
+
+#ifndef PRODUCT
+  if (PrintCFGToFile) {
+    CFGPrinter::print_cfg(_hir, "Before RangeCheckElimination", true, false);
+  }
+#endif
+
+  if (RangeCheckElimination) {
+    if (_hir->osr_entry() == NULL) {
+      PhaseTraceTime timeit(_t_rangeCheckElimination);
+      RangeCheckElimination::eliminate(_hir);
+    }
+  }
+
+#ifndef PRODUCT
+  if (PrintCFGToFile) {
+    CFGPrinter::print_cfg(_hir, "After RangeCheckElimination", true, false);
+  }
+#endif
+
+  if (UseC1Optimizations) {
+    // loop invariant code motion reorders instructions and range
+    // check elimination adds new instructions so do null check
+    // elimination after.
+    NEEDS_CLEANUP
+    // optimization
+    PhaseTraceTime timeit(_t_optimize_null_checks);
+
+    _hir->eliminate_null_checks();
+  }
+
+  _hir->verify();
 
   // compute use counts after global value numbering
   _hir->compute_use_counts();
@@ -346,8 +412,8 @@ void Compilation::install_code(int frame_size) {
     implicit_exception_table(),
     compiler(),
     _env->comp_level(),
-    true,
-    has_unsafe_access()
+    has_unsafe_access(),
+    SharedRuntime::is_wide_vector(max_vector_size())
   );
 }
 
@@ -390,6 +456,10 @@ void Compilation::compile_method() {
     PhaseTraceTime timeit(_t_codeinstall);
     install_code(frame_size);
   }
+
+  if (log() != NULL) // Print code cache state into compiler log
+    log()->code_cache_state();
+
   totalInstructionNodes += Instruction::number_of_instructions();
 }
 
@@ -456,6 +526,7 @@ Compilation::Compilation(AbstractCompiler* compiler, ciEnv* env, ciMethod* metho
                          int osr_bci, BufferBlob* buffer_blob)
 : _compiler(compiler)
 , _env(env)
+, _log(env->log())
 , _method(method)
 , _osr_bci(osr_bci)
 , _hir(NULL)
@@ -473,6 +544,7 @@ Compilation::Compilation(AbstractCompiler* compiler, ciEnv* env, ciMethod* metho
 , _next_id(0)
 , _next_block_id(0)
 , _code(buffer_blob)
+, _has_access_indexed(false)
 , _current_instruction(NULL)
 #ifndef PRODUCT
 , _last_instruction_printed(NULL)
@@ -524,11 +596,22 @@ void Compilation::bailout(const char* msg) {
   assert(msg != NULL, "bailout message must exist");
   if (!bailed_out()) {
     // keep first bailout message
-    if (PrintBailouts) tty->print_cr("compilation bailout: %s", msg);
+    if (PrintCompilation || PrintBailouts) tty->print_cr("compilation bailout: %s", msg);
     _bailout_msg = msg;
   }
 }
 
+ciKlass* Compilation::cha_exact_type(ciType* type) {
+  if (type != NULL && type->is_loaded() && type->is_instance_klass()) {
+    ciInstanceKlass* ik = type->as_instance_klass();
+    assert(ik->exact_klass() == NULL, "no cha for final klass");
+    if (DeoptC1 && UseCHA && !(ik->has_subklass() || ik->is_interface())) {
+      dependency_recorder()->assert_leaf_type(ik);
+      return ik;
+    }
+  }
+  return NULL;
+}
 
 void Compilation::print_timers() {
   // tty->print_cr("    Native methods         : %6.3f s, Average : %2.3f", CompileBroker::_t_native_compilation.seconds(), CompileBroker::_t_native_compilation.seconds() / CompileBroker::_total_native_compile_count);
@@ -538,7 +621,9 @@ void Compilation::print_timers() {
   tty->print_cr("    Detailed C1 Timings");
   tty->print_cr("       Setup time:        %6.3f s (%4.1f%%)",    timers[_t_setup].seconds(),           (timers[_t_setup].seconds() / total) * 100.0);
   tty->print_cr("       Build IR:          %6.3f s (%4.1f%%)",    timers[_t_buildIR].seconds(),         (timers[_t_buildIR].seconds() / total) * 100.0);
-  tty->print_cr("         Optimize:           %6.3f s (%4.1f%%)", timers[_t_optimizeIR].seconds(),      (timers[_t_optimizeIR].seconds() / total) * 100.0);
+  float t_optimizeIR = timers[_t_optimize_blocks].seconds() + timers[_t_optimize_null_checks].seconds();
+  tty->print_cr("         Optimize:           %6.3f s (%4.1f%%)", t_optimizeIR,                         (t_optimizeIR / total) * 100.0);
+  tty->print_cr("         RCE:                %6.3f s (%4.1f%%)", timers[_t_rangeCheckElimination].seconds(),      (timers[_t_rangeCheckElimination].seconds() / total) * 100.0);
   tty->print_cr("       Emit LIR:          %6.3f s (%4.1f%%)",    timers[_t_emit_lir].seconds(),        (timers[_t_emit_lir].seconds() / total) * 100.0);
   tty->print_cr("         LIR Gen:          %6.3f s (%4.1f%%)",   timers[_t_lirGeneration].seconds(), (timers[_t_lirGeneration].seconds() / total) * 100.0);
   tty->print_cr("         Linear Scan:      %6.3f s (%4.1f%%)",   timers[_t_linearScan].seconds(),    (timers[_t_linearScan].seconds() / total) * 100.0);

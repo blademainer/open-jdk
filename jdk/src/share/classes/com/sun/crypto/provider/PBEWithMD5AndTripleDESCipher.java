@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,7 +55,7 @@ import javax.crypto.spec.*;
  */
 public final class PBEWithMD5AndTripleDESCipher extends CipherSpi {
 
-    private PBECipherCore core;
+    private PBES1Core core;
 
     /**
      * Creates an instance of this cipher, and initializes its mode (CBC) and
@@ -70,7 +70,7 @@ public final class PBEWithMD5AndTripleDESCipher extends CipherSpi {
         throws NoSuchAlgorithmException, NoSuchPaddingException
     {
         // set the encapsulated cipher to do triple DES
-        core = new PBECipherCore("DESede");
+        core = new PBES1Core("DESede");
     }
 
     /**
@@ -317,7 +317,7 @@ public final class PBEWithMD5AndTripleDESCipher extends CipherSpi {
      * no padding has been requested (only in encryption mode), and the total
      * input length of the data processed by this cipher is not a multiple of
      * block size
-     * @exception BadPaddingException if decrypting and padding is choosen,
+     * @exception BadPaddingException if decrypting and padding is chosen,
      * but the last input data does not have proper padding bytes.
      */
     protected byte[] engineDoFinal(byte[] input, int inputOffset, int inputLen)
@@ -358,7 +358,7 @@ public final class PBEWithMD5AndTripleDESCipher extends CipherSpi {
      * block size
      * @exception ShortBufferException if the given output buffer is too small
      * to hold the result
-     * @exception BadPaddingException if decrypting and padding is choosen,
+     * @exception BadPaddingException if decrypting and padding is chosen,
      * but the last input data does not have proper padding bytes.
      */
     protected int engineDoFinal(byte[] input, int inputOffset, int inputLen,

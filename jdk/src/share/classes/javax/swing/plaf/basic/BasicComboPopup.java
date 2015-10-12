@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,7 +53,7 @@ import java.io.Serializable;
  * future Swing releases. The current serialization support is
  * appropriate for short term storage or RMI between applications running
  * the same version of Swing.  As of 1.4, support for long term storage
- * of all JavaBeans<sup><font size="-2">TM</font></sup>
+ * of all JavaBeans&trade;
  * has been added to the <code>java.beans</code> package.
  * Please see {@link java.beans.XMLEncoder}.
  *
@@ -63,8 +63,7 @@ import java.io.Serializable;
 public class BasicComboPopup extends JPopupMenu implements ComboPopup {
     // An empty ListMode, this is used when the UI changes to allow
     // the JList to be gc'ed.
-    private static class EmptyListModelClass implements ListModel,
-                                                        Serializable {
+    private static class EmptyListModelClass implements ListModel<Object>, Serializable {
         public int getSize() { return 0; }
         public Object getElementAt(int index) { return null; }
         public void addListDataListener(ListDataListener l) {}

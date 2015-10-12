@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,10 @@ package sun.nio.fs;
 
 import java.nio.file.*;
 import java.nio.file.attribute.*;
+import java.nio.file.spi.FileTypeDetector;
 import java.io.IOException;
+import java.security.AccessController;
+import sun.security.action.GetPropertyAction;
 
 /**
  * Linux implementation of FileSystemProvider
@@ -95,5 +98,17 @@ public class LinuxFileSystemProvider extends UnixFileSystemProvider {
         } else {
             return super.readAttributes(file, type, options);
         }
+    }
+
+    @Override
+    FileTypeDetector getFileTypeDetector() {
+        Path userMimeTypes = Paths.get(AccessController.doPrivileged(
+            new GetPropertyAction("user.home")), ".mime.types");
+        Path etcMimeTypes = Paths.get("/etc/mime.types");
+
+        return chain(new GnomeFileTypeDetector(),
+                     new MimeTypesFileTypeDetector(userMimeTypes),
+                     new MimeTypesFileTypeDetector(etcMimeTypes),
+                     new MagicFileTypeDetector());
     }
 }

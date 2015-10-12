@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,5 @@ typedef void (*mlib_stop_timer)(int, int);
 mlib_status awt_getImagingLib(JNIEnv *, mlibFnS_t *, mlibSysFnS_t *);
 mlib_start_timer awt_setMlibStartTimer();
 mlib_stop_timer awt_setMlibStopTimer();
-void awt_getBIColorOrder(int type, int *colorOrder);
 
 #endif /* _AWT_MLIB_H */

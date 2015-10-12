@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -70,6 +70,8 @@ jfieldID psi_serverSocketID;
 jfieldID psi_fdLockID;
 jfieldID psi_closePendingID;
 
+extern void setDefaultScopeID(JNIEnv *env, struct sockaddr *him);
+
 /*
  * file descriptor used for dup2
  */
@@ -115,7 +117,6 @@ static int getMarkerFD()
     return sv[0];
 }
 
-
 /*
  * Return the file descriptor given a PlainSocketImpl
  */
@@ -127,7 +128,7 @@ static int getFD(JNIEnv *env, jobject this) {
 
 /*
  * The initroto function is called whenever PlainSocketImpl is
- * loaded, to cache fieldIds for efficiency. This is called everytime
+ * loaded, to cache field IDs for efficiency. This is called every time
  * the Java class is loaded.
  *
  * Class:     java_net_PlainSocketImpl
@@ -260,6 +261,9 @@ Java_java_net_PlainSocketImpl_socketConnect(JNIEnv *env, jobject this,
 
     /* fdObj is the FileDescriptor field on this */
     jobject fdObj = (*env)->GetObjectField(env, this, psi_fdID);
+
+    jclass clazz = (*env)->GetObjectClass(env, this);
+
     jobject fdLock;
 
     jint trafficClass = (*env)->GetIntField(env, this, psi_trafficClassID);
@@ -286,6 +290,7 @@ Java_java_net_PlainSocketImpl_socketConnect(JNIEnv *env, jobject this,
     if (NET_InetAddressToSockaddr(env, iaObj, port, (struct sockaddr *)&him, &len, JNI_TRUE) != 0) {
       return;
     }
+    setDefaultScopeID(env, (struct sockaddr *)&him);
 
 #ifdef AF_INET6
     if (trafficClass != 0 && ipv6_available()) {
@@ -483,9 +488,11 @@ Java_java_net_PlainSocketImpl_socketConnect(JNIEnv *env, jobject this,
         if (connect_rv == JVM_IO_INTR) {
             JNU_ThrowByName(env, JNU_JAVAIOPKG "InterruptedIOException",
                             "operation interrupted");
+#if defined(EPROTO)
         } else if (errno == EPROTO) {
             NET_ThrowByNameWithLastError(env, JNU_JAVANETPKG "ProtocolException",
                            "Protocol error");
+#endif
         } else if (errno == ECONNREFUSED) {
             NET_ThrowByNameWithLastError(env, JNU_JAVANETPKG "ConnectException",
                            "Connection refused");
@@ -565,6 +572,7 @@ Java_java_net_PlainSocketImpl_socketBind(JNIEnv *env, jobject this,
     if (NET_InetAddressToSockaddr(env, iaObj, localport, (struct sockaddr *)&him, &len, JNI_TRUE) != 0) {
       return;
     }
+    setDefaultScopeID(env, (struct sockaddr *)&him);
 
     if (NET_Bind(fd, (struct sockaddr *)&him, len) < 0) {
         if (errno == EADDRINUSE || errno == EADDRNOTAVAIL ||
@@ -581,7 +589,7 @@ Java_java_net_PlainSocketImpl_socketBind(JNIEnv *env, jobject this,
     /* set the address */
     (*env)->SetObjectField(env, this, psi_addressID, iaObj);
 
-    /* intialize the local port */
+    /* initialize the local port */
     if (localport == 0) {
         /* Now that we're a connected socket, let's extract the port number
          * that the system chose for us and store it in the Socket object.
@@ -901,7 +909,7 @@ Java_java_net_PlainSocketImpl_socketSetOption(JNIEnv *env, jobject this,
     }
 
     /*
-     * SO_TIMEOUT is a no-op on Solaris/Linux
+     * SO_TIMEOUT is a NOOP on Solaris/Linux
      */
     if (cmd == java_net_SocketOptions_SO_TIMEOUT) {
         return;

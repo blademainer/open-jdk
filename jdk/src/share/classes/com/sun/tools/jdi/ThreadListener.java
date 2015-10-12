@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2000, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,7 +31,7 @@ import java.util.EventListener;
 interface ThreadListener extends EventListener {
     boolean threadResumable(ThreadAction action);
     /*
-     * Not needed for current implemenation, and hard to implement
+     * Not needed for current implementation, and hard to implement
      * correctly. (See TargetVM.handleEventCmdSet)
      *   void threadSuspended(ThreadAction action);
      */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,15 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+/*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
 
 /* Table of class information.
  *
@@ -518,7 +527,12 @@ class_get_methodID(JNIEnv *env, ClassIndex index, MethodIndex mnum)
     jmethodID  method;
 
     info = get_info(index);
-    HPROF_ASSERT(mnum < info->method_count);
+    if (mnum >= info->method_count) {
+        jclass newExcCls = (*env)->FindClass(env, "java/lang/IllegalArgumentException");
+        (*env)->ThrowNew(env, newExcCls, "Illegal mnum");
+
+        return NULL;
+    }
     method = info->method[mnum].method_id;
     if ( method == NULL ) {
         char * name;
@@ -526,7 +540,12 @@ class_get_methodID(JNIEnv *env, ClassIndex index, MethodIndex mnum)
         jclass clazz;
 
         name  = (char *)string_get(info->method[mnum].name_index);
-        HPROF_ASSERT(name!=NULL);
+        if (name==NULL) {
+            jclass newExcCls = (*env)->FindClass(env, "java/lang/IllegalArgumentException");
+            (*env)->ThrowNew(env, newExcCls, "Name not found");
+
+            return NULL;
+        }
         sig   = (char *)string_get(info->method[mnum].sig_index);
         HPROF_ASSERT(sig!=NULL);
         clazz = class_get_class(env, index);

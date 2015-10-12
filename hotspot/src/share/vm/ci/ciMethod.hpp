@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,15 +42,16 @@ class BCEscapeAnalyzer;
 
 // ciMethod
 //
-// This class represents a methodOop in the HotSpot virtual
+// This class represents a Method* in the HotSpot virtual
 // machine.
-class ciMethod : public ciObject {
+class ciMethod : public ciMetadata {
   friend class CompileBroker;
   CI_PACKAGE_ACCESS
   friend class ciEnv;
   friend class ciExceptionHandlerStream;
   friend class ciBytecodeStream;
   friend class ciMethodHandle;
+  friend class ciReplay;
 
  private:
   // General method information.
@@ -69,6 +70,7 @@ class ciMethod : public ciObject {
   int _handler_count;
   int _interpreter_invocation_count;
   int _interpreter_throwout_count;
+  int _instructions_size;
 
   bool _uses_monitors;
   bool _balanced_monitors;
@@ -88,10 +90,10 @@ class ciMethod : public ciObject {
 #endif
 
   ciMethod(methodHandle h_m);
-  ciMethod(ciInstanceKlass* holder, ciSymbol* name, ciSymbol* signature);
+  ciMethod(ciInstanceKlass* holder, ciSymbol* name, ciSymbol* signature, ciInstanceKlass* accessor);
 
-  methodOop get_methodOop() const {
-    methodOop m = (methodOop)get_oop();
+  Method* get_Method() const {
+    Method* m = (Method*)_metadata;
     assert(m != NULL, "illegal use of unloaded method");
     return m;
   }
@@ -115,6 +117,10 @@ class ciMethod : public ciObject {
     *bcp = code;
   }
 
+  // Check bytecode and profile data collected are compatible
+  void assert_virtual_call_type_ok(int bci);
+  void assert_call_type_ok(int bci);
+
  public:
   // Basic method information.
   ciFlags flags() const                          { check_is_loaded(); return _flags; }
@@ -133,16 +139,20 @@ class ciMethod : public ciObject {
     return _signature->size() + (_flags.is_static() ? 0 : 1);
   }
   // Report the number of elements on stack when invoking this method.
-  // This is different than the regular arg_size because invokdynamic
+  // This is different than the regular arg_size because invokedynamic
   // has an implicit receiver.
   int invoke_arg_size(Bytecodes::Code code) const {
-    int arg_size = _signature->size();
-    // Add a receiver argument, maybe:
-    if (code != Bytecodes::_invokestatic &&
-        code != Bytecodes::_invokedynamic) {
-      arg_size++;
+    if (is_loaded()) {
+      return arg_size();
+    } else {
+      int arg_size = _signature->size();
+      // Add a receiver argument, maybe:
+      if (code != Bytecodes::_invokestatic &&
+          code != Bytecodes::_invokedynamic) {
+        arg_size++;
+      }
+      return arg_size;
     }
-    return arg_size;
   }
 
 
@@ -157,11 +167,23 @@ class ciMethod : public ciObject {
   int interpreter_invocation_count() const       { check_is_loaded(); return _interpreter_invocation_count; }
   int interpreter_throwout_count() const         { check_is_loaded(); return _interpreter_throwout_count; }
 
+  // Code size for inlining decisions.
+  int code_size_for_inlining();
+
+  bool caller_sensitive() { return get_Method()->caller_sensitive(); }
+  bool force_inline()     { return get_Method()->force_inline();     }
+  bool dont_inline()      { return get_Method()->dont_inline();      }
+
   int comp_level();
+  int highest_osr_comp_level();
 
   Bytecodes::Code java_code_at_bci(int bci) {
     address bcp = code() + bci;
     return Bytecodes::java_code_at(NULL, bcp);
+  }
+  Bytecodes::Code raw_code_at_bci(int bci) {
+    address bcp = code() + bci;
+    return Bytecodes::code_at(NULL, bcp);
   }
   BCEscapeAnalyzer  *get_bcea();
   ciMethodBlocks    *get_method_blocks();
@@ -182,7 +204,6 @@ class ciMethod : public ciObject {
   // Analysis and profiling.
   //
   // Usage note: liveness_at_bci and init_vars should be wrapped in ResourceMarks.
-  bool          uses_monitors() const            { return _uses_monitors; } // this one should go away, it has a misleading name
   bool          has_monitor_bytecodes() const    { return _uses_monitors; }
   bool          has_balanced_monitors();
 
@@ -213,6 +234,14 @@ class ciMethod : public ciObject {
   ciCallProfile call_profile_at_bci(int bci);
   int           interpreter_call_site_count(int bci);
 
+  // Does type profiling provide a useful type at this point?
+  ciKlass*      argument_profiled_type(int bci, int i);
+  ciKlass*      parameter_profiled_type(int i);
+  ciKlass*      return_profiled_type(int bci);
+
+  ciField*      get_field_at_bci( int bci, bool &will_link);
+  ciMethod*     get_method_at_bci(int bci, bool &will_link, ciSignature* *declared_signature);
+
   // Given a certain calling environment, find the monomorphic target
   // for the call.  Return NULL if the call is not monomorphic in
   // its calling environment.
@@ -228,9 +257,6 @@ class ciMethod : public ciObject {
   int resolve_vtable_index(ciKlass* caller, ciKlass* receiver);
 
   // Compilation directives
-  bool will_link(ciKlass* accessing_klass,
-                 ciKlass* declared_method_holder,
-                 Bytecodes::Code bc);
   bool should_exclude();
   bool should_inline();
   bool should_not_inline();
@@ -239,9 +265,8 @@ class ciMethod : public ciObject {
   bool has_option(const char *option);
   bool can_be_compiled();
   bool can_be_osr_compiled(int entry_bci);
-  void set_not_compilable();
+  void set_not_compilable(const char* reason = NULL);
   bool has_compiled_code();
-  int  instructions_size(int comp_level = CompLevel_any);
   void log_nmethod_identity(xmlStream* log);
   bool is_not_reached(int bci);
   bool was_executed_more_than(int times);
@@ -249,15 +274,20 @@ class ciMethod : public ciObject {
   bool is_klass_loaded(int refinfo_index, bool must_be_resolved) const;
   bool check_call(int refinfo_index, bool is_static) const;
   bool ensure_method_data();  // make sure it exists in the VM also
+  MethodCounters* ensure_method_counters();
+  int instructions_size();
   int scale_count(int count, float prof_factor = 1.);  // make MDO count commensurate with IIC
 
+  // Stack walking support
+  bool is_ignored_by_security_stack_walk() const;
+
   // JSR 292 support
-  bool is_method_handle_invoke()  const;
-  bool is_method_handle_adapter() const;
-  ciInstance* method_handle_type();
+  bool is_method_handle_intrinsic()  const;
+  bool is_compiled_lambda_form() const;
+  bool has_member_arg() const;
 
   // What kind of ciObject is this?
-  bool is_method()                               { return true; }
+  bool is_method() const                         { return true; }
 
   // Java access flags
   bool is_public      () const                   { return flags().is_public(); }
@@ -280,6 +310,9 @@ class ciMethod : public ciObject {
   bool is_accessor    () const;
   bool is_initializer () const;
   bool can_be_statically_bound() const           { return _can_be_statically_bound; }
+  void dump_replay_data(outputStream* st);
+  bool is_boxing_method() const;
+  bool is_unboxing_method() const;
 
   // Print the bytecodes of this method.
   void print_codes_on(outputStream* st);
@@ -291,12 +324,6 @@ class ciMethod : public ciObject {
   // Print the name of this method in various incarnations.
   void print_name(outputStream* st = tty);
   void print_short_name(outputStream* st = tty);
-
-  methodOop get_method_handle_target() {
-    KlassHandle receiver_limit; int flags = 0;
-    methodHandle m = MethodHandles::decode_method(get_oop(), receiver_limit, flags);
-    return m();
-  }
 };
 
 #endif // SHARE_VM_CI_CIMETHOD_HPP

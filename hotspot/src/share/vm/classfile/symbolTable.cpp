@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,10 +23,12 @@
  */
 
 #include "precompiled.hpp"
+#include "classfile/altHashing.hpp"
 #include "classfile/javaClasses.hpp"
 #include "classfile/symbolTable.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "gc_interface/collectedHeap.inline.hpp"
+#include "memory/allocation.inline.hpp"
 #include "memory/filemap.hpp"
 #include "memory/gcLocker.inline.hpp"
 #include "oops/oop.inline.hpp"
@@ -37,41 +39,43 @@
 // --------------------------------------------------------------------------
 
 SymbolTable* SymbolTable::_the_table = NULL;
+// Static arena for symbols that are not deallocated
+Arena* SymbolTable::_arena = NULL;
+bool SymbolTable::_needs_rehashing = false;
 
-Symbol* SymbolTable::allocate_symbol(const u1* name, int len, TRAPS) {
-  // Don't allow symbols to be created which cannot fit in a Symbol*.
-  if (len > Symbol::max_length()) {
-    THROW_MSG_0(vmSymbols::java_lang_InternalError(),
-                "name is too long to represent");
+Symbol* SymbolTable::allocate_symbol(const u1* name, int len, bool c_heap, TRAPS) {
+  assert (len <= Symbol::max_length(), "should be checked by caller");
+
+  Symbol* sym;
+
+  if (DumpSharedSpaces) {
+    // Allocate all symbols to CLD shared metaspace
+    sym = new (len, ClassLoaderData::the_null_class_loader_data(), THREAD) Symbol(name, len, -1);
+  } else if (c_heap) {
+    // refcount starts as 1
+    sym = new (len, THREAD) Symbol(name, len, 1);
+    assert(sym != NULL, "new should call vm_exit_out_of_memory if C_HEAP is exhausted");
+  } else {
+    // Allocate to global arena
+    sym = new (len, arena(), THREAD) Symbol(name, len, -1);
   }
-  Symbol* sym = new (len) Symbol(name, len);
-  assert(sym != NULL, "new should call vm_exit_out_of_memory if C_HEAP is exhausted");
   return sym;
 }
 
-bool SymbolTable::allocate_symbols(int names_count, const u1** names,
-                                   int* lengths, Symbol** syms, TRAPS) {
-  for (int i = 0; i< names_count; i++) {
-    if (lengths[i] > Symbol::max_length()) {
-      THROW_MSG_0(vmSymbols::java_lang_InternalError(),
-                  "name is too long to represent");
-    }
+void SymbolTable::initialize_symbols(int arena_alloc_size) {
+  // Initialize the arena for global symbols, size passed in depends on CDS.
+  if (arena_alloc_size == 0) {
+    _arena = new (mtSymbol) Arena();
+  } else {
+    _arena = new (mtSymbol) Arena(arena_alloc_size);
   }
-
-  for (int i = 0; i< names_count; i++) {
-    int len = lengths[i];
-    syms[i] = new (len) Symbol(names[i], len);
-    assert(syms[i] != NULL, "new should call vm_exit_out_of_memory if "
-                            "C_HEAP is exhausted");
-  }
-  return true;
 }
 
 // Call function for all symbols in the symbol table.
 void SymbolTable::symbols_do(SymbolClosure *cl) {
   const int n = the_table()->table_size();
   for (int i = 0; i < n; i++) {
-    for (HashtableEntry<Symbol*>* p = the_table()->bucket(i);
+    for (HashtableEntry<Symbol*, mtSymbol>* p = the_table()->bucket(i);
          p != NULL;
          p = p->next()) {
       cl->do_symbol(p->literal_addr());
@@ -83,24 +87,29 @@ int SymbolTable::symbols_removed = 0;
 int SymbolTable::symbols_counted = 0;
 
 // Remove unreferenced symbols from the symbol table
-// This is done late during GC.  This doesn't use the hash table unlink because
-// it assumes that the literals are oops.
+// This is done late during GC.
 void SymbolTable::unlink() {
   int removed = 0;
   int total = 0;
   size_t memory_total = 0;
   for (int i = 0; i < the_table()->table_size(); ++i) {
-    for (HashtableEntry<Symbol*>** p = the_table()->bucket_addr(i); *p != NULL; ) {
-      HashtableEntry<Symbol*>* entry = *p;
-      if (entry->is_shared()) {
+    HashtableEntry<Symbol*, mtSymbol>** p = the_table()->bucket_addr(i);
+    HashtableEntry<Symbol*, mtSymbol>* entry = the_table()->bucket(i);
+    while (entry != NULL) {
+      // Shared entries are normally at the end of the bucket and if we run into
+      // a shared entry, then there is nothing more to remove. However, if we
+      // have rehashed the table, then the shared entries are no longer at the
+      // end of the bucket.
+      if (entry->is_shared() && !use_alternate_hashcode()) {
         break;
       }
       Symbol* s = entry->literal();
-      memory_total += s->object_size();
+      memory_total += s->size();
       total++;
       assert(s != NULL, "just checking");
       // If reference count is zero, remove.
       if (s->refcount() == 0) {
+        assert(!entry->is_shared(), "shared entries should be kept live");
         delete s;
         removed++;
         *p = entry->next();
@@ -108,6 +117,8 @@ void SymbolTable::unlink() {
       } else {
         p = entry->next_addr();
       }
+      // get next entry
+      entry = (HashtableEntry<Symbol*, mtSymbol>*)HashtableEntry<Symbol*, mtSymbol>::make_ptr(*p);
     }
   }
   symbols_removed += removed;
@@ -120,12 +131,32 @@ void SymbolTable::unlink() {
   }
 }
 
+// Create a new table and using alternate hash code, populate the new table
+// with the existing strings.   Set flag to use the alternate hash code afterwards.
+void SymbolTable::rehash_table() {
+  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+  // This should never happen with -Xshare:dump but it might in testing mode.
+  if (DumpSharedSpaces) return;
+  // Create a new symbol table
+  SymbolTable* new_table = new SymbolTable();
+
+  the_table()->move_to(new_table);
+
+  // Delete the table and buckets (entries are reused in new table).
+  delete _the_table;
+  // Don't check if we need rehashing until the table gets unbalanced again.
+  // Then rehash with a new global seed.
+  _needs_rehashing = false;
+  _the_table = new_table;
+}
 
 // Lookup a symbol in a bucket.
 
 Symbol* SymbolTable::lookup(int index, const char* name,
                               int len, unsigned int hash) {
-  for (HashtableEntry<Symbol*>* e = bucket(index); e != NULL; e = e->next()) {
+  int count = 0;
+  for (HashtableEntry<Symbol*, mtSymbol>* e = bucket(index); e != NULL; e = e->next()) {
+    count++;  // count all entries in this bucket, not just ones with same hash
     if (e->hash() == hash) {
       Symbol* sym = e->literal();
       if (sym->equals(name, len)) {
@@ -135,7 +166,18 @@ Symbol* SymbolTable::lookup(int index, const char* name,
       }
     }
   }
+  // If the bucket size is too deep check if this hash code is insufficient.
+  if (count >= BasicHashtable<mtSymbol>::rehash_count && !needs_rehashing()) {
+    _needs_rehashing = check_rehash_table(count);
+  }
   return NULL;
+}
+
+// Pick hashing algorithm.
+unsigned int SymbolTable::hash_symbol(const char* s, int len) {
+  return use_alternate_hashcode() ?
+           AltHashing::murmur3_32(seed(), (const jbyte*)s, len) :
+           java_lang_String::hash_code(s, len);
 }
 
 
@@ -155,8 +197,11 @@ Symbol* SymbolTable::lookup(const char* name, int len, TRAPS) {
   // Found
   if (s != NULL) return s;
 
+  // Grab SymbolTable_lock first.
+  MutexLocker ml(SymbolTable_lock, THREAD);
+
   // Otherwise, add to symbol to table
-  return the_table()->basic_add(index, (u1*)name, len, hashValue, CHECK_NULL);
+  return the_table()->basic_add(index, (u1*)name, len, hashValue, true, CHECK_NULL);
 }
 
 Symbol* SymbolTable::lookup(const Symbol* sym, int begin, int end, TRAPS) {
@@ -192,7 +237,10 @@ Symbol* SymbolTable::lookup(const Symbol* sym, int begin, int end, TRAPS) {
   // We can't include the code in No_Safepoint_Verifier because of the
   // ResourceMark.
 
-  return the_table()->basic_add(index, (u1*)buffer, len, hashValue, CHECK_NULL);
+  // Grab SymbolTable_lock first.
+  MutexLocker ml(SymbolTable_lock, THREAD);
+
+  return the_table()->basic_add(index, (u1*)buffer, len, hashValue, true, CHECK_NULL);
 }
 
 Symbol* SymbolTable::lookup_only(const char* name, int len,
@@ -202,6 +250,24 @@ Symbol* SymbolTable::lookup_only(const char* name, int len,
 
   Symbol* s = the_table()->lookup(index, name, len, hash);
   return s;
+}
+
+// Look up the address of the literal in the SymbolTable for this Symbol*
+// Do not create any new symbols
+// Do not increment the reference count to keep this alive
+Symbol** SymbolTable::lookup_symbol_addr(Symbol* sym){
+  unsigned int hash = hash_symbol((char*)sym->bytes(), sym->utf8_length());
+  int index = the_table()->hash_to_index(hash);
+
+  for (HashtableEntry<Symbol*, mtSymbol>* e = the_table()->bucket(index); e != NULL; e = e->next()) {
+    if (e->hash() == hash) {
+      Symbol* literal_sym = e->literal();
+      if (sym == literal_sym) {
+        return e->literal_addr();
+      }
+    }
+  }
+  return NULL;
 }
 
 // Suggestion: Push unicode-based lookup all the way into the hashing
@@ -238,97 +304,140 @@ Symbol* SymbolTable::lookup_only_unicode(const jchar* name, int utf16_length,
   }
 }
 
-void SymbolTable::add(constantPoolHandle cp, int names_count,
+void SymbolTable::add(ClassLoaderData* loader_data, constantPoolHandle cp,
+                      int names_count,
                       const char** names, int* lengths, int* cp_indices,
                       unsigned int* hashValues, TRAPS) {
+  // Grab SymbolTable_lock first.
+  MutexLocker ml(SymbolTable_lock, THREAD);
+
   SymbolTable* table = the_table();
-  bool added = table->basic_add(cp, names_count, names, lengths,
+  bool added = table->basic_add(loader_data, cp, names_count, names, lengths,
                                 cp_indices, hashValues, CHECK);
   if (!added) {
     // do it the hard way
     for (int i=0; i<names_count; i++) {
       int index = table->hash_to_index(hashValues[i]);
-      Symbol* sym = table->basic_add(index, (u1*)names[i], lengths[i],
-                                       hashValues[i], CHECK);
+      bool c_heap = !loader_data->is_the_null_class_loader_data();
+      Symbol* sym = table->basic_add(index, (u1*)names[i], lengths[i], hashValues[i], c_heap, CHECK);
       cp->symbol_at_put(cp_indices[i], sym);
     }
   }
 }
 
-Symbol* SymbolTable::basic_add(int index, u1 *name, int len,
-                                 unsigned int hashValue, TRAPS) {
-  assert(!Universe::heap()->is_in_reserved(name) || GC_locker::is_active(),
-         "proposed name of symbol must be stable");
-
-  // We assume that lookup() has been called already, that it failed,
-  // and symbol was not found.  We create the symbol here.
-  Symbol* sym = allocate_symbol(name, len, CHECK_NULL);
-
-  // Allocation must be done before grabbing the SymbolTable_lock lock
+Symbol* SymbolTable::new_permanent_symbol(const char* name, TRAPS) {
+  unsigned int hash;
+  Symbol* result = SymbolTable::lookup_only((char*)name, (int)strlen(name), hash);
+  if (result != NULL) {
+    return result;
+  }
+  // Grab SymbolTable_lock first.
   MutexLocker ml(SymbolTable_lock, THREAD);
 
-  assert(sym->equals((char*)name, len), "symbol must be properly initialized");
+  SymbolTable* table = the_table();
+  int index = table->hash_to_index(hash);
+  return table->basic_add(index, (u1*)name, (int)strlen(name), hash, false, THREAD);
+}
+
+Symbol* SymbolTable::basic_add(int index_arg, u1 *name, int len,
+                               unsigned int hashValue_arg, bool c_heap, TRAPS) {
+  assert(!Universe::heap()->is_in_reserved(name),
+         "proposed name of symbol must be stable");
+
+  // Don't allow symbols to be created which cannot fit in a Symbol*.
+  if (len > Symbol::max_length()) {
+    THROW_MSG_0(vmSymbols::java_lang_InternalError(),
+                "name is too long to represent");
+  }
+
+  // Cannot hit a safepoint in this function because the "this" pointer can move.
+  No_Safepoint_Verifier nsv;
+
+  // Check if the symbol table has been rehashed, if so, need to recalculate
+  // the hash value and index.
+  unsigned int hashValue;
+  int index;
+  if (use_alternate_hashcode()) {
+    hashValue = hash_symbol((const char*)name, len);
+    index = hash_to_index(hashValue);
+  } else {
+    hashValue = hashValue_arg;
+    index = index_arg;
+  }
 
   // Since look-up was done lock-free, we need to check if another
   // thread beat us in the race to insert the symbol.
-
   Symbol* test = lookup(index, (char*)name, len, hashValue);
   if (test != NULL) {
-    // A race occurred and another thread introduced the symbol, this one
-    // will be dropped and collected.
-    delete sym;
+    // A race occurred and another thread introduced the symbol.
     assert(test->refcount() != 0, "lookup should have incremented the count");
     return test;
   }
 
-  HashtableEntry<Symbol*>* entry = new_entry(hashValue, sym);
-  sym->increment_refcount();
+  // Create a new symbol.
+  Symbol* sym = allocate_symbol(name, len, c_heap, CHECK_NULL);
+  assert(sym->equals((char*)name, len), "symbol must be properly initialized");
+
+  HashtableEntry<Symbol*, mtSymbol>* entry = new_entry(hashValue, sym);
   add_entry(index, entry);
   return sym;
 }
 
-bool SymbolTable::basic_add(constantPoolHandle cp, int names_count,
+// This version of basic_add adds symbols in batch from the constant pool
+// parsing.
+bool SymbolTable::basic_add(ClassLoaderData* loader_data, constantPoolHandle cp,
+                            int names_count,
                             const char** names, int* lengths,
                             int* cp_indices, unsigned int* hashValues,
                             TRAPS) {
-  Symbol* syms[symbol_alloc_batch_size];
-  bool allocated = allocate_symbols(names_count, (const u1**)names, lengths,
-                                    syms, CHECK_false);
-  if (!allocated) {
-    return false;
+
+  // Check symbol names are not too long.  If any are too long, don't add any.
+  for (int i = 0; i< names_count; i++) {
+    if (lengths[i] > Symbol::max_length()) {
+      THROW_MSG_0(vmSymbols::java_lang_InternalError(),
+                  "name is too long to represent");
+    }
   }
 
-  // Allocation must be done before grabbing the SymbolTable_lock lock
-  MutexLocker ml(SymbolTable_lock, THREAD);
+  // Cannot hit a safepoint in this function because the "this" pointer can move.
+  No_Safepoint_Verifier nsv;
 
   for (int i=0; i<names_count; i++) {
-    assert(syms[i]->equals(names[i], lengths[i]), "symbol must be properly initialized");
+    // Check if the symbol table has been rehashed, if so, need to recalculate
+    // the hash value.
+    unsigned int hashValue;
+    if (use_alternate_hashcode()) {
+      hashValue = hash_symbol(names[i], lengths[i]);
+    } else {
+      hashValue = hashValues[i];
+    }
     // Since look-up was done lock-free, we need to check if another
     // thread beat us in the race to insert the symbol.
-    int index = hash_to_index(hashValues[i]);
-    Symbol* test = lookup(index, names[i], lengths[i], hashValues[i]);
+    int index = hash_to_index(hashValue);
+    Symbol* test = lookup(index, names[i], lengths[i], hashValue);
     if (test != NULL) {
       // A race occurred and another thread introduced the symbol, this one
       // will be dropped and collected. Use test instead.
       cp->symbol_at_put(cp_indices[i], test);
       assert(test->refcount() != 0, "lookup should have incremented the count");
-      delete syms[i];
     } else {
-      Symbol* sym = syms[i];
-      HashtableEntry<Symbol*>* entry = new_entry(hashValues[i], sym);
-      sym->increment_refcount();  // increment refcount in external hashtable
+      // Create a new symbol.  The null class loader is never unloaded so these
+      // are allocated specially in a permanent arena.
+      bool c_heap = !loader_data->is_the_null_class_loader_data();
+      Symbol* sym = allocate_symbol((const u1*)names[i], lengths[i], c_heap, CHECK_(false));
+      assert(sym->equals(names[i], lengths[i]), "symbol must be properly initialized");  // why wouldn't it be???
+      HashtableEntry<Symbol*, mtSymbol>* entry = new_entry(hashValue, sym);
       add_entry(index, entry);
       cp->symbol_at_put(cp_indices[i], sym);
     }
   }
-
   return true;
 }
 
 
 void SymbolTable::verify() {
   for (int i = 0; i < the_table()->table_size(); ++i) {
-    HashtableEntry<Symbol*>* p = the_table()->bucket(i);
+    HashtableEntry<Symbol*, mtSymbol>* p = the_table()->bucket(i);
     for ( ; p != NULL; p = p->next()) {
       Symbol* s = (Symbol*)(p->literal());
       guarantee(s != NULL, "symbol is NULL");
@@ -338,6 +447,10 @@ void SymbolTable::verify() {
                 "wrong index in symbol table");
     }
   }
+}
+
+void SymbolTable::dump(outputStream* st) {
+  the_table()->dump_table(st, "SymbolTable");
 }
 
 
@@ -363,9 +476,9 @@ void SymbolTable::print_histogram() {
   int memory_total = 0;
   int count = 0;
   for (i = 0; i < the_table()->table_size(); i++) {
-    HashtableEntry<Symbol*>* p = the_table()->bucket(i);
+    HashtableEntry<Symbol*, mtSymbol>* p = the_table()->bucket(i);
     for ( ; p != NULL; p = p->next()) {
-      memory_total += p->literal()->object_size();
+      memory_total += p->literal()->size();
       count++;
       int counter = p->literal()->utf8_length();
       total += counter;
@@ -388,6 +501,8 @@ void SymbolTable::print_histogram() {
           ((float)symbols_removed/(float)symbols_counted)* 100);
   }
   tty->print_cr("Reference counts         %5d", Symbol::_total_count);
+  tty->print_cr("Symbol arena size        %5d used %5d",
+                 arena()->size_in_bytes(), arena()->used());
   tty->print_cr("Histogram of symbol length:");
   tty->print_cr("%8s %5d", "Total  ", total);
   tty->print_cr("%8s %5d", "Maximum", max_symbols);
@@ -422,21 +537,20 @@ void SymbolTable::print_histogram() {
 
 void SymbolTable::print() {
   for (int i = 0; i < the_table()->table_size(); ++i) {
-    HashtableEntry<Symbol*>** p = the_table()->bucket_addr(i);
-    HashtableEntry<Symbol*>* entry = the_table()->bucket(i);
+    HashtableEntry<Symbol*, mtSymbol>** p = the_table()->bucket_addr(i);
+    HashtableEntry<Symbol*, mtSymbol>* entry = the_table()->bucket(i);
     if (entry != NULL) {
       while (entry != NULL) {
         tty->print(PTR_FORMAT " ", entry->literal());
         entry->literal()->print();
         tty->print(" %d", entry->literal()->refcount());
         p = entry->next_addr();
-        entry = (HashtableEntry<Symbol*>*)HashtableEntry<Symbol*>::make_ptr(*p);
+        entry = (HashtableEntry<Symbol*, mtSymbol>*)HashtableEntry<Symbol*, mtSymbol>::make_ptr(*p);
       }
       tty->cr();
     }
   }
 }
-
 #endif // PRODUCT
 
 // --------------------------------------------------------------------------
@@ -482,38 +596,54 @@ class StableMemoryChecker : public StackObj {
 // --------------------------------------------------------------------------
 StringTable* StringTable::_the_table = NULL;
 
+bool StringTable::_needs_rehashing = false;
+
+volatile int StringTable::_parallel_claimed_idx = 0;
+
+// Pick hashing algorithm
+unsigned int StringTable::hash_string(const jchar* s, int len) {
+  return use_alternate_hashcode() ? AltHashing::murmur3_32(seed(), s, len) :
+                                    java_lang_String::hash_code(s, len);
+}
+
 oop StringTable::lookup(int index, jchar* name,
                         int len, unsigned int hash) {
-  for (HashtableEntry<oop>* l = bucket(index); l != NULL; l = l->next()) {
+  int count = 0;
+  for (HashtableEntry<oop, mtSymbol>* l = bucket(index); l != NULL; l = l->next()) {
+    count++;
     if (l->hash() == hash) {
       if (java_lang_String::equals(l->literal(), name, len)) {
         return l->literal();
       }
     }
   }
+  // If the bucket size is too deep check if this hash code is insufficient.
+  if (count >= BasicHashtable<mtSymbol>::rehash_count && !needs_rehashing()) {
+    _needs_rehashing = check_rehash_table(count);
+  }
   return NULL;
 }
 
 
-oop StringTable::basic_add(int index, Handle string_or_null, jchar* name,
-                           int len, unsigned int hashValue, TRAPS) {
-  debug_only(StableMemoryChecker smc(name, len * sizeof(name[0])));
-  assert(!Universe::heap()->is_in_reserved(name) || GC_locker::is_active(),
-         "proposed name of symbol must be stable");
-
-  Handle string;
-  // try to reuse the string if possible
-  if (!string_or_null.is_null() && (!JavaObjectsInPerm || string_or_null()->is_perm())) {
-    string = string_or_null;
-  } else {
-    string = java_lang_String::create_tenured_from_unicode(name, len, CHECK_NULL);
-  }
-
-  // Allocation must be done before grapping the SymbolTable_lock lock
-  MutexLocker ml(StringTable_lock, THREAD);
+oop StringTable::basic_add(int index_arg, Handle string, jchar* name,
+                           int len, unsigned int hashValue_arg, TRAPS) {
 
   assert(java_lang_String::equals(string(), name, len),
          "string must be properly initialized");
+  // Cannot hit a safepoint in this function because the "this" pointer can move.
+  No_Safepoint_Verifier nsv;
+
+  // Check if the symbol table has been rehashed, if so, need to recalculate
+  // the hash value and index before second lookup.
+  unsigned int hashValue;
+  int index;
+  if (use_alternate_hashcode()) {
+    hashValue = hash_string(name, len);
+    index = hash_to_index(hashValue);
+  } else {
+    hashValue = hashValue_arg;
+    index = index_arg;
+  }
 
   // Since look-up was done lock-free, we need to check if another
   // thread beat us in the race to insert the symbol.
@@ -524,7 +654,7 @@ oop StringTable::basic_add(int index, Handle string_or_null, jchar* name,
     return test;
   }
 
-  HashtableEntry<oop>* entry = new_entry(hashValue, string());
+  HashtableEntry<oop, mtSymbol>* entry = new_entry(hashValue, string());
   add_entry(index, entry);
   return string();
 }
@@ -534,23 +664,44 @@ oop StringTable::lookup(Symbol* symbol) {
   ResourceMark rm;
   int length;
   jchar* chars = symbol->as_unicode(length);
-  unsigned int hashValue = java_lang_String::hash_string(chars, length);
-  int index = the_table()->hash_to_index(hashValue);
-  return the_table()->lookup(index, chars, length, hashValue);
+  return lookup(chars, length);
+}
+
+
+oop StringTable::lookup(jchar* name, int len) {
+  unsigned int hash = hash_string(name, len);
+  int index = the_table()->hash_to_index(hash);
+  return the_table()->lookup(index, name, len, hash);
 }
 
 
 oop StringTable::intern(Handle string_or_null, jchar* name,
                         int len, TRAPS) {
-  unsigned int hashValue = java_lang_String::hash_string(name, len);
+  unsigned int hashValue = hash_string(name, len);
   int index = the_table()->hash_to_index(hashValue);
-  oop string = the_table()->lookup(index, name, len, hashValue);
+  oop found_string = the_table()->lookup(index, name, len, hashValue);
 
   // Found
-  if (string != NULL) return string;
+  if (found_string != NULL) return found_string;
+
+  debug_only(StableMemoryChecker smc(name, len * sizeof(name[0])));
+  assert(!Universe::heap()->is_in_reserved(name),
+         "proposed name of symbol must be stable");
+
+  Handle string;
+  // try to reuse the string if possible
+  if (!string_or_null.is_null()) {
+    string = string_or_null;
+  } else {
+    string = java_lang_String::create_from_unicode(name, len, CHECK_NULL);
+  }
+
+  // Grab the StringTable_lock before getting the_table() because it could
+  // change at safepoint.
+  MutexLocker ml(StringTable_lock, THREAD);
 
   // Otherwise, add to symbol to table
-  return the_table()->basic_add(index, string_or_null, name, len,
+  return the_table()->basic_add(index, string, name, len,
                                 hashValue, CHECK_NULL);
 }
 
@@ -571,7 +722,7 @@ oop StringTable::intern(oop string, TRAPS)
   ResourceMark rm(THREAD);
   int length;
   Handle h_string (THREAD, string);
-  jchar* chars = java_lang_String::as_unicode_string(string, length);
+  jchar* chars = java_lang_String::as_unicode_string(string, length, CHECK_NULL);
   oop result = intern(h_string, chars, length, CHECK_NULL);
   return result;
 }
@@ -588,58 +739,266 @@ oop StringTable::intern(const char* utf8_string, TRAPS) {
   return result;
 }
 
-void StringTable::unlink(BoolObjectClosure* is_alive) {
+void StringTable::unlink_or_oops_do(BoolObjectClosure* is_alive, OopClosure* f) {
   // Readers of the table are unlocked, so we should only be removing
   // entries at a safepoint.
   assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
   for (int i = 0; i < the_table()->table_size(); ++i) {
-    for (HashtableEntry<oop>** p = the_table()->bucket_addr(i); *p != NULL; ) {
-      HashtableEntry<oop>* entry = *p;
-      if (entry->is_shared()) {
-        break;
-      }
-      assert(entry->literal() != NULL, "just checking");
+    HashtableEntry<oop, mtSymbol>** p = the_table()->bucket_addr(i);
+    HashtableEntry<oop, mtSymbol>* entry = the_table()->bucket(i);
+    while (entry != NULL) {
+      assert(!entry->is_shared(), "CDS not used for the StringTable");
+
       if (is_alive->do_object_b(entry->literal())) {
+        if (f != NULL) {
+          f->do_oop((oop*)entry->literal_addr());
+        }
         p = entry->next_addr();
       } else {
         *p = entry->next();
         the_table()->free_entry(entry);
       }
+      entry = *p;
+    }
+  }
+}
+
+void StringTable::buckets_do(OopClosure* f, int start_idx, int end_idx) {
+  const int limit = the_table()->table_size();
+
+  assert(0 <= start_idx && start_idx <= limit,
+         err_msg("start_idx (" INT32_FORMAT ") oob?", start_idx));
+  assert(0 <= end_idx && end_idx <= limit,
+         err_msg("end_idx (" INT32_FORMAT ") oob?", end_idx));
+  assert(start_idx <= end_idx,
+         err_msg("Ordering: start_idx=" INT32_FORMAT", end_idx=" INT32_FORMAT,
+                 start_idx, end_idx));
+
+  for (int i = start_idx; i < end_idx; i += 1) {
+    HashtableEntry<oop, mtSymbol>* entry = the_table()->bucket(i);
+    while (entry != NULL) {
+      assert(!entry->is_shared(), "CDS not used for the StringTable");
+
+      f->do_oop((oop*)entry->literal_addr());
+
+      entry = entry->next();
     }
   }
 }
 
 void StringTable::oops_do(OopClosure* f) {
-  for (int i = 0; i < the_table()->table_size(); ++i) {
-    HashtableEntry<oop>** p = the_table()->bucket_addr(i);
-    HashtableEntry<oop>* entry = the_table()->bucket(i);
-    while (entry != NULL) {
-      f->do_oop((oop*)entry->literal_addr());
+  buckets_do(f, 0, the_table()->table_size());
+}
 
-      // Did the closure remove the literal from the table?
-      if (entry->literal() == NULL) {
-        assert(!entry->is_shared(), "immutable hashtable entry?");
-        *p = entry->next();
-        the_table()->free_entry(entry);
-      } else {
-        p = entry->next_addr();
-      }
-      entry = (HashtableEntry<oop>*)HashtableEntry<oop>::make_ptr(*p);
+void StringTable::possibly_parallel_oops_do(OopClosure* f) {
+  const int ClaimChunkSize = 32;
+  const int limit = the_table()->table_size();
+
+  for (;;) {
+    // Grab next set of buckets to scan
+    int start_idx = Atomic::add(ClaimChunkSize, &_parallel_claimed_idx) - ClaimChunkSize;
+    if (start_idx >= limit) {
+      // End of table
+      break;
     }
+
+    int end_idx = MIN2(limit, start_idx + ClaimChunkSize);
+    buckets_do(f, start_idx, end_idx);
   }
 }
 
+// This verification is part of Universe::verify() and needs to be quick.
+// See StringTable::verify_and_compare() below for exhaustive verification.
 void StringTable::verify() {
   for (int i = 0; i < the_table()->table_size(); ++i) {
-    HashtableEntry<oop>* p = the_table()->bucket(i);
+    HashtableEntry<oop, mtSymbol>* p = the_table()->bucket(i);
     for ( ; p != NULL; p = p->next()) {
       oop s = p->literal();
       guarantee(s != NULL, "interned string is NULL");
-      guarantee(s->is_perm() || !JavaObjectsInPerm, "interned string not in permspace");
       unsigned int h = java_lang_String::hash_string(s);
       guarantee(p->hash() == h, "broken hash in string table entry");
       guarantee(the_table()->hash_to_index(h) == i,
                 "wrong index in string table");
     }
   }
+}
+
+void StringTable::dump(outputStream* st) {
+  the_table()->dump_table(st, "StringTable");
+}
+
+StringTable::VerifyRetTypes StringTable::compare_entries(
+                                      int bkt1, int e_cnt1,
+                                      HashtableEntry<oop, mtSymbol>* e_ptr1,
+                                      int bkt2, int e_cnt2,
+                                      HashtableEntry<oop, mtSymbol>* e_ptr2) {
+  // These entries are sanity checked by verify_and_compare_entries()
+  // before this function is called.
+  oop str1 = e_ptr1->literal();
+  oop str2 = e_ptr2->literal();
+
+  if (str1 == str2) {
+    tty->print_cr("ERROR: identical oop values (0x" PTR_FORMAT ") "
+                  "in entry @ bucket[%d][%d] and entry @ bucket[%d][%d]",
+                  (void *)str1, bkt1, e_cnt1, bkt2, e_cnt2);
+    return _verify_fail_continue;
+  }
+
+  if (java_lang_String::equals(str1, str2)) {
+    tty->print_cr("ERROR: identical String values in entry @ "
+                  "bucket[%d][%d] and entry @ bucket[%d][%d]",
+                  bkt1, e_cnt1, bkt2, e_cnt2);
+    return _verify_fail_continue;
+  }
+
+  return _verify_pass;
+}
+
+StringTable::VerifyRetTypes StringTable::verify_entry(int bkt, int e_cnt,
+                                      HashtableEntry<oop, mtSymbol>* e_ptr,
+                                      StringTable::VerifyMesgModes mesg_mode) {
+
+  VerifyRetTypes ret = _verify_pass;  // be optimistic
+
+  oop str = e_ptr->literal();
+  if (str == NULL) {
+    if (mesg_mode == _verify_with_mesgs) {
+      tty->print_cr("ERROR: NULL oop value in entry @ bucket[%d][%d]", bkt,
+                    e_cnt);
+    }
+    // NULL oop means no more verifications are possible
+    return _verify_fail_done;
+  }
+
+  if (str->klass() != SystemDictionary::String_klass()) {
+    if (mesg_mode == _verify_with_mesgs) {
+      tty->print_cr("ERROR: oop is not a String in entry @ bucket[%d][%d]",
+                    bkt, e_cnt);
+    }
+    // not a String means no more verifications are possible
+    return _verify_fail_done;
+  }
+
+  unsigned int h = java_lang_String::hash_string(str);
+  if (e_ptr->hash() != h) {
+    if (mesg_mode == _verify_with_mesgs) {
+      tty->print_cr("ERROR: broken hash value in entry @ bucket[%d][%d], "
+                    "bkt_hash=%d, str_hash=%d", bkt, e_cnt, e_ptr->hash(), h);
+    }
+    ret = _verify_fail_continue;
+  }
+
+  if (the_table()->hash_to_index(h) != bkt) {
+    if (mesg_mode == _verify_with_mesgs) {
+      tty->print_cr("ERROR: wrong index value for entry @ bucket[%d][%d], "
+                    "str_hash=%d, hash_to_index=%d", bkt, e_cnt, h,
+                    the_table()->hash_to_index(h));
+    }
+    ret = _verify_fail_continue;
+  }
+
+  return ret;
+}
+
+// See StringTable::verify() above for the quick verification that is
+// part of Universe::verify(). This verification is exhaustive and
+// reports on every issue that is found. StringTable::verify() only
+// reports on the first issue that is found.
+//
+// StringTable::verify_entry() checks:
+// - oop value != NULL (same as verify())
+// - oop value is a String
+// - hash(String) == hash in entry (same as verify())
+// - index for hash == index of entry (same as verify())
+//
+// StringTable::compare_entries() checks:
+// - oops are unique across all entries
+// - String values are unique across all entries
+//
+int StringTable::verify_and_compare_entries() {
+  assert(StringTable_lock->is_locked(), "sanity check");
+
+  int  fail_cnt = 0;
+
+  // first, verify all the entries individually:
+  for (int bkt = 0; bkt < the_table()->table_size(); bkt++) {
+    HashtableEntry<oop, mtSymbol>* e_ptr = the_table()->bucket(bkt);
+    for (int e_cnt = 0; e_ptr != NULL; e_ptr = e_ptr->next(), e_cnt++) {
+      VerifyRetTypes ret = verify_entry(bkt, e_cnt, e_ptr, _verify_with_mesgs);
+      if (ret != _verify_pass) {
+        fail_cnt++;
+      }
+    }
+  }
+
+  // Optimization: if the above check did not find any failures, then
+  // the comparison loop below does not need to call verify_entry()
+  // before calling compare_entries(). If there were failures, then we
+  // have to call verify_entry() to see if the entry can be passed to
+  // compare_entries() safely. When we call verify_entry() in the loop
+  // below, we do so quietly to void duplicate messages and we don't
+  // increment fail_cnt because the failures have already been counted.
+  bool need_entry_verify = (fail_cnt != 0);
+
+  // second, verify all entries relative to each other:
+  for (int bkt1 = 0; bkt1 < the_table()->table_size(); bkt1++) {
+    HashtableEntry<oop, mtSymbol>* e_ptr1 = the_table()->bucket(bkt1);
+    for (int e_cnt1 = 0; e_ptr1 != NULL; e_ptr1 = e_ptr1->next(), e_cnt1++) {
+      if (need_entry_verify) {
+        VerifyRetTypes ret = verify_entry(bkt1, e_cnt1, e_ptr1,
+                                          _verify_quietly);
+        if (ret == _verify_fail_done) {
+          // cannot use the current entry to compare against other entries
+          continue;
+        }
+      }
+
+      for (int bkt2 = bkt1; bkt2 < the_table()->table_size(); bkt2++) {
+        HashtableEntry<oop, mtSymbol>* e_ptr2 = the_table()->bucket(bkt2);
+        int e_cnt2;
+        for (e_cnt2 = 0; e_ptr2 != NULL; e_ptr2 = e_ptr2->next(), e_cnt2++) {
+          if (bkt1 == bkt2 && e_cnt2 <= e_cnt1) {
+            // skip the entries up to and including the one that
+            // we're comparing against
+            continue;
+          }
+
+          if (need_entry_verify) {
+            VerifyRetTypes ret = verify_entry(bkt2, e_cnt2, e_ptr2,
+                                              _verify_quietly);
+            if (ret == _verify_fail_done) {
+              // cannot compare against this entry
+              continue;
+            }
+          }
+
+          // compare two entries, report and count any failures:
+          if (compare_entries(bkt1, e_cnt1, e_ptr1, bkt2, e_cnt2, e_ptr2)
+              != _verify_pass) {
+            fail_cnt++;
+          }
+        }
+      }
+    }
+  }
+  return fail_cnt;
+}
+
+// Create a new table and using alternate hash code, populate the new table
+// with the existing strings.   Set flag to use the alternate hash code afterwards.
+void StringTable::rehash_table() {
+  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+  // This should never happen with -Xshare:dump but it might in testing mode.
+  if (DumpSharedSpaces) return;
+  StringTable* new_table = new StringTable();
+
+  // Rehash the table
+  the_table()->move_to(new_table);
+
+  // Delete the table and buckets (entries are reused in new table).
+  delete _the_table;
+  // Don't check if we need rehashing until the table gets unbalanced again.
+  // Then rehash with a new global seed.
+  _needs_rehashing = false;
+  _the_table = new_table;
 }

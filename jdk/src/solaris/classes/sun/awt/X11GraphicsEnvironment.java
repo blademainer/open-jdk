@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,8 +25,8 @@
 
 package sun.awt;
 
+import java.awt.AWTError;
 import java.awt.GraphicsDevice;
-
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.io.BufferedReader;
@@ -95,14 +95,19 @@ public class X11GraphicsEnvironment
                     }
 
                     // Now check for XRender system property
-                    boolean xRenderRequested = false;
+                    boolean xRenderRequested = true;
+                    boolean xRenderIgnoreLinuxVersion = false;
                     String xProp = System.getProperty("sun.java2d.xrender");
                         if (xProp != null) {
-                        if (xProp.equals("true") || xProp.equals("t")) {
-                            xRenderRequested = true;
+                        if (xProp.equals("false") || xProp.equals("f")) {
+                            xRenderRequested = false;
                         } else if (xProp.equals("True") || xProp.equals("T")) {
                             xRenderRequested = true;
                             xRenderVerbose = true;
+                        }
+
+                        if(xProp.equalsIgnoreCase("t") || xProp.equalsIgnoreCase("true")) {
+                            xRenderIgnoreLinuxVersion = true;
                         }
                     }
 
@@ -121,7 +126,7 @@ public class X11GraphicsEnvironment
 
                     // only attempt to initialize Xrender if it was requested
                     if (xRenderRequested) {
-                        xRenderAvailable = initXRender(xRenderVerbose);
+                        xRenderAvailable = initXRender(xRenderVerbose, xRenderIgnoreLinuxVersion);
                         if (xRenderVerbose && !xRenderAvailable) {
                             System.out.println(
                                          "Could not enable XRender pipeline");
@@ -159,7 +164,7 @@ public class X11GraphicsEnvironment
     private static boolean xRenderVerbose;
     private static boolean xRenderAvailable;
 
-    private static native boolean initXRender(boolean verbose);
+    private static native boolean initXRender(boolean verbose, boolean ignoreLinuxVersion);
     public static boolean isXRenderAvailable() {
         return xRenderAvailable;
     }
@@ -200,7 +205,12 @@ public class X11GraphicsEnvironment
      * Returns the default screen graphics device.
      */
     public GraphicsDevice getDefaultScreenDevice() {
-        return getScreenDevices()[getDefaultScreenNum()];
+        GraphicsDevice[] screens = getScreenDevices();
+        if (screens.length == 0) {
+            throw new AWTError("no screen devices");
+        }
+        int index = getDefaultScreenNum();
+        return screens[0 < index && index < screens.length ? index : 0];
     }
 
     public boolean isDisplayLocal() {
@@ -324,7 +334,7 @@ public class X11GraphicsEnvironment
             // pRunningXinerama() simply returns a global boolean variable,
             // so there is no need to synchronize here
             xinerState = Boolean.valueOf(pRunningXinerama());
-            if (screenLog.isLoggable(PlatformLogger.FINER)) {
+            if (screenLog.isLoggable(PlatformLogger.Level.FINER)) {
                 screenLog.finer("Running Xinerama: " + xinerState);
             }
         }
@@ -408,7 +418,7 @@ public class X11GraphicsEnvironment
             (unionRect.width / 2) + unionRect.x < center.x + 1 &&
             (unionRect.height / 2) + unionRect.y < center.y + 1) {
 
-            if (screenLog.isLoggable(PlatformLogger.FINER)) {
+            if (screenLog.isLoggable(PlatformLogger.Level.FINER)) {
                 screenLog.finer("Video Wall: center point is at center of all displays.");
             }
             return unionRect;
@@ -416,7 +426,7 @@ public class X11GraphicsEnvironment
 
         // next, check if at center of one monitor
         if (centerMonitorRect != null) {
-            if (screenLog.isLoggable(PlatformLogger.FINER)) {
+            if (screenLog.isLoggable(PlatformLogger.Level.FINER)) {
                 screenLog.finer("Center point at center of a particular " +
                                 "monitor, but not of the entire virtual display.");
             }
@@ -424,7 +434,7 @@ public class X11GraphicsEnvironment
         }
 
         // otherwise, the center is at some weird spot: return unionRect
-        if (screenLog.isLoggable(PlatformLogger.FINER)) {
+        if (screenLog.isLoggable(PlatformLogger.Level.FINER)) {
             screenLog.finer("Center point is somewhere strange - return union of all bounds.");
         }
         return unionRect;

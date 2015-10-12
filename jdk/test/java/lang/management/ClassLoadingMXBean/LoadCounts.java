@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,10 +28,10 @@
  *                             ClassLoadingMXBean.getTotalLoadedClassCount()
  *                             ClassLoadingMXBean.getUnloadedClassCount()
  * @author  Alexei Guibadoulline
+ * @run main/othervm LoadCounts
  */
 
 import java.lang.management.*;
-import java.util.*;
 
 public class LoadCounts {
     private static ClassLoadingMXBean mbean
@@ -55,13 +55,15 @@ public class LoadCounts {
             throw new RuntimeException("getLoadedClassCount() > "
                                      + "getTotalLoadedClassCount()");
 
-        if (classesNowPrev + 4 != classesNow)
+        if (classesNowPrev + 4 > classesNow)
             throw new RuntimeException("Number of loaded classes is "
+                                     + "expected to be at least "
                                      + (classesNowPrev + 4) + ", but "
                                      + "MBean.getLoadedClassCount() returned "
                                      + classesNow);
-        if (classesTotalPrev + 4 != classesTotal)
+        if (classesTotalPrev + 4 > classesTotal)
             throw new RuntimeException("Total number of loaded classes is "
+                                     + "expected to be at least "
                                      + (classesTotalPrev + 4) + ", but "
                                      + "MBean.getTotalLoadedClassCount() "
                                      + "returned " + classesTotal);
@@ -95,13 +97,15 @@ public class LoadCounts {
 
         // Expected 2 classes got loaded since they are loaded by
         // same defining class loader
-        if (classesNowPrev + 2 != classesNow)
-            throw new RuntimeException("Expected Number of loaded classes is "
+        if (classesNowPrev + 2 > classesNow)
+            throw new RuntimeException("Number of loaded classes is "
+                                     + "expected to be at least "
                                      + (classesNowPrev + 4) + ", but "
                                      + "MBean.getLoadedClassCount() returned "
                                      + classesNow);
-        if (classesTotalPrev + 2 != classesTotal)
+        if (classesTotalPrev + 2 > classesTotal)
             throw new RuntimeException("Total number of loaded classes is "
+                                     + "expected to be at least "
                                      + (classesTotalPrev + 4) + ", but "
                                      + "MBean.getTotalLoadedClassCount() "
                                      + "returned " + classesTotal);

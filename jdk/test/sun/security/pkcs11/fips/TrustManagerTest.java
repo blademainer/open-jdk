@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@
  * @summary Verify that the SunJSSE trustmanager works correctly in FIPS mode
  * @author Andreas Sterbenz
  * @library ..
+ * @run main/othervm TrustManagerTest
  */
 
 import java.io.*;

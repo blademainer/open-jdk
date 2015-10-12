@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,12 +21,21 @@
  * questions.
  */
 
+//
+// SunJSSE does not support dynamic system properties, no way to re-use
+// system properties in samevm/agentvm mode.
+//
+
 /*
  * @test
  * @bug 6207322
  * @summary SSLEngine is returning a premature FINISHED message when doing
- * an abbreviated handshake.
- *
+ *     an abbreviated handshake.
+ * @run main/othervm RehandshakeFinished
+ * @author Brad Wetmore
+ */
+
+/*
  * This test may need some updating if the messages change order.
  * Currently I'm expecting that there is a simple renegotiation, with
  * each message being contained in a single SSL packet.
@@ -37,8 +46,6 @@
  *                              FINISHED
  *      CCS
  *      FINISHED
- *
- * @author Brad Wetmore
  */
 
 /**

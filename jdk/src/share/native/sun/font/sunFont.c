@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,13 +24,12 @@
  */
 
 #include "stdlib.h"
-#include "malloc.h"
 #include "string.h"
 #include "gdefs.h"
 #include "jlong.h"
 #include "sunfontids.h"
 #include "fontscalerdefs.h"
-#include "sun_font_FontManager.h"
+#include "sun_font_SunFontManager.h"
 #include "sun_font_NullFontScaler.h"
 #include "sun_font_StrikeCache.h"
 
@@ -72,13 +71,17 @@ JNIEXPORT jlong JNICALL Java_sun_font_NullFontScaler_getGlyphImage
 void initLCDGammaTables();
 
 /* placeholder for extern variable */
+static int initialisedFontIDs = 0;
 FontManagerNativeIDs sunFontIDs;
 
-JNIEXPORT void JNICALL
-Java_sun_font_SunFontManager_initIDs
-    (JNIEnv *env, jclass cls) {
+static void initFontIDs(JNIEnv *env) {
 
-     jclass tmpClass = (*env)->FindClass(env, "sun/font/TrueTypeFont");
+     jclass tmpClass;
+
+     if (initialisedFontIDs) {
+        return;
+     }
+     tmpClass = (*env)->FindClass(env, "sun/font/TrueTypeFont");
      sunFontIDs.ttReadBlockMID =
          (*env)->GetMethodID(env, tmpClass, "readBlock",
                              "(Ljava/nio/ByteBuffer;II)I");
@@ -174,9 +177,20 @@ Java_sun_font_SunFontManager_initIDs
          (*env)->GetFieldID(env, tmpClass, "lcdSubPixPos", "Z");
 
      initLCDGammaTables();
+
+     initialisedFontIDs = 1;
 }
 
-JNIEXPORT FontManagerNativeIDs getSunFontIDs() {
+JNIEXPORT void JNICALL
+Java_sun_font_SunFontManager_initIDs
+    (JNIEnv *env, jclass cls) {
+
+    initFontIDs(env);
+}
+
+JNIEXPORT FontManagerNativeIDs getSunFontIDs(JNIEnv *env) {
+
+    initFontIDs(env);
     return sunFontIDs;
 }
 
@@ -321,22 +335,20 @@ Java_sun_font_StrikeCache_getGlyphCacheDescription
 JNIEXPORT TTLayoutTableCache* newLayoutTableCache() {
   TTLayoutTableCache* ltc = calloc(1, sizeof(TTLayoutTableCache));
   if (ltc) {
-    ltc->gsub_len = -1;
-    ltc->gpos_len = -1;
-    ltc->gdef_len = -1;
-    ltc->mort_len = -1;
-    ltc->kern_len = -1;
+    int i;
+    for(i=0;i<LAYOUTCACHE_ENTRIES;i++) {
+      ltc->entries[i].len = -1;
+    }
   }
   return ltc;
 }
 
 JNIEXPORT void freeLayoutTableCache(TTLayoutTableCache* ltc) {
   if (ltc) {
-    if (ltc->gsub) free(ltc->gsub);
-    if (ltc->gpos) free(ltc->gpos);
-    if (ltc->gdef) free(ltc->gdef);
-    if (ltc->mort) free(ltc->mort);
-    if (ltc->kern) free(ltc->kern);
+    int i;
+    for(i=0;i<LAYOUTCACHE_ENTRIES;i++) {
+      if(ltc->entries[i].ptr) free (ltc->entries[i].ptr);
+    }
     if (ltc->kernPairs) free(ltc->kernPairs);
     free(ltc);
   }

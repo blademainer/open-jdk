@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,13 +51,12 @@ public final class SADebugServer {
          usage();
       }
 
-      // By default, SA agent classes prefer dbx debugger to proc debugger
-      // and Windows process debugger to windbg debugger. SA expects
-      // special properties to be set to choose other debuggers. For SA/JDI,
-      // we choose proc, windbg debuggers instead of the defaults.
+      // By default SA agent classes prefer Windows process debugger
+      // to windbg debugger. SA expects special properties to be set
+      // to choose other debuggers. We will set those here before
+      // attaching to SA agent.
 
-      System.setProperty("sun.jvm.hotspot.debugger.useProcDebugger", "true");
-      System.setProperty("sun.jvm.hotspot.debugger.useWindbgDebugger", "true");
+       System.setProperty("sun.jvm.hotspot.debugger.useWindbgDebugger", "true");
 
       // delegate to the actual SA debug server.
       sun.jvm.hotspot.DebugServer.main(args);

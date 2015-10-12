@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,13 +29,8 @@
 #define _MULTI_FONT_H_
 
 #ifndef HEADLESS
-jobject awtJNI_GetFont(JNIEnv *env,jobject this);
 jboolean awtJNI_IsMultiFont(JNIEnv *env,jobject this);
 jboolean awtJNI_IsMultiFontMetrics(JNIEnv *env,jobject this);
-#ifndef XAWT
-XmString awtJNI_MakeMultiFontString(JNIEnv *env,jstring s,jobject font);
-XmFontList awtJNI_GetFontList(JNIEnv *env,jobject font);
-#endif
 XFontSet awtJNI_MakeFontSet(JNIEnv *env,jobject font);
 struct FontData *awtJNI_GetFontData(JNIEnv *env,jobject font, char **errmsg);
 int32_t awtJNI_GetMFStringWidth(JNIEnv * env, jcharArray s, int32_t offset,

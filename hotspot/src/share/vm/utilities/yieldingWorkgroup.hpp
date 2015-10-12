@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,10 +25,8 @@
 #ifndef SHARE_VM_UTILITIES_YIELDINGWORKGROUP_HPP
 #define SHARE_VM_UTILITIES_YIELDINGWORKGROUP_HPP
 
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
 #include "utilities/workgroup.hpp"
-#endif
-
 
 // Forward declarations
 class YieldingFlexibleWorkGang;
@@ -71,7 +69,7 @@ public:
 
   // The abstract work method.
   // The argument tells you which member of the gang you are.
-  virtual void work(int i) = 0;
+  virtual void work(uint worker_id) = 0;
 
   int requested_size() const { return _requested_size; }
   int actual_size()    const { return _actual_size; }
@@ -106,7 +104,7 @@ protected:
     _status(INACTIVE),
     _gang(NULL) { }
 
-  virtual ~YieldingFlexibleGangTask() { }
+  ~YieldingFlexibleGangTask() { }
 
   friend class YieldingFlexibleWorkGang;
   friend class YieldingFlexibleGangWorker;
@@ -128,7 +126,7 @@ protected:
 public:
   // The abstract work method.
   // The argument tells you which member of the gang you are.
-  virtual void work(int i) = 0;
+  virtual void work(uint worker_id) = 0;
 
   // Subclasses should call the parent's yield() method
   // after having done any work specific to the subclass.
@@ -159,7 +157,7 @@ class YieldingFlexibleWorkGang: public FlexibleWorkGang {
   // Here's the public interface to this class.
 public:
   // Constructor and destructor.
-  YieldingFlexibleWorkGang(const char* name, int workers,
+  YieldingFlexibleWorkGang(const char* name, uint workers,
                            bool are_GC_task_threads);
 
   YieldingFlexibleGangTask* yielding_task() const {
@@ -168,7 +166,7 @@ public:
     return (YieldingFlexibleGangTask*)task();
   }
   // Allocate a worker and return a pointer to it.
-  GangWorker* allocate_worker(int which);
+  GangWorker* allocate_worker(uint which);
 
   // Run a task; returns when the task is done, or the workers yield,
   // or the task is aborted, or the work gang is terminated via stop().
@@ -199,18 +197,12 @@ public:
   void abort();
 
 private:
-  int _active_workers;
-  int _yielded_workers;
+  uint _yielded_workers;
   void wait_for_gang();
 
 public:
   // Accessors for fields
-  int active_workers() const {
-    return _active_workers;
-  }
-
-  // Accessors for fields
-  int yielded_workers() const {
+  uint yielded_workers() const {
     return _yielded_workers;
   }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -63,12 +63,16 @@ public class URLClassPath {
     final static String USER_AGENT_JAVA_VERSION = "UA-Java-Version";
     final static String JAVA_VERSION;
     private static final boolean DEBUG;
+    private static final boolean DISABLE_JAR_CHECKING;
 
     static {
         JAVA_VERSION = java.security.AccessController.doPrivileged(
             new sun.security.action.GetPropertyAction("java.version"));
         DEBUG        = (java.security.AccessController.doPrivileged(
             new sun.security.action.GetPropertyAction("sun.misc.URLClassPath.debug")) != null);
+        String p = java.security.AccessController.doPrivileged(
+            new sun.security.action.GetPropertyAction("sun.misc.URLClassPath.disableJarChecking"));
+        DISABLE_JAR_CHECKING = p != null ? p.equals("true") || p.equals("") : false;
     }
 
     /* The original search path of URLs. */
@@ -508,7 +512,8 @@ public class URLClassPath {
                     }
                 } else {
                     // our best guess for the other cases
-                    InputStream is = url.openStream();
+                    uc.setUseCaches(false);
+                    InputStream is = uc.getInputStream();
                     is.close();
                 }
                 return url;
@@ -536,7 +541,7 @@ public class URLClassPath {
                      * in a hurry.
                      */
                     JarURLConnection juc = (JarURLConnection)uc;
-                    jarfile = juc.getJarFile();
+                    jarfile = JarLoader.checkJar(juc.getJarFile());
                 }
             } catch (Exception e) {
                 return null;
@@ -592,6 +597,8 @@ public class URLClassPath {
         private URLStreamHandler handler;
         private HashMap<String, Loader> lmap;
         private boolean closed = false;
+        private static final sun.misc.JavaUtilZipFileAccess zipAccess =
+                sun.misc.SharedSecrets.getJavaUtilZipFileAccess();
 
         /*
          * Creates a new JarLoader for the specified URL referring to
@@ -696,6 +703,22 @@ public class URLClassPath {
             }
         }
 
+        /* Throws if the given jar file is does not start with the correct LOC */
+        static JarFile checkJar(JarFile jar) throws IOException {
+            if (System.getSecurityManager() != null && !DISABLE_JAR_CHECKING
+                && !zipAccess.startsWithLocHeader(jar)) {
+                IOException x = new IOException("Invalid Jar file");
+                try {
+                    jar.close();
+                } catch (IOException ex) {
+                    x.addSuppressed(ex);
+                }
+                throw x;
+            }
+
+            return jar;
+        }
+
         private JarFile getJarFile(URL url) throws IOException {
             // Optimize case where url refers to a local jar file
             if (isOptimizable(url)) {
@@ -703,11 +726,12 @@ public class URLClassPath {
                 if (!p.exists()) {
                     throw new FileNotFoundException(p.getPath());
                 }
-                return new JarFile (p.getPath());
+                return checkJar(new JarFile(p.getPath()));
             }
             URLConnection uc = getBaseURL().openConnection();
             uc.setRequestProperty(USER_AGENT_JAVA_VERSION, JAVA_VERSION);
-            return ((JarURLConnection)uc).getJarFile();
+            JarFile jarFile = ((JarURLConnection)uc).getJarFile();
+            return checkJar(jarFile);
         }
 
         /*
@@ -717,7 +741,7 @@ public class URLClassPath {
             try {
                 ensureOpen();
             } catch (IOException e) {
-                throw (InternalError) new InternalError().initCause(e);
+                throw new InternalError(e);
             }
             return index;
         }
@@ -812,7 +836,7 @@ public class URLClassPath {
             try {
                 ensureOpen();
             } catch (IOException e) {
-                throw (InternalError) new InternalError().initCause(e);
+                throw new InternalError(e);
             }
             final JarEntry entry = jar.getJarEntry(name);
             if (entry != null)
@@ -836,10 +860,9 @@ public class URLClassPath {
                              Set<String> visited) {
 
             Resource res;
-            Object[] jarFiles;
-            boolean done = false;
+            String[] jarFiles;
             int count = 0;
-            LinkedList jarFilesList = null;
+            LinkedList<String> jarFilesList = null;
 
             /* If there no jar files in the index that can potential contain
              * this resource then return immediately.
@@ -848,11 +871,11 @@ public class URLClassPath {
                 return null;
 
             do {
-                jarFiles = jarFilesList.toArray();
                 int size = jarFilesList.size();
+                jarFiles = jarFilesList.toArray(new String[size]);
                 /* loop through the mapped jar file list */
                 while(count < size) {
-                    String jarName = (String)jarFiles[count++];
+                    String jarName = jarFiles[count++];
                     JarLoader newLoader;
                     final URL url;
 
@@ -900,7 +923,7 @@ public class URLClassPath {
                         try {
                             newLoader.ensureOpen();
                         } catch (IOException e) {
-                            throw (InternalError) new InternalError().initCause(e);
+                            throw new InternalError(e);
                         }
                         final JarEntry entry = newLoader.jar.getJarEntry(name);
                         if (entry != null) {
@@ -958,6 +981,7 @@ public class URLClassPath {
 
             ensureOpen();
             parseExtensionsDependencies();
+
             if (SharedSecrets.javaUtilJarAccess().jarFileHasClassPathAttribute(jar)) { // Only get manifest when necessary
                 Manifest man = jar.getManifest();
                 if (man != null) {

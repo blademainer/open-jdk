@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -258,7 +258,7 @@ class PSPathGraphics extends PathGraphics {
      *
      * @param   img     The image to be drawn.
      *                  This method does nothing if <code>img</code> is null.
-     * @param   xform   Used to tranform the image before drawing.
+     * @param   xform   Used to transform the image before drawing.
      *                  This can be null.
      * @param   bgcolor This color is drawn where the image has transparent
      *                  pixels. If this parameter is null then the

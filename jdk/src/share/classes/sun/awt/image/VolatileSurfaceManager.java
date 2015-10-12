@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -333,11 +333,12 @@ public abstract class VolatileSurfaceManager
             // using a SurfaceData that was created in a different
             // display mode.
             sdBackup = null;
-            sdCurrent = getBackupSurface();
             // Now, invalidate the old hardware-based SurfaceData
+            // Note that getBackupSurface may set sdAccel to null so we have to invalidate it before
             SurfaceData oldData = sdAccel;
             sdAccel = null;
             oldData.invalidate();
+            sdCurrent = getBackupSurface();
         }
         // Update graphicsConfig for the vImg in case it changed due to
         // this display change event

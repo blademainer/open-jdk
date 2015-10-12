@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -904,29 +904,5 @@ public class IDLNameTranslatorImpl implements IDLNameTranslator {
         }
 
         return contents.toString();
-    }
-
-    public static void main(String[] args) {
-
-        Class remoteInterface = java.rmi.Remote.class;
-
-        if( args.length > 0 ) {
-            String className = args[0];
-            try {
-                remoteInterface = Class.forName(className);
-            } catch(Exception e) {
-                e.printStackTrace();
-                System.exit(-1);
-            }
-        }
-
-        System.out.println("Building name translation for " + remoteInterface);
-        try {
-            IDLNameTranslator nameTranslator =
-                IDLNameTranslatorImpl.get(remoteInterface);
-            System.out.println(nameTranslator);
-        } catch(IllegalStateException ise) {
-            ise.printStackTrace();
-        }
     }
 }

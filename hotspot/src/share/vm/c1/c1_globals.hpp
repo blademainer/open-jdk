@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -47,11 +47,14 @@
 #ifdef TARGET_OS_FAMILY_windows
 # include "c1_globals_windows.hpp"
 #endif
+#ifdef TARGET_OS_FAMILY_bsd
+# include "c1_globals_bsd.hpp"
+#endif
 
 //
 // Defines all global flags used by the client compiler.
 //
-#define C1_FLAGS(develop, develop_pd, product, product_pd, notproduct)      \
+#define C1_FLAGS(develop, develop_pd, product, product_pd, diagnostic, notproduct) \
                                                                             \
   /* Printing */                                                            \
   notproduct(bool, PrintC1Statistics, false,                                \
@@ -116,6 +119,24 @@
   develop(bool, UseGlobalValueNumbering, true,                              \
           "Use Global Value Numbering (separate phase)")                    \
                                                                             \
+  product(bool, UseLoopInvariantCodeMotion, true,                           \
+          "Simple loop invariant code motion for short loops during GVN")   \
+                                                                            \
+  develop(bool, TracePredicateFailedTraps, false,                           \
+          "trace runtime traps caused by predicate failure")                \
+                                                                            \
+  develop(bool, StressLoopInvariantCodeMotion, false,                       \
+          "stress loop invariant code motion")                              \
+                                                                            \
+  develop(bool, TraceRangeCheckElimination, false,                          \
+          "Trace Range Check Elimination")                                  \
+                                                                            \
+  develop(bool, AssertRangeCheckElimination, false,                         \
+          "Assert Range Check Elimination")                                 \
+                                                                            \
+  develop(bool, StressRangeCheckElimination, false,                         \
+          "stress Range Check Elimination")                                 \
+                                                                            \
   develop(bool, PrintValueNumbering, false,                                 \
           "Print Value Numbering")                                          \
                                                                             \
@@ -144,7 +165,7 @@
           "Inline methods containing exception handlers "                   \
           "(NOTE: does not work with current backend)")                     \
                                                                             \
-  develop(bool, InlineSynchronizedMethods, true,                            \
+  product(bool, InlineSynchronizedMethods, true,                            \
           "Inline synchronized methods")                                    \
                                                                             \
   develop(bool, InlineNIOCheckIndex, true,                                  \
@@ -153,17 +174,11 @@
   develop(bool, CanonicalizeNodes, true,                                    \
           "Canonicalize graph nodes")                                       \
                                                                             \
-  develop(bool, CanonicalizeExperimental, false,                            \
-          "Canonicalize graph nodes, experimental code")                    \
-                                                                            \
   develop(bool, PrintCanonicalization, false,                               \
           "Print graph node canonicalization")                              \
                                                                             \
   develop(bool, UseTableRanges, true,                                       \
           "Faster versions of lookup table using ranges")                   \
-                                                                            \
-  develop(bool, UseFastExceptionHandling, true,                             \
-          "Faster handling of exceptions")                                  \
                                                                             \
   develop_pd(bool, RoundFPResults,                                          \
           "Indicates whether rounding is needed for floating point results")\
@@ -221,9 +236,6 @@
   develop(bool, PinAllInstructions, false,                                  \
           "All instructions are pinned")                                    \
                                                                             \
-  develop(bool, ValueStackPinStackAll, true,                                \
-          "Pinning in ValueStack pin everything")                           \
-                                                                            \
   develop(bool, UseFastNewInstance, true,                                   \
           "Use fast inlined instance allocation")                           \
                                                                             \
@@ -278,7 +290,7 @@
   product(intx, CompilationRepeat, 0,                                       \
           "Number of times to recompile method before returning result")    \
                                                                             \
-  develop(intx, NMethodSizeLimit, (32*K)*wordSize,                          \
+  develop(intx, NMethodSizeLimit, (64*K)*wordSize,                          \
           "Maximum size of a compiled method.")                             \
                                                                             \
   develop(bool, TraceFPUStack, false,                                       \
@@ -321,15 +333,18 @@
           "Use CHA and exact type results at call sites when updating MDOs")\
                                                                             \
   product(bool, C1UpdateMethodData, trueInTiered,                           \
-          "Update methodDataOops in Tier1-generated code")                  \
+          "Update MethodData*s in Tier1-generated code")                    \
                                                                             \
   develop(bool, PrintCFGToFile, false,                                      \
           "print control flow graph to a separate file during compilation") \
+                                                                            \
+  diagnostic(bool, C1PatchInvokeDynamic, true,                              \
+             "Patch invokedynamic appendix not known at compile time")      \
                                                                             \
 
 
 // Read default values for c1 globals
 
-C1_FLAGS(DECLARE_DEVELOPER_FLAG, DECLARE_PD_DEVELOPER_FLAG, DECLARE_PRODUCT_FLAG, DECLARE_PD_PRODUCT_FLAG, DECLARE_NOTPRODUCT_FLAG)
+C1_FLAGS(DECLARE_DEVELOPER_FLAG, DECLARE_PD_DEVELOPER_FLAG, DECLARE_PRODUCT_FLAG, DECLARE_PD_PRODUCT_FLAG, DECLARE_DIAGNOSTIC_FLAG, DECLARE_NOTPRODUCT_FLAG)
 
 #endif // SHARE_VM_C1_C1_GLOBALS_HPP

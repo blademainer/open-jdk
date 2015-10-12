@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -71,7 +71,7 @@ char *Set::setstr() const
   set.Sort();                   // Sort elements for in-order retrieval
 
   uint len = 128;               // Total string space
-  char *buf = NEW_C_HEAP_ARRAY(char,len);// Some initial string space
+  char *buf = NEW_C_HEAP_ARRAY(char,len, mtCompiler);// Some initial string space
 
   register char *s = buf;       // Current working string pointer
   *s++ = '{';
@@ -86,7 +86,7 @@ char *Set::setstr() const
       if( buf+len-s < 25 ) {      // Generous trailing space for upcoming numbers
         int offset = (int)(s-buf);// Not enuf space; compute offset into buffer
         len <<= 1;                // Double string size
-        buf = REALLOC_C_HEAP_ARRAY(char,buf,len); // Reallocate doubled size
+        buf = REALLOC_C_HEAP_ARRAY(char,buf,len, mtCompiler); // Reallocate doubled size
         s = buf+offset;         // Get working pointer into new bigger buffer
       }
       if( lo != (uint)-2 ) {    // Startup?  No!  Then print previous range.
@@ -101,7 +101,7 @@ char *Set::setstr() const
     if( buf+len-s < 25 ) {      // Generous trailing space for upcoming numbers
       int offset = (int)(s-buf);// Not enuf space; compute offset into buffer
       len <<= 1;                // Double string size
-      buf = (char*)ReallocateHeap(buf,len); // Reallocate doubled size
+      buf = (char*)ReallocateHeap(buf,len, mtCompiler); // Reallocate doubled size
       s = buf+offset;           // Get working pointer into new bigger buffer
     }
     if( lo != hi ) sprintf(s,"%d-%d}",lo,hi);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,11 +26,8 @@
 #include "asm/assembler.hpp"
 #include "asm/register.hpp"
 #include "register_x86.hpp"
-#ifdef TARGET_ARCH_MODEL_x86_32
-# include "interp_masm_x86_32.hpp"
-#endif
-#ifdef TARGET_ARCH_MODEL_x86_64
-# include "interp_masm_x86_64.hpp"
+#ifdef TARGET_ARCH_x86
+# include "interp_masm_x86.hpp"
 #endif
 
 REGISTER_DEFINITION(Register, noreg);
@@ -53,6 +50,7 @@ REGISTER_DEFINITION(Register, r14);
 REGISTER_DEFINITION(Register, r15);
 #endif // AMD64
 
+REGISTER_DEFINITION(XMMRegister, xnoreg);
 REGISTER_DEFINITION(XMMRegister, xmm0 );
 REGISTER_DEFINITION(XMMRegister, xmm1 );
 REGISTER_DEFINITION(XMMRegister, xmm2 );
@@ -115,6 +113,7 @@ REGISTER_DEFINITION(Register, r12_heapbase);
 REGISTER_DEFINITION(Register, r15_thread);
 #endif // AMD64
 
+REGISTER_DEFINITION(MMXRegister, mnoreg );
 REGISTER_DEFINITION(MMXRegister, mmx0 );
 REGISTER_DEFINITION(MMXRegister, mmx1 );
 REGISTER_DEFINITION(MMXRegister, mmx2 );

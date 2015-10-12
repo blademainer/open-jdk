@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,6 +49,7 @@ import javax.net.ssl.SSLParameters;
  * are used, and any settings made in this object are ignored.
  * @since 1.6
  */
+@jdk.Exported
 public abstract class HttpsParameters {
 
     private String[] cipherSuites;

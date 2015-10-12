@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,7 +35,7 @@
  * more than one output pixel.  Conversely, when scaling smaller than
  * the original image size, the input pixels will be omitted as needed
  * to pare them down to the required number of samples for the output
- * image.  If there is no scaling occuring in one or both directions
+ * image.  If there is no scaling occurring in one or both directions
  * the macros attempt to short-circuit most of the more complicated
  * calculations in an attempt to impose little cost for using this
  * implementation in the general case.  The calculations also do not

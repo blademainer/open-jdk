@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,6 +34,7 @@
 #include "oops/markOop.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "runtime/prefetch.hpp"
+#include "utilities/macros.hpp"
 #include "utilities/workgroup.hpp"
 #ifdef TARGET_OS_FAMILY_linux
 # include "os_linux.inline.hpp"
@@ -43,6 +44,9 @@
 #endif
 #ifdef TARGET_OS_FAMILY_windows
 # include "os_windows.inline.hpp"
+#endif
+#ifdef TARGET_OS_FAMILY_bsd
+# include "os_bsd.inline.hpp"
 #endif
 
 // A space is an abstraction for the "storage units" backing
@@ -62,7 +66,6 @@
 //       - OffsetTableContigSpace -- contiguous space with a block offset array
 //                          that allows "fast" block_start calls
 //         - TenuredSpace -- (used for TenuredGeneration)
-//         - ContigPermSpace -- an offset table contiguous space for perm gen
 
 // Forward decls.
 class Space;
@@ -76,9 +79,9 @@ class CardTableRS;
 class DirtyCardToOopClosure;
 
 // An oop closure that is circumscribed by a filtering memory region.
-class SpaceMemRegionOopsIterClosure: public OopClosure {
+class SpaceMemRegionOopsIterClosure: public ExtendedOopClosure {
  private:
-  OopClosure* _cl;
+  ExtendedOopClosure* _cl;
   MemRegion   _mr;
  protected:
   template <class T> void do_oop_work(T* p) {
@@ -87,10 +90,17 @@ class SpaceMemRegionOopsIterClosure: public OopClosure {
     }
   }
  public:
-  SpaceMemRegionOopsIterClosure(OopClosure* cl, MemRegion mr):
+  SpaceMemRegionOopsIterClosure(ExtendedOopClosure* cl, MemRegion mr):
     _cl(cl), _mr(mr) {}
   virtual void do_oop(oop* p);
   virtual void do_oop(narrowOop* p);
+  virtual bool do_metadata() {
+    // _cl is of type ExtendedOopClosure instead of OopClosure, so that we can check this.
+    assert(!_cl->do_metadata(), "I've checked all call paths, this shouldn't happen.");
+    return false;
+  }
+  virtual void do_klass(Klass* k)                         { ShouldNotReachHere(); }
+  virtual void do_class_loader_data(ClassLoaderData* cld) { ShouldNotReachHere(); }
 };
 
 // A Space describes a heap area. Class Space is an abstract
@@ -102,7 +112,7 @@ class SpaceMemRegionOopsIterClosure: public OopClosure {
 // bottom() <= top() <= end()
 // top() is inclusive and end() is exclusive.
 
-class Space: public CHeapObj {
+class Space: public CHeapObj<mtGC> {
   friend class VMStructs;
  protected:
   HeapWord* _bottom;
@@ -184,7 +194,7 @@ class Space: public CHeapObj {
   // expensive operation. To prevent performance problems
   // on account of its inadvertent use in product jvm's,
   // we restrict its use to assertion checks only.
-  virtual bool is_in(const void* p) const;
+  virtual bool is_in(const void* p) const = 0;
 
   // Returns true iff the given reserved memory of the space contains the
   // given address.
@@ -206,12 +216,12 @@ class Space: public CHeapObj {
   // Iterate over all the ref-containing fields of all objects in the
   // space, calling "cl.do_oop" on each.  Fields in objects allocated by
   // applications of the closure are not included in the iteration.
-  virtual void oop_iterate(OopClosure* cl);
+  virtual void oop_iterate(ExtendedOopClosure* cl);
 
   // Same as above, restricted to the intersection of a memory region and
   // the space.  Fields in objects allocated by applications of the closure
   // are not included in the iteration.
-  virtual void oop_iterate(MemRegion mr, OopClosure* cl) = 0;
+  virtual void oop_iterate(MemRegion mr, ExtendedOopClosure* cl) = 0;
 
   // Iterate over all objects in the space, calling "cl.do_object" on
   // each.  Objects allocated by applications of the closure are not
@@ -243,7 +253,7 @@ class Space: public CHeapObj {
   // overriden to return the appropriate type of closure
   // depending on the type of space in which the closure will
   // operate. ResourceArea allocated.
-  virtual DirtyCardToOopClosure* new_dcto_cl(OopClosure* cl,
+  virtual DirtyCardToOopClosure* new_dcto_cl(ExtendedOopClosure* cl,
                                              CardTableModRefBS::PrecisionStyle precision,
                                              HeapWord* boundary = NULL);
 
@@ -303,7 +313,7 @@ class Space: public CHeapObj {
   }
 
   // Debugging
-  virtual void verify(bool allow_dirty) const = 0;
+  virtual void verify() const = 0;
 };
 
 // A MemRegionClosure (ResourceObj) whose "do_MemRegion" function applies an
@@ -318,7 +328,7 @@ class Space: public CHeapObj {
 
 class DirtyCardToOopClosure: public MemRegionClosureRO {
 protected:
-  OopClosure* _cl;
+  ExtendedOopClosure* _cl;
   Space* _sp;
   CardTableModRefBS::PrecisionStyle _precision;
   HeapWord* _boundary;          // If non-NULL, process only non-NULL oops
@@ -348,7 +358,7 @@ protected:
   virtual void walk_mem_region(MemRegion mr, HeapWord* bottom, HeapWord* top);
 
 public:
-  DirtyCardToOopClosure(Space* sp, OopClosure* cl,
+  DirtyCardToOopClosure(Space* sp, ExtendedOopClosure* cl,
                         CardTableModRefBS::PrecisionStyle precision,
                         HeapWord* boundary) :
     _sp(sp), _cl(cl), _precision(precision), _boundary(boundary),
@@ -391,8 +401,6 @@ public:
 class CompactibleSpace: public Space {
   friend class VMStructs;
   friend class CompactibleFreeListSpace;
-  friend class CompactingPermGenGen;
-  friend class CMSPermGenGen;
 private:
   HeapWord* _compaction_top;
   CompactibleSpace* _next_compaction_space;
@@ -529,7 +537,7 @@ protected:
    * Occasionally, we want to ensure a full compaction, which is determined  \
    * by the MarkSweepAlwaysCompactCount parameter.                           \
    */                                                                        \
-  int invocations = SharedHeap::heap()->perm_gen()->stat_record()->invocations;\
+  uint invocations = MarkSweep::total_invocations();                         \
   bool skip_dead = ((invocations % MarkSweepAlwaysCompactCount) != 0);       \
                                                                              \
   size_t allowed_deadspace = 0;                                              \
@@ -558,7 +566,6 @@ protected:
     if (block_is_obj(q) && oop(q)->is_gc_marked()) {                         \
       /* prefetch beyond q */                                                \
       Prefetch::write(q, interval);                                          \
-      /* size_t size = oop(q)->size();  changing this for cms for perm gen */\
       size_t size = block_size(q);                                           \
       compact_top = cp->space->forward(oop(q), size, cp, compact_top);       \
       q += size;                                                             \
@@ -643,20 +650,14 @@ protected:
       /* I originally tried to conjoin "block_start(q) == q" to the             \
        * assertion below, but that doesn't work, because you can't              \
        * accurately traverse previous objects to get to the current one         \
-       * after their pointers (including pointers into permGen) have been       \
+       * after their pointers have been                                         \
        * updated, until the actual compaction is done.  dld, 4/00 */            \
       assert(block_is_obj(q),                                                   \
              "should be at block boundaries, and should be looking at objs");   \
                                                                                 \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::track_interior_pointers(oop(q)));     \
-                                                                                \
       /* point all the oops to the new location */                              \
       size_t size = oop(q)->adjust_pointers();                                  \
       size = adjust_obj_size(size);                                             \
-                                                                                \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::check_interior_pointers());           \
-                                                                                \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::validate_live_oop(oop(q), size));     \
                                                                                 \
       q += size;                                                                \
     }                                                                           \
@@ -678,12 +679,9 @@ protected:
     Prefetch::write(q, interval);                                               \
     if (oop(q)->is_gc_marked()) {                                               \
       /* q is alive */                                                          \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::track_interior_pointers(oop(q)));     \
       /* point all the oops to the new location */                              \
       size_t size = oop(q)->adjust_pointers();                                  \
       size = adjust_obj_size(size);                                             \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::check_interior_pointers());           \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::validate_live_oop(oop(q), size));     \
       debug_only(prev_q = q);                                                   \
       q += size;                                                                \
     } else {                                                                    \
@@ -718,7 +716,6 @@ protected:
       size_t size = obj_size(q);                                                \
       assert(!oop(q)->is_gc_marked(),                                           \
              "should be unmarked (special dense prefix handling)");             \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::live_oop_moved_to(q, size, q));       \
       debug_only(prev_q = q);                                                   \
       q += size;                                                                \
     }                                                                           \
@@ -752,8 +749,6 @@ protected:
       Prefetch::write(compaction_top, copy_interval);                           \
                                                                                 \
       /* copy object and reinit its mark */                                     \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::live_oop_moved_to(q, size,            \
-                                                            compaction_top));   \
       assert(q != compaction_top, "everything in this pass should be moving");  \
       Copy::aligned_conjoint_words(q, compaction_top, size);                    \
       oop(compaction_top)->init_mark();                                         \
@@ -867,8 +862,8 @@ class ContiguousSpace: public CompactibleSpace {
   }
 
   // Iteration
-  void oop_iterate(OopClosure* cl);
-  void oop_iterate(MemRegion mr, OopClosure* cl);
+  void oop_iterate(ExtendedOopClosure* cl);
+  void oop_iterate(MemRegion mr, ExtendedOopClosure* cl);
   void object_iterate(ObjectClosure* blk);
   // For contiguous spaces this method will iterate safely over objects
   // in the space (i.e., between bottom and top) when at a safepoint.
@@ -876,19 +871,27 @@ class ContiguousSpace: public CompactibleSpace {
   void object_iterate_mem(MemRegion mr, UpwardsObjectClosure* cl);
   // iterates on objects up to the safe limit
   HeapWord* object_iterate_careful(ObjectClosureCareful* cl);
-  inline HeapWord* concurrent_iteration_safe_limit();
+  HeapWord* concurrent_iteration_safe_limit() {
+    assert(_concurrent_iteration_safe_limit <= top(),
+           "_concurrent_iteration_safe_limit update missed");
+    return _concurrent_iteration_safe_limit;
+  }
   // changes the safe limit, all objects from bottom() to the new
   // limit should be properly initialized
-  inline void set_concurrent_iteration_safe_limit(HeapWord* new_limit);
+  void set_concurrent_iteration_safe_limit(HeapWord* new_limit) {
+    assert(new_limit <= top(), "uninitialized objects in the safe range");
+    _concurrent_iteration_safe_limit = new_limit;
+  }
 
-#ifndef SERIALGC
+
+#if INCLUDE_ALL_GCS
   // In support of parallel oop_iterate.
   #define ContigSpace_PAR_OOP_ITERATE_DECL(OopClosureType, nv_suffix)  \
     void par_oop_iterate(MemRegion mr, OopClosureType* blk);
 
     ALL_PAR_OOP_ITERATE_CLOSURES(ContigSpace_PAR_OOP_ITERATE_DECL)
   #undef ContigSpace_PAR_OOP_ITERATE_DECL
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   // Compaction support
   virtual void reset_after_compaction() {
@@ -900,7 +903,7 @@ class ContiguousSpace: public CompactibleSpace {
   virtual size_t minimum_free_block_size() const { return 0; }
 
   // Override.
-  DirtyCardToOopClosure* new_dcto_cl(OopClosure* cl,
+  DirtyCardToOopClosure* new_dcto_cl(ExtendedOopClosure* cl,
                                      CardTableModRefBS::PrecisionStyle precision,
                                      HeapWord* boundary = NULL);
 
@@ -944,7 +947,7 @@ class ContiguousSpace: public CompactibleSpace {
   }
 
   // Debugging
-  virtual void verify(bool allow_dirty) const;
+  virtual void verify() const;
 
   // Used to increase collection frequency.  "factor" of 0 means entire
   // space.
@@ -970,13 +973,13 @@ protected:
   // apparent.
   virtual void walk_mem_region_with_cl(MemRegion mr,
                                        HeapWord* bottom, HeapWord* top,
-                                       OopClosure* cl) = 0;
+                                       ExtendedOopClosure* cl) = 0;
   virtual void walk_mem_region_with_cl(MemRegion mr,
                                        HeapWord* bottom, HeapWord* top,
                                        FilteringClosure* cl) = 0;
 
 public:
-  Filtering_DCTOC(Space* sp, OopClosure* cl,
+  Filtering_DCTOC(Space* sp, ExtendedOopClosure* cl,
                   CardTableModRefBS::PrecisionStyle precision,
                   HeapWord* boundary) :
     DirtyCardToOopClosure(sp, cl, precision, boundary) {}
@@ -999,13 +1002,13 @@ protected:
 
   virtual void walk_mem_region_with_cl(MemRegion mr,
                                        HeapWord* bottom, HeapWord* top,
-                                       OopClosure* cl);
+                                       ExtendedOopClosure* cl);
   virtual void walk_mem_region_with_cl(MemRegion mr,
                                        HeapWord* bottom, HeapWord* top,
                                        FilteringClosure* cl);
 
 public:
-  ContiguousSpaceDCTOC(ContiguousSpace* sp, OopClosure* cl,
+  ContiguousSpaceDCTOC(ContiguousSpace* sp, ExtendedOopClosure* cl,
                        CardTableModRefBS::PrecisionStyle precision,
                        HeapWord* boundary) :
     Filtering_DCTOC(sp, cl, precision, boundary)
@@ -1065,7 +1068,7 @@ class ConcEdenSpace : public EdenSpace {
 // A ContigSpace that Supports an efficient "block_start" operation via
 // a BlockOffsetArray (whose BlockOffsetSharedArray may be shared with
 // other spaces.)  This is the abstract base class for old generation
-// (tenured, perm) spaces.
+// (tenured) spaces.
 
 class OffsetTableContigSpace: public ContiguousSpace {
   friend class VMStructs;
@@ -1096,10 +1099,7 @@ class OffsetTableContigSpace: public ContiguousSpace {
   virtual void print_on(outputStream* st) const;
 
   // Debugging
-  void verify(bool allow_dirty) const;
-
-  // Shared space support
-  void serialize_block_offset_array_offsets(SerializeOopClosure* soc);
+  void verify() const;
 };
 
 
@@ -1116,19 +1116,4 @@ class TenuredSpace: public OffsetTableContigSpace {
                MemRegion mr) :
     OffsetTableContigSpace(sharedOffsetArray, mr) {}
 };
-
-
-// Class ContigPermSpace is used by CompactingPermGen
-
-class ContigPermSpace: public OffsetTableContigSpace {
-  friend class VMStructs;
- protected:
-  // Mark sweep support
-  size_t allowed_dead_ratio() const;
- public:
-  // Constructor
-  ContigPermSpace(BlockOffsetSharedArray* sharedOffsetArray, MemRegion mr) :
-    OffsetTableContigSpace(sharedOffsetArray, mr) {}
-};
-
 #endif // SHARE_VM_MEMORY_SPACE_HPP

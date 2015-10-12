@@ -39,7 +39,7 @@
 
 U_NAMESPACE_BEGIN
 
-le_uint32 MultipleSubstitutionSubtable::process(GlyphIterator *glyphIterator, LEErrorCode& success, const LEGlyphFilter *filter) const
+le_uint32 MultipleSubstitutionSubtable::process(const LETableReference &base, GlyphIterator *glyphIterator, LEErrorCode& success, const LEGlyphFilter *filter) const
 {
     if (LE_FAILURE(success)) {
         return 0;
@@ -54,16 +54,21 @@ le_uint32 MultipleSubstitutionSubtable::process(GlyphIterator *glyphIterator, LE
     // FIXME: is this always the right thing to do?
     // FIXME: should this only be done for a non-zero
     //        glyphCount?
-    if (filter != NULL && filter->accept(glyph)) {
+    if (filter != NULL && filter->accept(glyph, success)) {
+        return 0;
+    }
+    if(LE_FAILURE(success)) return 0;
+
+    le_int32 coverageIndex = getGlyphCoverage(base, glyph, success);
+    le_uint16 seqCount = SWAPW(sequenceCount);
+
+    if (LE_FAILURE(success)) {
         return 0;
     }
 
-    le_int32 coverageIndex = getGlyphCoverage(glyph);
-    le_uint16 seqCount = SWAPW(sequenceCount);
-
     if (coverageIndex >= 0 && coverageIndex < seqCount) {
         Offset sequenceTableOffset = SWAPW(sequenceTableOffsetArray[coverageIndex]);
-        const SequenceTable *sequenceTable = (const SequenceTable *) ((char *) this + sequenceTableOffset);
+        LEReferenceTo<SequenceTable>   sequenceTable(base, success, sequenceTableOffset);
         le_uint16 glyphCount = SWAPW(sequenceTable->glyphCount);
 
         if (glyphCount == 0) {
@@ -72,7 +77,7 @@ le_uint32 MultipleSubstitutionSubtable::process(GlyphIterator *glyphIterator, LE
         } else if (glyphCount == 1) {
             TTGlyphID substitute = SWAPW(sequenceTable->substituteArray[0]);
 
-            if (filter != NULL && ! filter->accept(LE_SET_GLYPH(glyph, substitute))) {
+            if (filter != NULL && ! filter->accept(LE_SET_GLYPH(glyph, substitute), success)) {
                 return 0;
             }
 
@@ -85,7 +90,7 @@ le_uint32 MultipleSubstitutionSubtable::process(GlyphIterator *glyphIterator, LE
                 for (le_int32 i = 0; i < glyphCount; i += 1) {
                     TTGlyphID substitute = SWAPW(sequenceTable->substituteArray[i]);
 
-                    if (! filter->accept(substitute)) {
+                    if (! filter->accept(substitute, success)) {
                         return 0;
                     }
                 }

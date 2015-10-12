@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -46,12 +46,9 @@ address VtableStub::_chunk             = NULL;
 address VtableStub::_chunk_end         = NULL;
 VMReg   VtableStub::_receiver_location = VMRegImpl::Bad();
 
-static int num_vtable_chunks = 0;
 
-
-void* VtableStub::operator new(size_t size, int code_size) {
+void* VtableStub::operator new(size_t size, int code_size) throw() {
   assert(size == sizeof(VtableStub), "mismatched size");
-  num_vtable_chunks++;
   // compute real VtableStub size (rounded to nearest word)
   const int real_size = round_to(code_size + sizeof(VtableStub), wordSize);
   // malloc them in chunks to minimize header overhead
@@ -60,7 +57,7 @@ void* VtableStub::operator new(size_t size, int code_size) {
     const int bytes = chunk_factor * real_size + pd_code_alignment();
     BufferBlob* blob = BufferBlob::create("vtable chunks", bytes);
     if (blob == NULL) {
-      vm_exit_out_of_memory(bytes, "CodeCache: no room for vtable chunks");
+      return NULL;
     }
     _chunk = blob->content_begin();
     _chunk_end = _chunk + bytes;
@@ -111,7 +108,7 @@ void VtableStubs::initialize() {
 }
 
 
-address VtableStubs::create_stub(bool is_vtable_stub, int vtable_index, methodOop method) {
+address VtableStubs::find_stub(bool is_vtable_stub, int vtable_index) {
   assert(vtable_index >= 0, "must be positive");
 
   VtableStub* s = ShareVtableStubs ? lookup(is_vtable_stub, vtable_index) : NULL;
@@ -121,6 +118,12 @@ address VtableStubs::create_stub(bool is_vtable_stub, int vtable_index, methodOo
     } else {
       s = create_itable_stub(vtable_index);
     }
+
+    // Creation of vtable or itable can fail if there is not enough free space in the code cache.
+    if (s == NULL) {
+      return NULL;
+    }
+
     enter(is_vtable_stub, vtable_index, s);
     if (PrintAdapterHandlers) {
       tty->print_cr("Decoding VtableStub %s[%d]@%d",
@@ -200,10 +203,10 @@ void vtableStubs_init() {
 extern "C" void bad_compiled_vtable_index(JavaThread* thread, oop receiver, int index) {
   ResourceMark rm;
   HandleMark hm;
-  klassOop klass = receiver->klass();
-  instanceKlass* ik = instanceKlass::cast(klass);
+  Klass* klass = receiver->klass();
+  InstanceKlass* ik = InstanceKlass::cast(klass);
   klassVtable* vt = ik->vtable();
-  klass->print();
+  ik->print();
   fatal(err_msg("bad compiled vtable dispatch: receiver " INTPTR_FORMAT ", "
                 "index %d (vtable length %d)",
                 (address)receiver, index, vt->length()));

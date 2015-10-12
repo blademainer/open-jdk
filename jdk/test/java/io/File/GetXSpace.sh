@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2006, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -53,7 +53,7 @@ allow() {
 }
 
 runTest() {
-  ${TESTJAVA}/bin/java -cp ${TESTCLASSES} GetXSpace $* 
+  ${TESTJAVA}/bin/java ${TESTVMOPTS} -cp ${TESTCLASSES} GetXSpace $* 
   if [ $? -eq 0 ]
   then echo "Passed"
   else

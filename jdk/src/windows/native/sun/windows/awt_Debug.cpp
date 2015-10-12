@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -147,6 +147,24 @@ AwtDebugSupport::~AwtDebugSupport() {
     DTrace_Shutdown();
 }
 
+static jboolean isHeadless() {
+    jmethodID headlessFn;
+    JNIEnv *env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
+    jclass graphicsEnvClass = env->FindClass(
+        "java/awt/GraphicsEnvironment");
+
+    if (graphicsEnvClass != NULL) {
+        headlessFn = env->GetStaticMethodID(
+            graphicsEnvClass, "isHeadless", "()Z");
+        if (headlessFn != NULL) {
+            return env->CallStaticBooleanMethod(graphicsEnvClass,
+                                                headlessFn);
+        }
+    }
+    return true;
+}
+
+
 void AwtDebugSupport::AssertCallback(const char * expr, const char * file, int line) {
     static const int ASSERT_MSG_SIZE = 1024;
     static const char * AssertFmt =
@@ -158,7 +176,8 @@ void AwtDebugSupport::AssertCallback(const char * expr, const char * file, int l
     static char assertMsg[ASSERT_MSG_SIZE+1];
     DWORD   lastError = GetLastError();
     LPSTR       msgBuffer = NULL;
-    int     ret;
+    int     ret = IDNO;
+    static jboolean headless = isHeadless();
 
     FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER |
                   FORMAT_MESSAGE_FROM_SYSTEM |
@@ -183,8 +202,11 @@ void AwtDebugSupport::AssertCallback(const char * expr, const char * file, int l
     fprintf(stderr, "*********************\n");
     fprintf(stderr, "%s\n", assertMsg);
     fprintf(stderr, "*********************\n");
-    ret = MessageBoxA(NULL, assertMsg, "AWT Assertion Failure",
-        MB_YESNO|MB_ICONSTOP|MB_TASKMODAL);
+
+    if (!headless) {
+        ret = MessageBoxA(NULL, assertMsg, "AWT Assertion Failure",
+                          MB_YESNO|MB_ICONSTOP|MB_TASKMODAL);
+    }
 
     // if clicked Yes, break into the debugger
     if ( ret == IDYES ) {

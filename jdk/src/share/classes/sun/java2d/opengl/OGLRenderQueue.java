@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,8 @@ package sun.java2d.opengl;
 import sun.java2d.pipe.RenderBuffer;
 import sun.java2d.pipe.RenderQueue;
 import static sun.java2d.pipe.BufferedOpCodes.*;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 
 /**
  * OGL-specific implementation of RenderQueue.  This class provides a
@@ -41,7 +43,19 @@ public class OGLRenderQueue extends RenderQueue {
     private final QueueFlusher flusher;
 
     private OGLRenderQueue() {
-        flusher = new QueueFlusher();
+        /*
+         * The thread must be a member of a thread group
+         * which will not get GCed before VM exit.
+         */
+        flusher = AccessController.doPrivileged(new PrivilegedAction<QueueFlusher>() {
+            public QueueFlusher run() {
+                ThreadGroup rootThreadGroup = Thread.currentThread().getThreadGroup();
+                while (rootThreadGroup.getParent() != null) {
+                    rootThreadGroup = rootThreadGroup.getParent();
+                }
+                return new QueueFlusher(rootThreadGroup);
+            }
+        });
     }
 
     /**
@@ -149,8 +163,8 @@ public class OGLRenderQueue extends RenderQueue {
         private Runnable task;
         private Error error;
 
-        public QueueFlusher() {
-            super("Java2D Queue Flusher");
+        public QueueFlusher(ThreadGroup threadGroup) {
+            super(threadGroup, "Java2D Queue Flusher");
             setDaemon(true);
             setPriority(Thread.MAX_PRIORITY);
             start();

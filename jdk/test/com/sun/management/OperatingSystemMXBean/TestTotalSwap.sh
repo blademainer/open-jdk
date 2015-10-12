@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2005, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -59,7 +59,7 @@ fi
 runOne()
 {
    echo "runOne $@"
-   $TESTJAVA/bin/java -classpath $TESTCLASSES $@  || exit 3
+   $TESTJAVA/bin/java ${TESTVMOPTS} -classpath $TESTCLASSES $@  || exit 3
 }
 
 solaris_swap_size()
@@ -82,6 +82,13 @@ case `uname -s` in
      Linux )
        total_swap=`free -b | grep -i swap | awk '{print $2}'`
        runOne GetTotalSwapSpaceSize $total_swap 
+       ;;
+     Darwin )
+       # $ sysctl -n vm.swapusage 
+       # total = 8192.00M  used = 7471.11M  free = 720.89M  (encrypted)
+       swap=`/usr/sbin/sysctl -n vm.swapusage | awk '{ print $3 }' | awk -F . '{ print $1 }'` || exit 2
+       total_swap=`expr $swap \* 1024 \* 1024` || exit 2
+       runOne GetTotalSwapSpaceSize $total_swap
        ;;
     * )
        runOne GetTotalSwapSpaceSize "sanity-only"

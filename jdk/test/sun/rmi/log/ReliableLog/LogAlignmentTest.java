@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,8 +22,10 @@
  */
 
 /* @test
-   @bug 4094889
-   @summary rmid can have a corrupted log
+ * @bug 4094889
+ * @summary rmid can have a corrupted log
+ *
+ * @run main LogAlignmentTest
  */
 
 /* Fault: ReliableLog used RandomAccessFile.skipBytes() to seek past the end

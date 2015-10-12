@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,7 +51,7 @@ public class JarURLConnection extends java.net.JarURLConnection {
 
     /* the Jar file factory. It handles both retrieval and caching.
      */
-    private static JarFileFactory factory = new JarFileFactory();
+    private static final JarFileFactory factory = JarFileFactory.getInstance();
 
     /* the url for the Jar file */
     private URL jarFileURL;

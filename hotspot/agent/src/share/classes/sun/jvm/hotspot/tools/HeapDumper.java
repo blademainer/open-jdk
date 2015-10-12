@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 package sun.jvm.hotspot.tools;
 
 import sun.jvm.hotspot.utilities.HeapHprofBinWriter;
+import sun.jvm.hotspot.debugger.JVMDebugger;
 import java.io.IOException;
 
 /*
@@ -39,6 +40,11 @@ public class HeapDumper extends Tool {
     private String dumpFile;
 
     public HeapDumper(String dumpFile) {
+        this.dumpFile = dumpFile;
+    }
+
+    public HeapDumper(String dumpFile, JVMDebugger d) {
+        super(d);
         this.dumpFile = dumpFile;
     }
 
@@ -74,8 +80,7 @@ public class HeapDumper extends Tool {
         }
 
         HeapDumper dumper = new HeapDumper(file);
-        dumper.start(args);
-        dumper.stop();
+        dumper.execute(args);
     }
 
 }

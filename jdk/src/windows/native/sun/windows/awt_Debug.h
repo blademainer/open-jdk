@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -65,7 +65,12 @@
     #define AWT_DUMP_CLIP_RECTANGLE(_msg, _hwnd) \
         _DTrace_Template(DumpClipRectangle, 2, "", (_msg), (_hwnd), 0, 0, 0, 0, 0, 0)
 
-    #define new         new(__FILE__, __LINE__)
+    /* Use THIS_FILE when it is available. */
+    #ifndef THIS_FILE
+        #define THIS_FILE __FILE__
+    #endif
+
+    #define new         new(THIS_FILE, __LINE__)
 
     #define VERIFY(exp)         DASSERT(exp)
     #define UNIMPLEMENTED()     DASSERT(FALSE)

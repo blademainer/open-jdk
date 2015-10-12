@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -81,8 +81,7 @@ public class UnpackerImpl extends TLGlobals implements Pack200.Unpacker {
      * Get the set of options for the pack and unpack engines.
      * @return A sorted association of option key strings to option values.
      */
-    @SuppressWarnings("unchecked")
-    public SortedMap properties() {
+    public SortedMap<String, String> properties() {
         return props;
     }
 
@@ -107,7 +106,7 @@ public class UnpackerImpl extends TLGlobals implements Pack200.Unpacker {
      * @param out a JarOutputStream.
      * @exception IOException if an error is encountered.
      */
-    public void unpack(InputStream in, JarOutputStream out) throws IOException {
+    public synchronized void unpack(InputStream in, JarOutputStream out) throws IOException {
         if (in == null) {
             throw new NullPointerException("null input");
         }
@@ -133,7 +132,12 @@ public class UnpackerImpl extends TLGlobals implements Pack200.Unpacker {
                 in0.close();
                 Utils.markJarFile(out);
             } else {
-                (new NativeUnpack(this)).run(in0, out);
+                try {
+                    (new NativeUnpack(this)).run(in0, out);
+                } catch (UnsatisfiedLinkError | NoClassDefFoundError ex) {
+                    // failover to java implementation
+                    (new DoUnpack()).run(in0, out);
+                }
                 in0.close();
                 Utils.markJarFile(out);
             }
@@ -152,7 +156,7 @@ public class UnpackerImpl extends TLGlobals implements Pack200.Unpacker {
      * @param out a JarOutputStream.
      * @exception IOException if an error is encountered.
      */
-    public void unpack(File in, JarOutputStream out) throws IOException {
+    public synchronized void unpack(File in, JarOutputStream out) throws IOException {
         if (in == null) {
             throw new NullPointerException("null input");
         }

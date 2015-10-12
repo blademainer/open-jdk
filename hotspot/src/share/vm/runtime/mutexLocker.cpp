@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,17 +25,9 @@
 #include "precompiled.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "runtime/safepoint.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/threadLocalStorage.hpp"
 #include "runtime/vmThread.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
 
 // Mutexes used in the VM (see comment in mutexLocker.hpp):
 //
@@ -53,7 +45,7 @@ Mutex*   InlineCacheBuffer_lock       = NULL;
 Mutex*   VMStatistic_lock             = NULL;
 Mutex*   JNIGlobalHandle_lock         = NULL;
 Mutex*   JNIHandleBlockFreeList_lock  = NULL;
-Mutex*   JNICachedItableIndex_lock    = NULL;
+Mutex*   MemberNameTable_lock         = NULL;
 Mutex*   JmethodIdCreation_lock       = NULL;
 Mutex*   JfieldIdCreation_lock        = NULL;
 Monitor* JNICritical_lock             = NULL;
@@ -123,13 +115,23 @@ Mutex*   OopMapCacheAlloc_lock        = NULL;
 Mutex*   FreeList_lock                = NULL;
 Monitor* SecondaryFreeList_lock       = NULL;
 Mutex*   OldSets_lock                 = NULL;
+Monitor* RootRegionScan_lock          = NULL;
 Mutex*   MMUTracker_lock              = NULL;
 Mutex*   HotCardCache_lock            = NULL;
 
 Monitor* GCTaskManager_lock           = NULL;
 
 Mutex*   Management_lock              = NULL;
-Monitor* Service_lock               = NULL;
+Monitor* Service_lock                 = NULL;
+Monitor* PeriodicTask_lock            = NULL;
+
+#ifdef INCLUDE_TRACE
+Mutex*   JfrStacktrace_lock           = NULL;
+Monitor* JfrMsg_lock                  = NULL;
+Mutex*   JfrBuffer_lock               = NULL;
+Mutex*   JfrStream_lock               = NULL;
+Mutex*   JfrThreadGroups_lock         = NULL;
+#endif
 
 #define MAX_NUM_MUTEX 128
 static Monitor * _mutex_array[MAX_NUM_MUTEX];
@@ -190,6 +192,7 @@ void mutex_init() {
     def(FreeList_lock              , Mutex,   leaf     ,   true );
     def(SecondaryFreeList_lock     , Monitor, leaf     ,   true );
     def(OldSets_lock               , Mutex  , leaf     ,   true );
+    def(RootRegionScan_lock        , Monitor, leaf     ,   true );
     def(MMUTracker_lock            , Mutex  , leaf     ,   true );
     def(HotCardCache_lock          , Mutex  , special  ,   true );
     def(EvacFailureStack_lock      , Mutex  , nonleaf  ,   true );
@@ -213,7 +216,7 @@ void mutex_init() {
   def(ExpandHeap_lock              , Mutex  , leaf,        true ); // Used during compilation by VM thread
   def(JNIHandleBlockFreeList_lock  , Mutex  , leaf,        true ); // handles are used by VM thread
   def(SignatureHandlerLibrary_lock , Mutex  , leaf,        false);
-  def(SymbolTable_lock             , Mutex  , leaf,        true );
+  def(SymbolTable_lock             , Mutex  , leaf+2,      true );
   def(StringTable_lock             , Mutex  , leaf,        true );
   def(ProfilePrint_lock            , Mutex  , leaf,        false); // serial profile printing
   def(ExceptionCache_lock          , Mutex  , leaf,        false); // serial profile printing
@@ -249,7 +252,7 @@ void mutex_init() {
   }
   def(Heap_lock                    , Monitor, nonleaf+1,   false);
   def(JfieldIdCreation_lock        , Mutex  , nonleaf+1,   true ); // jfieldID, Used in VM_Operation
-  def(JNICachedItableIndex_lock    , Mutex  , nonleaf+1,   false); // Used to cache an itable index during JNI invoke
+  def(MemberNameTable_lock         , Mutex  , nonleaf+1,   false); // Used to protect MemberNameTable
 
   def(CompiledIC_lock              , Mutex  , nonleaf+2,   false); // locks VtableStubs_lock, InlineCacheBuffer_lock
   def(CompileTaskAlloc_lock        , Mutex  , nonleaf+2,   true );
@@ -266,8 +269,18 @@ void mutex_init() {
   def(MethodCompileQueue_lock      , Monitor, nonleaf+4,   true );
   def(Debug2_lock                  , Mutex  , nonleaf+4,   true );
   def(Debug3_lock                  , Mutex  , nonleaf+4,   true );
-  def(ProfileVM_lock               , Monitor, nonleaf+4,   false); // used for profiling of the VMThread
+  def(ProfileVM_lock               , Monitor, special,   false); // used for profiling of the VMThread
   def(CompileThread_lock           , Monitor, nonleaf+5,   false );
+  def(PeriodicTask_lock            , Monitor, nonleaf+5,   true);
+
+#ifdef INCLUDE_TRACE
+  def(JfrMsg_lock                  , Monitor, leaf,        true);
+  def(JfrBuffer_lock               , Mutex,   nonleaf+1,   true);
+  def(JfrThreadGroups_lock         , Mutex,   nonleaf+1,   true);
+  def(JfrStream_lock               , Mutex,   nonleaf+2,   true);
+  def(JfrStacktrace_lock           , Mutex,   special,     true );
+#endif
+
 }
 
 GCMutexLocker::GCMutexLocker(Monitor * mutex) {

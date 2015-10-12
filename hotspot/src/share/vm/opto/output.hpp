@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -95,9 +95,6 @@ private:
 
   // List of nodes currently available for choosing for scheduling
   Node_List _available;
-
-  // Mapping from node (index) to basic block
-  Block_Array& _bbs;
 
   // For each instruction beginning a bundle, the number of following
   // nodes to be bundled with it.

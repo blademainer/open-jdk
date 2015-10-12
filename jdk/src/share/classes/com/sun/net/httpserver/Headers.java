@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,7 +33,7 @@ import java.util.*;
  * {@link java.lang.String},{@link java.util.List}&lt;{@link java.lang.String}&gt;&gt;.
  * The keys are case-insensitive Strings representing the header names and
  * the value associated with each key is a {@link List}&lt;{@link String}&gt; with one
- * element for each occurence of the header name in the request or response.
+ * element for each occurrence of the header name in the request or response.
  * <p>
  * For example, if a response header instance contains one key "HeaderName" with two values "value1 and value2"
  * then this object is output as two header lines:
@@ -58,6 +58,7 @@ import java.util.*;
  * as a header line containing the key but no associated value.
  * @since 1.6
  */
+@jdk.Exported
 public class Headers implements Map<String,List<String>> {
 
         HashMap<String,List<String>> map;
@@ -117,7 +118,7 @@ public class Headers implements Map<String,List<String>> {
          * @return the first string value associated with the key
          */
         public String getFirst (String key) {
-            List<String> l = map.get(normalize((String)key));
+            List<String> l = map.get(normalize(key));
             if (l == null) {
                 return null;
             }

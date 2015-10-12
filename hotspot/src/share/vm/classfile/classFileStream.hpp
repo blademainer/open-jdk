@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -131,6 +131,11 @@ class ClassFileStream: public ResourceObj {
   void skip_u2(int length, TRAPS);
   void skip_u2_fast(int length) {
     _current += 2 * length;
+  }
+
+  void skip_u4(int length, TRAPS);
+  void skip_u4_fast(int length) {
+    _current += 4 * length;
   }
 
   // Tells whether eos is reached

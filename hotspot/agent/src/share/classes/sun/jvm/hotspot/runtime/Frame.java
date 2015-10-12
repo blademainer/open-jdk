@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ import sun.jvm.hotspot.c1.*;
 import sun.jvm.hotspot.debugger.*;
 import sun.jvm.hotspot.interpreter.*;
 import sun.jvm.hotspot.oops.*;
+import sun.jvm.hotspot.runtime.sparc.SPARCFrame;
 import sun.jvm.hotspot.types.*;
 import sun.jvm.hotspot.utilities.*;
 
@@ -71,14 +72,22 @@ public abstract class Frame implements Cloneable {
       });
   }
 
-  /** Size of constMethodOopDesc for computing BCI from BCP (FIXME: hack) */
-  private static long    constMethodOopDescSize;
+  /** Size of ConstMethod for computing BCI from BCP (FIXME: hack) */
+  private static long    ConstMethodSize;
+
+  private static int pcReturnOffset;
+
+  public static int pcReturnOffset() {
+    return pcReturnOffset;
+  }
 
   private static synchronized void initialize(TypeDataBase db) {
-    Type constMethodOopType = db.lookupType("constMethodOopDesc");
+    Type ConstMethodType = db.lookupType("ConstMethod");
     // FIXME: not sure whether alignment here is correct or how to
     // force it (round up to address size?)
-    constMethodOopDescSize = constMethodOopType.getSize();
+    ConstMethodSize = ConstMethodType.getSize();
+
+    pcReturnOffset = db.lookupIntConstant("frame::pc_return_offset").intValue();
   }
 
   protected int bcpToBci(Address bcp, ConstMethod cm) {
@@ -88,7 +97,7 @@ public abstract class Frame implements Cloneable {
     if (bcp == null) return 0;
     long bci = bcp.minus(null);
     if (bci >= 0 && bci < cm.getCodeSize()) return (int) bci;
-    return (int) (bcp.minus(cm.getHandle()) - constMethodOopDescSize);
+    return (int) (bcp.minus(cm.getAddress()) - ConstMethodSize);
   }
 
   protected int bcpToBci(Address bcp, Method m) {
@@ -105,6 +114,10 @@ public abstract class Frame implements Cloneable {
   public Address getPC()              { return pc; }
   public void    setPC(Address newpc) { pc = newpc; }
   public boolean isDeoptimized()      { return deoptimized; }
+
+  public CodeBlob cb() {
+    return VM.getVM().getCodeCache().findBlob(getPC());
+  }
 
   public abstract Address getSP();
   public abstract Address getID();
@@ -142,7 +155,7 @@ public abstract class Frame implements Cloneable {
     return (cb != null && cb.isJavaMethod());
   }
 
-  public boolean isGlueFrame() {
+  public boolean isRuntimeFrame() {
     if (Assert.ASSERTS_ENABLED) {
       Assert.that(!VM.getVM().isCore(), "noncore builds only");
     }
@@ -197,7 +210,7 @@ public abstract class Frame implements Cloneable {
   public Frame realSender(RegisterMap map) {
     if (!VM.getVM().isCore()) {
       Frame result = sender(map);
-      while (result.isGlueFrame()) {
+      while (result.isRuntimeFrame()) {
         result = result.sender(map);
       }
       return result;
@@ -272,7 +285,7 @@ public abstract class Frame implements Cloneable {
   // NOTE that the accessor "addressOfInterpreterFrameBCX" has
   // necessarily been eliminated. The byte code pointer is inherently
   // an interior pointer to a Method (the bytecodes follow the
-  // methodOopDesc data structure) and therefore acquisition of it in
+  // Method data structure) and therefore acquisition of it in
   // this system can not be allowed. All accesses to interpreter frame
   // byte codes are via the byte code index (BCI).
 
@@ -361,7 +374,7 @@ public abstract class Frame implements Cloneable {
 
   /** Current method */
   public Method            getInterpreterFrameMethod() {
-    return (Method) VM.getVM().getObjectHeap().newOop(addressOfInterpreterFrameMethod().getOopHandleAt(0));
+    return (Method)Metadata.instantiateWrapperFor(addressOfInterpreterFrameMethod().getAddressAt(0));
   }
 
   /** Current method */
@@ -372,7 +385,7 @@ public abstract class Frame implements Cloneable {
   public abstract Address  addressOfInterpreterFrameCPCache();
   /** Constant pool cache */
   public ConstantPoolCache getInterpreterFrameCPCache() {
-    return (ConstantPoolCache) VM.getVM().getObjectHeap().newOop(addressOfInterpreterFrameCPCache().getOopHandleAt(0));
+    return (ConstantPoolCache) Metadata.instantiateWrapperFor(addressOfInterpreterFrameCPCache().getAddressAt(0));
   }
 
   //--------------------------------------------------------------------------------
@@ -570,8 +583,9 @@ public abstract class Frame implements Cloneable {
     //    }
 
     // process fixed part
-    oopVisitor.visitAddress(addressOfInterpreterFrameMethod());
-    oopVisitor.visitAddress(addressOfInterpreterFrameCPCache());
+    // FIXME: these are no longer oops, so should anything be visitied?
+    // oopVisitor.visitAddress(addressOfInterpreterFrameMethod());
+    // oopVisitor.visitAddress(addressOfInterpreterFrameCPCache());
 
     // FIXME: expose interpreterFrameMirrorOffset
     //    if (m.isNative() && m.isStatic()) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -78,7 +78,7 @@ class CppInterpreter: public AbstractInterpreter {
   static address    stack_result_to_stack(int index)            { return _stack_to_stack[index]; }
   static address    stack_result_to_native(int index)           { return _stack_to_native_abi[index]; }
 
-  static address    return_entry  (TosState state, int length);
+  static address    return_entry  (TosState state, int length, Bytecodes::Code code);
   static address    deopt_entry   (TosState state, int length);
 
 #ifdef TARGET_ARCH_x86

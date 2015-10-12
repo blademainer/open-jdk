@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -486,7 +486,7 @@ public class D3DSurfaceData extends SurfaceData implements AccelSurface {
             int dataType = 0;
             int scanStride = width;
 
-            if (dcm.getPixelSize() == 24 || dcm.getPixelSize() == 32) {
+            if (dcm.getPixelSize() > 16) {
                 dataType = DataBuffer.TYPE_INT;
             } else {
                 // 15, 16

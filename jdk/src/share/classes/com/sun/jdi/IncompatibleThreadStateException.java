@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,15 +32,15 @@ package com.sun.jdi;
  * @author Gordon Hirsch
  * @since  1.3
  */
-public class IncompatibleThreadStateException extends Exception
-{
-    public IncompatibleThreadStateException()
-    {
+@jdk.Exported
+public class IncompatibleThreadStateException extends Exception {
+    private static final long serialVersionUID = 6199174323414551389L;
+
+    public IncompatibleThreadStateException() {
         super();
     }
 
-    public IncompatibleThreadStateException(String s)
-    {
+    public IncompatibleThreadStateException(String s) {
         super(s);
     }
 }

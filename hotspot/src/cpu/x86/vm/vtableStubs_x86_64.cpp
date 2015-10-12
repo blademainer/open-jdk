@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,10 +23,9 @@
  */
 
 #include "precompiled.hpp"
-#include "asm/assembler.hpp"
-#include "assembler_x86.inline.hpp"
+#include "asm/macroAssembler.hpp"
 #include "code/vtableStubs.hpp"
-#include "interp_masm_x86_64.hpp"
+#include "interp_masm_x86.hpp"
 #include "memory/resourceArea.hpp"
 #include "oops/instanceKlass.hpp"
 #include "oops/klassVtable.hpp"
@@ -50,6 +49,11 @@ extern "C" void bad_compiled_vtable_index(JavaThread* thread,
 VtableStub* VtableStubs::create_vtable_stub(int vtable_index) {
   const int amd64_code_length = VtableStub::pd_code_size_limit(true);
   VtableStub* s = new(amd64_code_length) VtableStub(true, vtable_index);
+  // Can be NULL if there is no free space in the code cache.
+  if (s == NULL) {
+    return NULL;
+  }
+
   ResourceMark rm;
   CodeBuffer cb(s->entry_point(), amd64_code_length);
   MacroAssembler* masm = new MacroAssembler(&cb);
@@ -69,15 +73,11 @@ VtableStub* VtableStubs::create_vtable_stub(int vtable_index) {
   address npe_addr = __ pc();
   __ load_klass(rax, j_rarg0);
 
-  // compute entry offset (in words)
-  int entry_offset =
-    instanceKlass::vtable_start_offset() + vtable_index * vtableEntry::size();
-
 #ifndef PRODUCT
   if (DebugVtables) {
     Label L;
     // check offset vs vtable length
-    __ cmpl(Address(rax, instanceKlass::vtable_length_offset() * wordSize),
+    __ cmpl(Address(rax, InstanceKlass::vtable_length_offset() * wordSize),
             vtable_index * vtableEntry::size());
     __ jcc(Assembler::greater, L);
     __ movl(rbx, vtable_index);
@@ -87,26 +87,25 @@ VtableStub* VtableStubs::create_vtable_stub(int vtable_index) {
   }
 #endif // PRODUCT
 
-  // load methodOop and target address
+  // load Method* and target address
   const Register method = rbx;
 
-  __ movptr(method, Address(rax,
-                            entry_offset * wordSize +
-                            vtableEntry::method_offset_in_bytes()));
+  __ lookup_virtual_method(rax, vtable_index, method);
+
   if (DebugVtables) {
     Label L;
     __ cmpptr(method, (int32_t)NULL_WORD);
     __ jcc(Assembler::equal, L);
-    __ cmpptr(Address(method, methodOopDesc::from_compiled_offset()), (int32_t)NULL_WORD);
+    __ cmpptr(Address(method, Method::from_compiled_offset()), (int32_t)NULL_WORD);
     __ jcc(Assembler::notZero, L);
     __ stop("Vtable entry is NULL");
     __ bind(L);
   }
   // rax: receiver klass
-  // rbx: methodOop
+  // rbx: Method*
   // rcx: receiver
   address ame_addr = __ pc();
-  __ jmp( Address(rbx, methodOopDesc::from_compiled_offset()));
+  __ jmp( Address(rbx, Method::from_compiled_offset()));
 
   __ flush();
 
@@ -132,6 +131,11 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
   // returned by pd_code_size_limit!
   const int amd64_code_length = VtableStub::pd_code_size_limit(false);
   VtableStub* s = new(amd64_code_length) VtableStub(false, itable_index);
+  // Can be NULL if there is no free space in the code cache.
+  if (s == NULL) {
+    return NULL;
+  }
+
   ResourceMark rm;
   CodeBuffer cb(s->entry_point(), amd64_code_length);
   MacroAssembler* masm = new MacroAssembler(&cb);
@@ -166,14 +170,14 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
   const Register method = rbx;
   Label throw_icce;
 
-  // Get methodOop and entrypoint for compiler
+  // Get Method* and entrypoint for compiler
   __ lookup_interface_method(// inputs: rec. class, interface, itable index
                              r10, rax, itable_index,
                              // outputs: method, scan temp. reg
                              method, r11,
                              throw_icce);
 
-  // method (rbx): methodOop
+  // method (rbx): Method*
   // j_rarg0: receiver
 
 #ifdef ASSERT
@@ -181,17 +185,17 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
     Label L2;
     __ cmpptr(method, (int32_t)NULL_WORD);
     __ jcc(Assembler::equal, L2);
-    __ cmpptr(Address(method, methodOopDesc::from_compiled_offset()), (int32_t)NULL_WORD);
+    __ cmpptr(Address(method, Method::from_compiled_offset()), (int32_t)NULL_WORD);
     __ jcc(Assembler::notZero, L2);
     __ stop("compiler entrypoint is null");
     __ bind(L2);
   }
 #endif // ASSERT
 
-  // rbx: methodOop
+  // rbx: Method*
   // j_rarg0: receiver
   address ame_addr = __ pc();
-  __ jmp(Address(method, methodOopDesc::from_compiled_offset()));
+  __ jmp(Address(method, Method::from_compiled_offset()));
 
   __ bind(throw_icce);
   __ jump(RuntimeAddress(StubRoutines::throw_IncompatibleClassChangeError_entry()));
@@ -217,11 +221,11 @@ int VtableStub::pd_code_size_limit(bool is_vtable_stub) {
   if (is_vtable_stub) {
     // Vtable stub size
     return (DebugVtables ? 512 : 24) + (CountCompiledCalls ? 13 : 0) +
-           (UseCompressedOops ? 16 : 0);  // 1 leaq can be 3 bytes + 1 long
+           (UseCompressedClassPointers ?  MacroAssembler::instr_size_for_decode_klass_not_null() : 0);
   } else {
     // Itable stub size
     return (DebugVtables ? 512 : 74) + (CountCompiledCalls ? 13 : 0) +
-           (UseCompressedOops ? 32 : 0);  // 2 leaqs
+           (UseCompressedClassPointers ?  MacroAssembler::instr_size_for_decode_klass_not_null() : 0);
   }
   // In order to tune these parameters, run the JVM with VM options
   // +PrintMiscellaneous and +WizardMode to see information about

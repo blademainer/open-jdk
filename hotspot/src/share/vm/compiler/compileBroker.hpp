@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,11 +36,14 @@ class nmethodLocker;
 //
 // An entry in the compile queue.  It represents a pending or current
 // compilation.
-class CompileTask : public CHeapObj {
+class CompileTask : public CHeapObj<mtCompiler> {
+  friend class VMStructs;
+
  private:
   Monitor*     _lock;
   uint         _compile_id;
-  jobject      _method;
+  Method*      _method;
+  jobject      _method_holder;
   int          _osr_bci;
   bool         _is_complete;
   bool         _is_success;
@@ -52,7 +55,8 @@ class CompileTask : public CHeapObj {
 
   // Fields used for logging why the compilation was initiated:
   jlong        _time_queued;  // in units of os::elapsed_counter()
-  jobject      _hot_method;   // which method actually triggered this task
+  Method*      _hot_method;   // which method actually triggered this task
+  jobject      _hot_method_holder;
   int          _hot_count;    // information about its invocation counter
   const char*  _comment;      // more info about the task
 
@@ -68,7 +72,7 @@ class CompileTask : public CHeapObj {
   void free();
 
   int          compile_id() const                { return _compile_id; }
-  jobject      method_handle() const             { return _method; }
+  Method*      method() const                    { return _method; }
   int          osr_bci() const                   { return _osr_bci; }
   bool         is_complete() const               { return _is_complete; }
   bool         is_blocking() const               { return _is_blocking; }
@@ -96,18 +100,25 @@ class CompileTask : public CHeapObj {
   void         set_prev(CompileTask* prev)       { _prev = prev; }
 
 private:
-  static void  print_compilation_impl(outputStream* st, methodOop method, int compile_id, int comp_level, bool is_osr_method = false, int osr_bci = -1, bool is_blocking = false, const char* msg = NULL);
+  static void  print_compilation_impl(outputStream* st, Method* method, int compile_id, int comp_level,
+                                      bool is_osr_method = false, int osr_bci = -1, bool is_blocking = false,
+                                      const char* msg = NULL, bool short_form = false);
 
 public:
-  void         print_compilation(outputStream* st = tty);
-  static void  print_compilation(outputStream* st, const nmethod* nm, const char* msg = NULL) {
-    print_compilation_impl(st, nm->method(), nm->compile_id(), nm->comp_level(), nm->is_osr_method(), nm->is_osr_method() ? nm->osr_entry_bci() : -1, /*is_blocking*/ false, msg);
+  void         print_compilation(outputStream* st = tty, const char* msg = NULL, bool short_form = false);
+  static void  print_compilation(outputStream* st, const nmethod* nm, const char* msg = NULL, bool short_form = false) {
+    print_compilation_impl(st, nm->method(), nm->compile_id(), nm->comp_level(),
+                           nm->is_osr_method(), nm->is_osr_method() ? nm->osr_entry_bci() : -1, /*is_blocking*/ false,
+                           msg, short_form);
   }
 
   static void  print_inlining(outputStream* st, ciMethod* method, int inline_level, int bci, const char* msg = NULL);
   static void  print_inlining(ciMethod* method, int inline_level, int bci, const char* msg = NULL) {
     print_inlining(tty, method, inline_level, bci, msg);
   }
+
+  // Redefine Classes support
+  void mark_on_stack();
 
   static void  print_inline_indent(int inline_level, outputStream* st = tty);
 
@@ -125,7 +136,7 @@ public:
 //
 // Per Compiler Performance Counters.
 //
-class CompilerCounters : public CHeapObj {
+class CompilerCounters : public CHeapObj<mtCompiler> {
 
   public:
     enum {
@@ -169,7 +180,7 @@ class CompilerCounters : public CHeapObj {
 // CompileQueue
 //
 // A list of CompileTasks.
-class CompileQueue : public CHeapObj {
+class CompileQueue : public CHeapObj<mtCompiler> {
  private:
   const char* _name;
   Monitor*    _lock;
@@ -200,7 +211,14 @@ class CompileQueue : public CHeapObj {
   bool         is_empty() const                  { return _first == NULL; }
   int          size()     const                  { return _size;          }
 
+  // Redefine Classes support
+  void mark_on_stack();
+  void delete_all();
   void         print();
+
+  ~CompileQueue() {
+    assert (is_empty(), " Compile Queue must be empty");
+  }
 };
 
 // CompileTaskWrapper
@@ -252,7 +270,7 @@ class CompileBroker: AllStatic {
   static CompileQueue* _c1_method_queue;
   static CompileTask* _task_free_list;
 
-  static GrowableArray<CompilerThread*>* _method_threads;
+  static GrowableArray<CompilerThread*>* _compiler_threads;
 
   // performance counters
   static PerfCounter* _perf_total_compilation;
@@ -285,19 +303,21 @@ class CompileBroker: AllStatic {
   static elapsedTimer _t_osr_compilation;
   static elapsedTimer _t_standard_compilation;
 
+  static int _total_compile_count;
   static int _total_bailout_count;
   static int _total_invalidated_count;
-  static int _total_compile_count;
   static int _total_native_compile_count;
   static int _total_osr_compile_count;
   static int _total_standard_compile_count;
-
   static int _sum_osr_bytes_compiled;
   static int _sum_standard_bytes_compiled;
   static int _sum_nmethod_size;
   static int _sum_nmethod_code_size;
+  static long _peak_compilation_time;
 
-  static CompilerThread* make_compiler_thread(const char* name, CompileQueue* queue, CompilerCounters* counters, TRAPS);
+  static volatile jint _print_compilation_warning;
+
+  static CompilerThread* make_compiler_thread(const char* name, CompileQueue* queue, CompilerCounters* counters, AbstractCompiler* comp, TRAPS);
   static void init_compiler_threads(int c1_compiler_count, int c2_compiler_count);
   static bool compilation_is_complete  (methodHandle method, int osr_bci, int comp_level);
   static bool compilation_is_prohibited(methodHandle method, int osr_bci, int comp_level);
@@ -331,12 +351,15 @@ class CompileBroker: AllStatic {
                                   methodHandle hot_method,
                                   int hot_count,
                                   const char* comment,
-                                  TRAPS);
+                                  Thread* thread);
   static CompileQueue* compile_queue(int comp_level) {
     if (is_c2_compile(comp_level)) return _c2_method_queue;
     if (is_c1_compile(comp_level)) return _c1_method_queue;
     return NULL;
   }
+  static bool init_compiler_runtime();
+  static void shutdown_compiler_runtime(AbstractCompiler* comp, CompilerThread* thread);
+
  public:
   enum {
     // The entry bci used for non-OSR compilations.
@@ -361,12 +384,10 @@ class CompileBroker: AllStatic {
                                  int comp_level,
                                  methodHandle hot_method,
                                  int hot_count,
-                                 const char* comment, TRAPS);
+                                 const char* comment, Thread* thread);
 
   static void compiler_thread_loop();
-
   static uint get_compilation_id() { return _compilation_id; }
-  static bool is_idle();
 
   // Set _should_block.
   // Call this from the VM, with Threads_lock held and a safepoint requested.
@@ -377,8 +398,9 @@ class CompileBroker: AllStatic {
 
   enum {
     // Flags for toggling compiler activity
-    stop_compilation = 0,
-    run_compilation  = 1
+    stop_compilation    = 0,
+    run_compilation     = 1,
+    shutdown_compilaton = 2
   };
 
   static bool should_compile_new_jobs() { return UseCompiler && (_should_compile_new_jobs == run_compilation); }
@@ -387,12 +409,29 @@ class CompileBroker: AllStatic {
     jint old = Atomic::cmpxchg(new_state, &_should_compile_new_jobs, 1-new_state);
     return (old == (1-new_state));
   }
-  static void handle_full_code_cache();
 
+  static void disable_compilation_forever() {
+    UseCompiler               = false;
+    AlwaysCompileLoopMethods  = false;
+    Atomic::xchg(shutdown_compilaton, &_should_compile_new_jobs);
+  }
+
+  static bool is_compilation_disabled_forever() {
+    return _should_compile_new_jobs == shutdown_compilaton;
+  }
+  static void handle_full_code_cache();
+  // Ensures that warning is only printed once.
+  static bool should_print_compiler_warning() {
+    jint old = Atomic::cmpxchg(1, &_print_compilation_warning, 0);
+    return old == 0;
+  }
   // Return total compilation ticks
   static jlong total_compilation_ticks() {
     return _perf_total_compilation != NULL ? _perf_total_compilation->get_value() : 0;
   }
+
+  // Redefine Classes support
+  static void mark_on_stack();
 
   // Print a detailed accounting of compilation time
   static void print_times();
@@ -401,6 +440,22 @@ class CompileBroker: AllStatic {
   static void print_last_compile();
 
   static void print_compiler_threads_on(outputStream* st);
+
+  // compiler name for debugging
+  static const char* compiler_name(int comp_level);
+
+  static int get_total_compile_count() {          return _total_compile_count; }
+  static int get_total_bailout_count() {          return _total_bailout_count; }
+  static int get_total_invalidated_count() {      return _total_invalidated_count; }
+  static int get_total_native_compile_count() {   return _total_native_compile_count; }
+  static int get_total_osr_compile_count() {      return _total_osr_compile_count; }
+  static int get_total_standard_compile_count() { return _total_standard_compile_count; }
+  static int get_sum_osr_bytes_compiled() {       return _sum_osr_bytes_compiled; }
+  static int get_sum_standard_bytes_compiled() {  return _sum_standard_bytes_compiled; }
+  static int get_sum_nmethod_size() {             return _sum_nmethod_size;}
+  static int get_sum_nmethod_code_size() {        return _sum_nmethod_code_size; }
+  static long get_peak_compilation_time() {       return _peak_compilation_time; }
+  static long get_total_compilation_time() {      return _t_total_compilation.milliseconds(); }
 };
 
 #endif // SHARE_VM_COMPILER_COMPILEBROKER_HPP

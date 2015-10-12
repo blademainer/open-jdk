@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,10 +32,35 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <io.h>
 
 #include "sys.h"
 
 #include "path_md.h"
+
+static void dll_build_name(char* buffer, size_t buflen,
+                           const char* paths, const char* fname) {
+    char *path, *paths_copy, *next_token;
+
+    paths_copy = strdup(paths);
+    if (paths_copy == NULL) {
+        return;
+    }
+
+    next_token = NULL;
+    path = strtok_s(paths_copy, PATH_SEPARATOR, &next_token);
+
+    while (path != NULL) {
+        _snprintf(buffer, buflen, "%s\\%s.dll", path, fname);
+        if (_access(buffer, 0) == 0) {
+            break;
+        }
+        *buffer = '\0';
+        path = strtok_s(NULL, PATH_SEPARATOR, &next_token);
+    }
+
+    free(paths_copy);
+}
 
 /*
  * From system_md.c v1.54
@@ -77,23 +102,20 @@ dbgsysGetLastErrorString(char *buf, int len)
  * Build a machine dependent library name out of a path and file name.
  */
 void
-dbgsysBuildLibName(char *holder, int holderlen, char *pname, char *fname)
+dbgsysBuildLibName(char *holder, int holderlen, const char *pname, const char *fname)
 {
     const int pnamelen = pname ? (int)strlen(pname) : 0;
-    const char c = (pnamelen > 0) ? pname[pnamelen-1] : 0;
 
+    *holder = '\0';
     /* Quietly truncates on buffer overflow. Should be an error. */
     if (pnamelen + (int)strlen(fname) + 10 > holderlen) {
-        *holder = '\0';
         return;
     }
 
     if (pnamelen == 0) {
         sprintf(holder, "%s.dll", fname);
-    } else if (c == ':' || c == '\\') {
-        sprintf(holder, "%s%s.dll", pname, fname);
     } else {
-        sprintf(holder, "%s\\%s.dll", pname, fname);
+      dll_build_name(holder, holderlen, pname, fname);
     }
 }
 

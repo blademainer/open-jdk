@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2006, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,7 @@
 
 OS=`uname -s`
 case "$OS" in
-  SunOS | Linux )
+  SunOS | Linux | Darwin )
     PS=":"
     FS="/"
     ;;
@@ -46,11 +46,11 @@ case "$OS" in
     ;;
 esac
 
-# no need to compile the test. It is already compiled 
+# no need to compile the test. It is already compiled
 # with 1.3 and in OldStyleImpl.jar
 
-# run 
-${TESTJAVA}${FS}bin${FS}java -cp ${TESTSRC}${FS}OldSocketImpl.jar OldSocketImpl
+# run
+${TESTJAVA}${FS}bin${FS}java ${TESTVMOPTS} -cp ${TESTSRC}${FS}OldSocketImpl.jar OldSocketImpl
 result=$?
 if [ "$result" -ne "0" ]; then
     exit 1

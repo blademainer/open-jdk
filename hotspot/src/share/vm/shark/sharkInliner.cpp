@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2009 Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -725,7 +725,7 @@ bool SharkInlinerHelper::do_field_access(bool is_get, bool is_field) {
   // Push the result if necessary
   if (is_get) {
     bool result_pushed = false;
-    if (field->is_constant()) {
+    if (field->is_constant() && field->is_static()) {
       SharkConstant *sc = SharkConstant::for_field(iter());
       if (sc->is_loaded()) {
         push(sc->is_nonzero());

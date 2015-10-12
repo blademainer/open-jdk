@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,7 +58,7 @@ class State;
 class MachOper : public ResourceObj {
 public:
   // Allocate right next to the MachNodes in the same arena
-  void *operator new( size_t x, Compile* C ) { return C->node_arena()->Amalloc_D(x); }
+  void *operator new( size_t x, Compile* C ) throw() { return C->node_arena()->Amalloc_D(x); }
 
   // Opcode
   virtual uint opcode() const = 0;
@@ -104,7 +104,7 @@ public:
 #endif
 
   virtual intptr_t  constant() const;
-  virtual bool constant_is_oop() const;
+  virtual relocInfo::relocType constant_reloc() const;
   virtual jdouble constantD() const;
   virtual jfloat  constantF() const;
   virtual jlong   constantL() const;
@@ -118,7 +118,7 @@ public:
   // Parameters needed to support MEMORY_INTERFACE access to stackSlot
   virtual int  disp (PhaseRegAlloc *ra_, const Node *node, int idx) const;
   // Check for PC-Relative displacement
-  virtual bool disp_is_oop() const;
+  virtual relocInfo::relocType disp_reloc() const;
   virtual int  constant_disp() const;   // usu. 0, may return Type::OffsetBot
   virtual int  base_position()  const;  // base edge position, or -1
   virtual int  index_position() const;  // index edge position, or -1
@@ -185,8 +185,13 @@ public:
   virtual void use_cisc_RegMask();
 
   // Support for short branches
-  virtual MachNode *short_branch_version(Compile* C) { return NULL; }
   bool may_be_short_branch() const { return (flags() & Flag_may_be_short_branch) != 0; }
+
+  // Avoid back to back some instructions on some CPUs.
+  bool avoid_back_to_back() const { return (flags() & Flag_avoid_back_to_back) != 0; }
+
+  // instruction implemented with a call
+  bool has_call() const { return (flags() & Flag_has_call) != 0; }
 
   // First index in _in[] corresponding to operand, or -1 if there is none
   int  operand_index(uint operand) const;
@@ -242,7 +247,7 @@ public:
 
   // Bottom_type call; value comes from operand0
   virtual const class Type *bottom_type() const { return _opnds[0]->type(); }
-  virtual uint ideal_reg() const { const Type *t = _opnds[0]->type(); return t == TypeInt::CC ? Op_RegFlags : Matcher::base2reg[t->base()]; }
+  virtual uint ideal_reg() const { const Type *t = _opnds[0]->type(); return t == TypeInt::CC ? Op_RegFlags : t->ideal_reg(); }
 
   // If this is a memory op, return the base pointer and fixed offset.
   // If there are no such, return NULL.  If there are multiple addresses
@@ -269,20 +274,11 @@ public:
   // Call "get_base_and_disp" to decide which category of memory is used here.
   virtual const class TypePtr *adr_type() const;
 
-  // Negate conditional branches.  Error for non-branch Nodes
-  virtual void negate();
-
   // Apply peephole rule(s) to this instruction
   virtual MachNode *peephole( Block *block, int block_index, PhaseRegAlloc *ra_, int &deleted, Compile* C );
 
-  // Check for PC-Relative addressing
-  bool is_pc_relative() const { return (flags() & Flag_is_pc_relative) != 0; }
-
   // Top-level ideal Opcode matched
   virtual int ideal_Opcode()     const { return Op_Node; }
-
-  // Set the branch inside jump MachNodes.  Error for non-branch Nodes.
-  virtual void label_set( Label& label, uint block_num );
 
   // Adds the label for the case
   virtual void add_case_label( int switch_val, Label* blockLabel);
@@ -323,6 +319,7 @@ public:
 class MachTypeNode : public MachNode {
   virtual uint size_of() const { return sizeof(*this); } // Size is bigger
 public:
+  MachTypeNode( ) {}
   const Type *_bottom_type;
 
   virtual const class Type *bottom_type() const { return _bottom_type; }
@@ -374,12 +371,12 @@ public:
 
 //------------------------------MachConstantNode-------------------------------
 // Machine node that holds a constant which is stored in the constant table.
-class MachConstantNode : public MachNode {
+class MachConstantNode : public MachTypeNode {
 protected:
   Compile::Constant _constant;  // This node's constant.
 
 public:
-  MachConstantNode() : MachNode() {
+  MachConstantNode() : MachTypeNode() {
     init_class_id(Class_MachConstant);
   }
 
@@ -501,7 +498,7 @@ public:
   virtual const RegMask &out_RegMask() const { return *_out; }
   virtual const RegMask &in_RegMask(uint) const { return *_in; }
   virtual const class Type *bottom_type() const { return _type; }
-  virtual uint ideal_reg() const { return Matcher::base2reg[_type->base()]; }
+  virtual uint ideal_reg() const { return _type->ideal_reg(); }
   virtual uint oper_input_base() const { return 1; }
   uint implementation( CodeBuffer *cbuf, PhaseRegAlloc *ra_, bool do_size, outputStream* st ) const;
 
@@ -514,24 +511,41 @@ public:
 #endif
 };
 
+//------------------------------MachBranchNode--------------------------------
+// Abstract machine branch Node
+class MachBranchNode : public MachIdealNode {
+public:
+  MachBranchNode() : MachIdealNode() {
+    init_class_id(Class_MachBranch);
+  }
+  virtual void label_set(Label* label, uint block_num) = 0;
+  virtual void save_label(Label** label, uint* block_num) = 0;
+
+  // Support for short branches
+  virtual MachNode *short_branch_version(Compile* C) { return NULL; }
+
+  virtual bool pinned() const { return true; };
+};
+
 //------------------------------MachNullChkNode--------------------------------
 // Machine-dependent null-pointer-check Node.  Points a real MachNode that is
 // also some kind of memory op.  Turns the indicated MachNode into a
 // conditional branch with good latency on the ptr-not-null path and awful
 // latency on the pointer-is-null path.
 
-class MachNullCheckNode : public MachIdealNode {
+class MachNullCheckNode : public MachBranchNode {
 public:
   const uint _vidx;             // Index of memop being tested
-  MachNullCheckNode( Node *ctrl, Node *memop, uint vidx ) : MachIdealNode(), _vidx(vidx) {
+  MachNullCheckNode( Node *ctrl, Node *memop, uint vidx ) : MachBranchNode(), _vidx(vidx) {
     init_class_id(Class_MachNullCheck);
-    init_flags(Flag_is_Branch | Flag_is_pc_relative);
     add_req(ctrl);
     add_req(memop);
   }
+  virtual uint size_of() const { return sizeof(*this); }
 
   virtual void emit(CodeBuffer &cbuf, PhaseRegAlloc *ra_) const;
-  virtual bool pinned() const { return true; };
+  virtual void label_set(Label* label, uint block_num);
+  virtual void save_label(Label** label, uint* block_num);
   virtual void negate() { }
   virtual const class Type *bottom_type() const { return TypeTuple::IFBOTH; }
   virtual uint ideal_reg() const { return NotAMachineReg; }
@@ -553,7 +567,9 @@ public:
 // occasional callbacks to the machine model for important info.
 class MachProjNode : public ProjNode {
 public:
-  MachProjNode( Node *multi, uint con, const RegMask &out, uint ideal_reg ) : ProjNode(multi,con), _rout(out), _ideal_reg(ideal_reg) {}
+  MachProjNode( Node *multi, uint con, const RegMask &out, uint ideal_reg ) : ProjNode(multi,con), _rout(out), _ideal_reg(ideal_reg) {
+    init_class_id(Class_MachProj);
+  }
   RegMask _rout;
   const uint  _ideal_reg;
   enum projType {
@@ -575,17 +591,28 @@ public:
 
 //------------------------------MachIfNode-------------------------------------
 // Machine-specific versions of IfNodes
-class MachIfNode : public MachNode {
+class MachIfNode : public MachBranchNode {
   virtual uint size_of() const { return sizeof(*this); } // Size is bigger
 public:
   float _prob;                  // Probability branch goes either way
   float _fcnt;                  // Frequency counter
-  MachIfNode() : MachNode() {
+  MachIfNode() : MachBranchNode() {
     init_class_id(Class_MachIf);
   }
+  // Negate conditional branches.
+  virtual void negate() = 0;
 #ifndef PRODUCT
   virtual void dump_spec(outputStream *st) const;
 #endif
+};
+
+//------------------------------MachGotoNode-----------------------------------
+// Machine-specific versions of GotoNodes
+class MachGotoNode : public MachBranchNode {
+public:
+  MachGotoNode() : MachBranchNode() {
+    init_class_id(Class_MachGoto);
+  }
 };
 
 //------------------------------MachFastLockNode-------------------------------------
@@ -630,14 +657,12 @@ public:
 
   MachSafePointNode() : MachReturnNode(), _oop_map(NULL), _jvms(NULL), _jvmadj(0) {
     init_class_id(Class_MachSafePoint);
-    init_flags(Flag_is_safepoint_node);
   }
 
   virtual JVMState* jvms() const { return _jvms; }
   void set_jvms(JVMState* s) {
     _jvms = s;
   }
-  bool is_safepoint_node() const { return (flags() & Flag_is_safepoint_node) != 0; }
   virtual const Type    *bottom_type() const;
 
   virtual const RegMask &in_RegMask(uint) const;
@@ -701,7 +726,6 @@ public:
 
   MachCallNode() : MachSafePointNode() {
     init_class_id(Class_MachCall);
-    init_flags(Flag_is_Call);
   }
 
   virtual const Type *bottom_type() const;
@@ -853,7 +877,7 @@ public:
 
   virtual MachOper *clone(Compile* C) const;
 
-  virtual Label *label() const { return _label; }
+  virtual Label *label() const { assert(_label != NULL, "need Label"); return _label; }
 
   virtual uint           opcode() const;
 

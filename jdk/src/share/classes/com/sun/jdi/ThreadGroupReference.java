@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,8 +37,9 @@ import java.util.List;
  * @author James McIlree
  * @since  1.3
  */
-public interface ThreadGroupReference extends ObjectReference
-{
+@jdk.Exported
+public interface ThreadGroupReference extends ObjectReference {
+
     /**
      * Returns the name of this thread group.
      *

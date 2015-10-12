@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,9 @@
  * @summary support self-issued certificate
  * @run main/othervm SelfIssuedCert PKIX
  * @run main/othervm SelfIssuedCert SunX509
+ *
+ *     SunJSSE does not support dynamic system properties, no way to re-use
+ *     system properties in samevm/agentvm mode.
  * @author Xuelei Fan
  */
 
@@ -42,7 +45,7 @@ import java.security.spec.*;
 import java.security.interfaces.*;
 import java.math.BigInteger;
 
-import sun.misc.BASE64Decoder;
+import java.util.Base64;
 
 public class SelfIssuedCert {
 
@@ -239,7 +242,7 @@ public class SelfIssuedCert {
         if (keyCertStr != null) {
             // generate the private key.
             PKCS8EncodedKeySpec priKeySpec = new PKCS8EncodedKeySpec(
-                                new BASE64Decoder().decodeBuffer(keySpecStr));
+                                Base64.getMimeDecoder().decode(keySpecStr));
             KeyFactory kf = KeyFactory.getInstance("RSA");
             RSAPrivateKey priKey =
                     (RSAPrivateKey)kf.generatePrivate(priKeySpec);

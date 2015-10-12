@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,12 +23,13 @@
  */
 
 // no precompiled headers
-#include "assembler_x86.inline.hpp"
+#include "asm/macroAssembler.hpp"
 #include "classfile/classLoader.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "classfile/vmSymbols.hpp"
 #include "code/icBuffer.hpp"
 #include "code/vtableStubs.hpp"
+#include "decoder_windows.hpp"
 #include "interpreter/interpreter.hpp"
 #include "jvm_windows.h"
 #include "memory/allocation.inline.hpp"
@@ -48,16 +49,10 @@
 #include "runtime/osThread.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/timer.hpp"
-#include "thread_windows.inline.hpp"
 #include "utilities/events.hpp"
 #include "utilities/vmError.hpp"
-#ifdef COMPILER1
-#include "c1/c1_Runtime1.hpp"
-#endif
-#ifdef COMPILER2
-#include "opto/runtime.hpp"
-#endif
 
 # include "unwind_windows_x86.hpp"
 #undef REG_SP
@@ -181,9 +176,6 @@ bool os::register_code_area(char *low, char *high) {
   PRUNTIME_FUNCTION prt;
   PUNWIND_INFO_EH_ONLY punwind;
 
-  // If we are using Vectored Exceptions we don't need this registration
-  if (UseVectoredExceptions) return true;
-
   BufferBlob* blob = BufferBlob::create("CodeCache Exception Handler", sizeof(DynamicCodeData));
   CodeBuffer cb(blob);
   MacroAssembler* masm = new MacroAssembler(&cb);
@@ -219,7 +211,7 @@ bool os::register_code_area(char *low, char *high) {
   return true;
 }
 
-void os::initialize_thread() {
+void os::initialize_thread(Thread* thr) {
 // Nothing to do.
 }
 
@@ -336,6 +328,94 @@ add_ptr_func_t*      os::atomic_add_ptr_func      = os::atomic_add_ptr_bootstrap
 
 cmpxchg_long_func_t* os::atomic_cmpxchg_long_func = os::atomic_cmpxchg_long_bootstrap;
 
+#ifdef AMD64
+/*
+ * Windows/x64 does not use stack frames the way expected by Java:
+ * [1] in most cases, there is no frame pointer. All locals are addressed via RSP
+ * [2] in rare cases, when alloca() is used, a frame pointer is used, but this may
+ *     not be RBP.
+ * See http://msdn.microsoft.com/en-us/library/ew5tede7.aspx
+ *
+ * So it's not possible to print the native stack using the
+ *     while (...) {...  fr = os::get_sender_for_C_frame(&fr); }
+ * loop in vmError.cpp. We need to roll our own loop.
+ */
+bool os::platform_print_native_stack(outputStream* st, void* context,
+                                     char *buf, int buf_size)
+{
+  CONTEXT ctx;
+  if (context != NULL) {
+    memcpy(&ctx, context, sizeof(ctx));
+  } else {
+    RtlCaptureContext(&ctx);
+  }
+
+  st->print_cr("Native frames: (J=compiled Java code, j=interpreted, Vv=VM code, C=native code)");
+
+  STACKFRAME stk;
+  memset(&stk, 0, sizeof(stk));
+  stk.AddrStack.Offset    = ctx.Rsp;
+  stk.AddrStack.Mode      = AddrModeFlat;
+  stk.AddrFrame.Offset    = ctx.Rbp;
+  stk.AddrFrame.Mode      = AddrModeFlat;
+  stk.AddrPC.Offset       = ctx.Rip;
+  stk.AddrPC.Mode         = AddrModeFlat;
+
+  int count = 0;
+  address lastpc = 0;
+  while (count++ < StackPrintLimit) {
+    intptr_t* sp = (intptr_t*)stk.AddrStack.Offset;
+    intptr_t* fp = (intptr_t*)stk.AddrFrame.Offset; // NOT necessarily the same as ctx.Rbp!
+    address pc = (address)stk.AddrPC.Offset;
+
+    if (pc != NULL && sp != NULL && fp != NULL) {
+      if (count == 2 && lastpc == pc) {
+        // Skip it -- StackWalk64() may return the same PC
+        // (but different SP) on the first try.
+      } else {
+        // Don't try to create a frame(sp, fp, pc) -- on WinX64, stk.AddrFrame
+        // may not contain what Java expects, and may cause the frame() constructor
+        // to crash. Let's just print out the symbolic address.
+        frame::print_C_frame(st, buf, buf_size, pc);
+        st->cr();
+      }
+      lastpc = pc;
+    } else {
+      break;
+    }
+
+    PVOID p = WindowsDbgHelp::SymFunctionTableAccess64(GetCurrentProcess(), stk.AddrPC.Offset);
+    if (!p) {
+      // StackWalk64() can't handle this PC. Calling StackWalk64 again may cause crash.
+      break;
+    }
+
+    BOOL result = WindowsDbgHelp::StackWalk64(
+        IMAGE_FILE_MACHINE_AMD64,  // __in      DWORD MachineType,
+        GetCurrentProcess(),       // __in      HANDLE hProcess,
+        GetCurrentThread(),        // __in      HANDLE hThread,
+        &stk,                      // __inout   LP STACKFRAME64 StackFrame,
+        &ctx,                      // __inout   PVOID ContextRecord,
+        NULL,                      // __in_opt  PREAD_PROCESS_MEMORY_ROUTINE64 ReadMemoryRoutine,
+        WindowsDbgHelp::pfnSymFunctionTableAccess64(),
+                                   // __in_opt  PFUNCTION_TABLE_ACCESS_ROUTINE64 FunctionTableAccessRoutine,
+        WindowsDbgHelp::pfnSymGetModuleBase64(),
+                                   // __in_opt  PGET_MODULE_BASE_ROUTINE64 GetModuleBaseRoutine,
+        NULL);                     // __in_opt  PTRANSLATE_ADDRESS_ROUTINE64 TranslateAddress
+
+    if (!result) {
+      break;
+    }
+  }
+  if (count > StackPrintLimit) {
+    st->print_cr("...<more frames>...");
+  }
+  st->cr();
+
+  return true;
+}
+#endif // AMD64
+
 ExtendedPC os::fetch_frame_from_context(void* ucVoid,
                     intptr_t** ret_sp, intptr_t** ret_fp) {
 
@@ -370,6 +450,26 @@ frame os::get_sender_for_C_frame(frame* fr) {
   return frame(fr->sender_sp(), fr->link(), fr->sender_pc());
 }
 
+#ifndef AMD64
+// Returns an estimate of the current stack pointer. Result must be guaranteed
+// to point into the calling threads stack, and be no lower than the current
+// stack pointer.
+address os::current_stack_pointer() {
+  int dummy;
+  address sp = (address)&dummy;
+  return sp;
+}
+#else
+// Returns the current stack pointer. Accurate value needed for
+// os::verify_stack_alignment().
+address os::current_stack_pointer() {
+  typedef address get_sp_func();
+  get_sp_func* func = CAST_TO_FN_PTR(get_sp_func*,
+                                     StubRoutines::x86::get_previous_sp_entry());
+  return (*func)();
+}
+#endif
+
 
 #ifndef AMD64
 intptr_t* _get_previous_fp() {
@@ -388,8 +488,11 @@ frame os::current_frame() {
   typedef intptr_t*      get_fp_func           ();
   get_fp_func* func = CAST_TO_FN_PTR(get_fp_func*,
                                      StubRoutines::x86::get_previous_fp_entry());
-  if (func == NULL) return frame(NULL, NULL, NULL);
+  if (func == NULL) return frame();
   intptr_t* fp = (*func)();
+  if (fp == NULL) {
+    return frame();
+  }
 #else
   intptr_t* fp = _get_previous_fp();
 #endif // AMD64
@@ -399,7 +502,7 @@ frame os::current_frame() {
                 CAST_FROM_FN_PTR(address, os::current_frame));
   if (os::is_first_C_frame(&myframe)) {
     // stack is not walkable
-    return frame(NULL, NULL, NULL);
+    return frame();
   } else {
     return os::get_sender_for_C_frame(&myframe);
   }
@@ -507,24 +610,6 @@ void os::print_register_info(outputStream *st, void *context) {
   st->cr();
 }
 
-extern "C" int SafeFetch32 (int * adr, int Err) {
-   int rv = Err ;
-   _try {
-       rv = *((volatile int *) adr) ;
-   } __except(EXCEPTION_EXECUTE_HANDLER) {
-   }
-   return rv ;
-}
-
-extern "C" intptr_t SafeFetchN (intptr_t * adr, intptr_t Err) {
-   intptr_t rv = Err ;
-   _try {
-       rv = *((volatile intptr_t *) adr) ;
-   } __except(EXCEPTION_EXECUTE_HANDLER) {
-   }
-   return rv ;
-}
-
 extern "C" int SpinPause () {
 #ifdef AMD64
    return 0 ;
@@ -546,3 +631,11 @@ void os::setup_fpu() {
   __asm fldcw fpu_cntrl_word;
 #endif // !AMD64
 }
+
+#ifndef PRODUCT
+void os::verify_stack_alignment() {
+#ifdef AMD64
+  assert(((intptr_t)os::current_stack_pointer() & (StackAlignmentInBytes-1)) == 0, "incorrect stack alignment");
+#endif
+}
+#endif

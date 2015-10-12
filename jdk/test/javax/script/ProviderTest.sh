@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -38,13 +38,13 @@ fi
 
 echo "Creating JAR file ..."
 
-$JAR -cf ${TESTCLASSES}/dummy.jar \
+$JAR ${TESTTOOLVMOPTS} -cf ${TESTCLASSES}/dummy.jar \
     -C ${TESTCLASSES} DummyScriptEngine.class \
     -C ${TESTCLASSES} DummyScriptEngineFactory.class \
     -C "${TESTSRC}" META-INF/services/javax.script.ScriptEngineFactory
 
 echo "Running test ..."
 
-$JAVA -classpath \
+$JAVA ${TESTVMOPTS} -classpath \
   "${TESTCLASSES}${PS}${TESTCLASSES}/dummy.jar" \
   ProviderTest

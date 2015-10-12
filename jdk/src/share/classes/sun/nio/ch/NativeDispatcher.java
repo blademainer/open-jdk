@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2002, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,8 +38,16 @@ abstract class NativeDispatcher
     abstract int read(FileDescriptor fd, long address, int len)
         throws IOException;
 
-    int pread(FileDescriptor fd, long address, int len,
-                             long position, Object lock) throws IOException
+    /**
+     * Returns {@code true} if pread/pwrite needs to be synchronized with
+     * position sensitive methods.
+     */
+    boolean needsPositionLock() {
+        return false;
+    }
+
+    int pread(FileDescriptor fd, long address, int len, long position)
+        throws IOException
     {
         throw new IOException("Operation Unsupported");
     }
@@ -50,8 +58,8 @@ abstract class NativeDispatcher
     abstract int write(FileDescriptor fd, long address, int len)
         throws IOException;
 
-    int pwrite(FileDescriptor fd, long address, int len,
-                             long position, Object lock) throws IOException
+    int pwrite(FileDescriptor fd, long address, int len, long position)
+        throws IOException
     {
         throw new IOException("Operation Unsupported");
     }

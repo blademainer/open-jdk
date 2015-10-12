@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,12 +21,18 @@
  * questions.
  */
 
+//
+// SunJSSE does not support dynamic system properties, no way to re-use
+// system properties in samevm/agentvm mode.
+//
+
 /*
  * @test
  *
  * @bug 6388456
  * @summary Need adjustable TLS max record size for interoperability
  *      with non-compliant
+ * @run main/othervm LargePacket
  *
  * @author Xuelei Fan
  */
@@ -82,12 +88,12 @@ public class LargePacket extends SSLEngineService {
         SocketChannel sc = ssc.accept();
 
         // Complete connection.
-        while (!sc.finishConnect() ) {
+        while (!sc.finishConnect()) {
             // waiting for the connection completed.
         }
 
         // handshaking
-        handshaking(ssle, sc);
+        handshaking(ssle, sc, null);
 
         // receive application data
         receive(ssle, sc);
@@ -130,7 +136,7 @@ public class LargePacket extends SSLEngineService {
         }
 
         // handshaking
-        handshaking(ssle, sc);
+        handshaking(ssle, sc, null);
 
         // send out application data
         deliver(ssle, sc);
@@ -168,6 +174,8 @@ public class LargePacket extends SSLEngineService {
      * Fork off the other side, then do your work.
      */
     LargePacket() throws Exception {
+        super("../../../../../etc");
+
         if (separateServerThread) {
             startServer(true);
             startClient(false);

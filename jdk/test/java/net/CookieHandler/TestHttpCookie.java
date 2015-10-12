@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,7 +24,7 @@
 /**
  * @test
  * @summary Unit test for java.net.HttpCookie
- * @bug 6244040 6277796 6277801 6277808 6294071 6692802 6790677 6901170
+ * @bug 6244040 6277796 6277801 6277808 6294071 6692802 6790677 6901170 8020758
  * @author Edward Wang
  */
 
@@ -362,12 +362,13 @@ public class TestHttpCookie {
         eq(c1, c2, false);
 
         header("Test domainMatches()");
-        dm(".foo.com",  "y.x.foo.com",      false);
-        dm(".foo.com",  "x.foo.com",        true);
-        dm(".com",      "whatever.com",     false);
-        dm(".com.",     "whatever.com",     false);
-        dm(".ajax.com", "ajax.com",         true);
-        dm(".local",    "example.local",    true);
+        dm(".foo.com",      "y.x.foo.com",      false);
+        dm(".foo.com",      "x.foo.com",        true);
+        dm(".com",          "whatever.com",     false);
+        dm(".com.",         "whatever.com",     false);
+        dm(".ajax.com",     "ajax.com",         true);
+        dm(".local",        "example.local",    true);
+        dm("example.local", "example",          true);
 
         // bug 6277808
         testCount++;
@@ -380,6 +381,9 @@ public class TestHttpCookie {
         // CR 6692802: HttpOnly flag
         test("set-cookie: CUSTOMER=WILE_E_COYOTE;HttpOnly").httpOnly(true);
         test("set-cookie: CUSTOMER=WILE_E_COYOTE").httpOnly(false);
+
+        // space disallowed in name (both Netscape and RFC2965)
+        test("set-cookie: CUST OMER=WILE_E_COYOTE").nil();
     }
 
     static void header(String prompt) {

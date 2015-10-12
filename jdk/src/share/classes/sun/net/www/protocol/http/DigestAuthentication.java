@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -364,17 +364,18 @@ class DigestAuthentication extends AuthenticationInfo {
                         + ncfield
                         + ", uri=\"" + uri
                         + "\", response=\"" + response
-                        + "\", algorithm=\"" + algorithm;
+                        + "\", algorithm=" + algorithm;
         if (opaque != null) {
-            value = value + "\", opaque=\"" + opaque;
+            value = value + ", opaque=\"" + opaque;
+            value = value + "\"";
         }
         if (cnonce != null) {
-            value = value + "\", cnonce=\"" + cnonce;
+            value = value + ", cnonce=\"" + cnonce;
+            value = value + "\"";
         }
         if (qop) {
-            value = value + "\", qop=\"auth";
+            value = value + ", qop=auth";
         }
-        value = value + "\"";
         return value;
     }
 

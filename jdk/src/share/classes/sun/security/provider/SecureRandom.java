@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -56,12 +56,6 @@ implements java.io.Serializable {
 
     private static final long serialVersionUID = 3581829991155417889L;
 
-    /**
-     * This static object will be seeded by SeedGenerator, and used
-     * to seed future instances of SecureRandom
-     */
-    private static SecureRandom seeder;
-
     private static final int DIGEST_SIZE = 20;
     private transient MessageDigest digest;
     private byte[] state;
@@ -85,7 +79,7 @@ implements java.io.Serializable {
     }
 
     /**
-     * This constructor is used to instatiate the private seeder object
+     * This constructor is used to instantiate the private seeder object
      * with a given seed from the SeedGenerator.
      *
      * @param seed the seed.
@@ -100,9 +94,9 @@ implements java.io.Serializable {
      */
     private void init(byte[] seed) {
         try {
-            digest = MessageDigest.getInstance ("SHA");
+            digest = MessageDigest.getInstance("SHA");
         } catch (NoSuchAlgorithmException e) {
-            throw new InternalError("internal error: SHA-1 not available.");
+            throw new InternalError("internal error: SHA-1 not available.", e);
         }
 
         if (seed != null) {
@@ -126,7 +120,10 @@ implements java.io.Serializable {
      *
      * @return the seed bytes.
      */
+    @Override
     public byte[] engineGenerateSeed(int numBytes) {
+        // Neither of the SeedGenerator implementations require
+        // locking, so no sync needed here.
         byte[] b = new byte[numBytes];
         SeedGenerator.generateSeed(b);
         return b;
@@ -139,19 +136,21 @@ implements java.io.Serializable {
      *
      * @param seed the seed.
      */
+    @Override
     synchronized public void engineSetSeed(byte[] seed) {
         if (state != null) {
             digest.update(state);
-            for (int i = 0; i < state.length; i++)
+            for (int i = 0; i < state.length; i++) {
                 state[i] = 0;
+            }
         }
         state = digest.digest(seed);
     }
 
     private static void updateState(byte[] state, byte[] output) {
         int last = 1;
-        int v = 0;
-        byte t = 0;
+        int v;
+        byte t;
         boolean zf = false;
 
         // state(n + 1) = (state(n) + output(n) + 1) % 2^160;
@@ -168,8 +167,31 @@ implements java.io.Serializable {
         }
 
         // Make sure at least one bit changes!
-        if (!zf)
+        if (!zf) {
            state[0]++;
+        }
+    }
+
+    /**
+     * This static object will be seeded by SeedGenerator, and used
+     * to seed future instances of SHA1PRNG SecureRandoms.
+     *
+     * Bloch, Effective Java Second Edition: Item 71
+     */
+    private static class SeederHolder {
+
+        private static final SecureRandom seeder;
+
+        static {
+            /*
+             * Call to SeedGenerator.generateSeed() to add additional
+             * seed material (likely from the Native implementation).
+             */
+            seeder = new SecureRandom(SeedGenerator.getSystemEntropy());
+            byte [] b = new byte[DIGEST_SIZE];
+            SeedGenerator.generateSeed(b);
+            seeder.engineSetSeed(b);
+        }
     }
 
     /**
@@ -177,19 +199,15 @@ implements java.io.Serializable {
      *
      * @param bytes the array to be filled in with random bytes.
      */
+    @Override
     public synchronized void engineNextBytes(byte[] result) {
         int index = 0;
         int todo;
         byte[] output = remainder;
 
         if (state == null) {
-            if (seeder == null) {
-                seeder = new SecureRandom(SeedGenerator.getSystemEntropy());
-                seeder.engineSetSeed(engineGenerateSeed(DIGEST_SIZE));
-            }
-
             byte[] seed = new byte[DIGEST_SIZE];
-            seeder.engineNextBytes(seed);
+            SeederHolder.seeder.engineNextBytes(seed);
             state = digest.digest(seed);
         }
 
@@ -247,9 +265,9 @@ implements java.io.Serializable {
         s.defaultReadObject ();
 
         try {
-            digest = MessageDigest.getInstance ("SHA");
+            digest = MessageDigest.getInstance("SHA");
         } catch (NoSuchAlgorithmException e) {
-            throw new InternalError("internal error: SHA-1 not available.");
+            throw new InternalError("internal error: SHA-1 not available.", e);
         }
     }
 }

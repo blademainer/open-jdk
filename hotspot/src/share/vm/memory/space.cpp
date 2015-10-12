@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,6 +40,7 @@
 #include "runtime/safepoint.hpp"
 #include "utilities/copy.hpp"
 #include "utilities/globalDefinitions.hpp"
+#include "utilities/macros.hpp"
 
 void SpaceMemRegionOopsIterClosure::do_oop(oop* p)       { SpaceMemRegionOopsIterClosure::do_oop_work(p); }
 void SpaceMemRegionOopsIterClosure::do_oop(narrowOop* p) { SpaceMemRegionOopsIterClosure::do_oop_work(p); }
@@ -178,7 +179,7 @@ void DirtyCardToOopClosure::do_MemRegion(MemRegion mr) {
   }
 }
 
-DirtyCardToOopClosure* Space::new_dcto_cl(OopClosure* cl,
+DirtyCardToOopClosure* Space::new_dcto_cl(ExtendedOopClosure* cl,
                                           CardTableModRefBS::PrecisionStyle precision,
                                           HeapWord* boundary) {
   return new DirtyCardToOopClosure(this, cl, precision, boundary);
@@ -253,11 +254,11 @@ void ContiguousSpaceDCTOC::walk_mem_region_with_cl(MemRegion mr,        \
 // (There are only two of these, rather than N, because the split is due
 // only to the introduction of the FilteringClosure, a local part of the
 // impl of this abstraction.)
-ContiguousSpaceDCTOC__walk_mem_region_with_cl_DEFN(OopClosure)
+ContiguousSpaceDCTOC__walk_mem_region_with_cl_DEFN(ExtendedOopClosure)
 ContiguousSpaceDCTOC__walk_mem_region_with_cl_DEFN(FilteringClosure)
 
 DirtyCardToOopClosure*
-ContiguousSpace::new_dcto_cl(OopClosure* cl,
+ContiguousSpace::new_dcto_cl(ExtendedOopClosure* cl,
                              CardTableModRefBS::PrecisionStyle precision,
                              HeapWord* boundary) {
   return new ContiguousSpaceDCTOC(this, cl, precision, boundary);
@@ -302,11 +303,6 @@ void ContiguousSpace::clear(bool mangle_space) {
   set_top(bottom());
   set_saved_mark();
   CompactibleSpace::clear(mangle_space);
-}
-
-bool Space::is_in(const void* p) const {
-  HeapWord* b = block_start_const(p);
-  return b != NULL && block_is_obj(b);
 }
 
 bool ContiguousSpace::is_in(const void* p) const {
@@ -416,7 +412,6 @@ HeapWord* CompactibleSpace::forward(oop q, size_t size,
     assert(q->forwardee() == NULL, "should be forwarded to NULL");
   }
 
-  VALIDATE_MARK_SWEEP_ONLY(MarkSweep::register_live_oop(q, size));
   compact_top += size;
 
   // we need to update the offset table so that the beginnings of objects can be
@@ -475,13 +470,10 @@ void Space::adjust_pointers() {
     if (oop(q)->is_gc_marked()) {
       // q is alive
 
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::track_interior_pointers(oop(q)));
       // point all the oops to the new location
       size_t size = oop(q)->adjust_pointers();
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::check_interior_pointers());
 
       debug_only(prev_q = q);
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::validate_live_oop(oop(q), size));
 
       q += size;
     } else {
@@ -536,7 +528,7 @@ void OffsetTableContigSpace::print_on(outputStream* st) const {
               bottom(), top(), _offsets.threshold(), end());
 }
 
-void ContiguousSpace::verify(bool allow_dirty) const {
+void ContiguousSpace::verify() const {
   HeapWord* p = bottom();
   HeapWord* t = top();
   HeapWord* prev_p = NULL;
@@ -553,7 +545,7 @@ void ContiguousSpace::verify(bool allow_dirty) const {
   }
 }
 
-void Space::oop_iterate(OopClosure* blk) {
+void Space::oop_iterate(ExtendedOopClosure* blk) {
   ObjectToOopClosure blk2(blk);
   object_iterate(&blk2);
 }
@@ -667,7 +659,7 @@ void ContiguousSpace::object_iterate_mem(MemRegion mr, UpwardsObjectClosure* cl)
   }
 }
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 #define ContigSpace_PAR_OOP_ITERATE_DEFN(OopClosureType, nv_suffix)         \
                                                                             \
   void ContiguousSpace::par_oop_iterate(MemRegion mr, OopClosureType* blk) {\
@@ -682,9 +674,9 @@ void ContiguousSpace::object_iterate_mem(MemRegion mr, UpwardsObjectClosure* cl)
   ALL_PAR_OOP_ITERATE_CLOSURES(ContigSpace_PAR_OOP_ITERATE_DEFN)
 
 #undef ContigSpace_PAR_OOP_ITERATE_DEFN
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
-void ContiguousSpace::oop_iterate(OopClosure* blk) {
+void ContiguousSpace::oop_iterate(ExtendedOopClosure* blk) {
   if (is_empty()) return;
   HeapWord* obj_addr = bottom();
   HeapWord* t = top();
@@ -694,7 +686,7 @@ void ContiguousSpace::oop_iterate(OopClosure* blk) {
   }
 }
 
-void ContiguousSpace::oop_iterate(MemRegion mr, OopClosure* blk) {
+void ContiguousSpace::oop_iterate(MemRegion mr, ExtendedOopClosure* blk) {
   if (is_empty()) {
     return;
   }
@@ -795,7 +787,9 @@ ALL_SINCE_SAVE_MARKS_CLOSURES(ContigSpace_OOP_SINCE_SAVE_MARKS_DEFN)
 
 // Very general, slow implementation.
 HeapWord* ContiguousSpace::block_start_const(const void* p) const {
-  assert(MemRegion(bottom(), end()).contains(p), "p not in space");
+  assert(MemRegion(bottom(), end()).contains(p),
+         err_msg("p (" PTR_FORMAT ") not in space [" PTR_FORMAT ", " PTR_FORMAT ")",
+                  p, bottom(), end()));
   if (p >= top()) {
     return top();
   } else {
@@ -805,19 +799,27 @@ HeapWord* ContiguousSpace::block_start_const(const void* p) const {
       last = cur;
       cur += oop(cur)->size();
     }
-    assert(oop(last)->is_oop(), "Should be an object start");
+    assert(oop(last)->is_oop(),
+           err_msg(PTR_FORMAT " should be an object start", last));
     return last;
   }
 }
 
 size_t ContiguousSpace::block_size(const HeapWord* p) const {
-  assert(MemRegion(bottom(), end()).contains(p), "p not in space");
+  assert(MemRegion(bottom(), end()).contains(p),
+         err_msg("p (" PTR_FORMAT ") not in space [" PTR_FORMAT ", " PTR_FORMAT ")",
+                  p, bottom(), end()));
   HeapWord* current_top = top();
-  assert(p <= current_top, "p is not a block start");
-  assert(p == current_top || oop(p)->is_oop(), "p is not a block start");
-  if (p < current_top)
+  assert(p <= current_top,
+         err_msg("p > current top - p: " PTR_FORMAT ", current top: " PTR_FORMAT,
+                  p, current_top));
+  assert(p == current_top || oop(p)->is_oop(),
+         err_msg("p (" PTR_FORMAT ") is not a block start - "
+                 "current_top: " PTR_FORMAT ", is_oop: %s",
+                 p, current_top, BOOL_TO_STR(oop(p)->is_oop())));
+  if (p < current_top) {
     return oop(p)->size();
-  else {
+  } else {
     assert(p == current_top, "just checking");
     return pointer_delta(end(), (HeapWord*) p);
   }
@@ -970,27 +972,12 @@ OffsetTableContigSpace::OffsetTableContigSpace(BlockOffsetSharedArray* sharedOff
   initialize(mr, SpaceDecorator::Clear, SpaceDecorator::Mangle);
 }
 
-
-class VerifyOldOopClosure : public OopClosure {
- public:
-  oop  _the_obj;
-  bool _allow_dirty;
-  void do_oop(oop* p) {
-    _the_obj->verify_old_oop(p, _allow_dirty);
-  }
-  void do_oop(narrowOop* p) {
-    _the_obj->verify_old_oop(p, _allow_dirty);
-  }
-};
-
 #define OBJ_SAMPLE_INTERVAL 0
 #define BLOCK_SAMPLE_INTERVAL 100
 
-void OffsetTableContigSpace::verify(bool allow_dirty) const {
+void OffsetTableContigSpace::verify() const {
   HeapWord* p = bottom();
   HeapWord* prev_p = NULL;
-  VerifyOldOopClosure blk;      // Does this do anything?
-  blk._allow_dirty = allow_dirty;
   int objs = 0;
   int blocks = 0;
 
@@ -1012,8 +999,6 @@ void OffsetTableContigSpace::verify(bool allow_dirty) const {
 
     if (objs == OBJ_SAMPLE_INTERVAL) {
       oop(p)->verify();
-      blk._the_obj = oop(p);
-      oop(p)->oop_iterate(&blk);
       objs = 0;
     } else {
       objs++;
@@ -1024,17 +1009,7 @@ void OffsetTableContigSpace::verify(bool allow_dirty) const {
   guarantee(p == top(), "end of last object must match end of space");
 }
 
-void OffsetTableContigSpace::serialize_block_offset_array_offsets(
-                                                      SerializeOopClosure* soc) {
-  _offsets.serialize(soc);
-}
-
 
 size_t TenuredSpace::allowed_dead_ratio() const {
   return MarkSweepDeadRatio;
-}
-
-
-size_t ContigPermSpace::allowed_dead_ratio() const {
-  return PermMarkSweepDeadRatio;
 }

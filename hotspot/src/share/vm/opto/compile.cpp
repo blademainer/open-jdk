@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,11 +23,13 @@
  */
 
 #include "precompiled.hpp"
-#include "asm/assembler.hpp"
+#include "asm/macroAssembler.hpp"
+#include "asm/macroAssembler.inline.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "code/exceptionHandlerTable.hpp"
 #include "code/nmethod.hpp"
 #include "compiler/compileLog.hpp"
+#include "compiler/disassembler.hpp"
 #include "compiler/oopMap.hpp"
 #include "opto/addnode.hpp"
 #include "opto/block.hpp"
@@ -45,6 +47,7 @@
 #include "opto/machnode.hpp"
 #include "opto/macro.hpp"
 #include "opto/matcher.hpp"
+#include "opto/mathexactnode.hpp"
 #include "opto/memnode.hpp"
 #include "opto/mulnode.hpp"
 #include "opto/node.hpp"
@@ -61,6 +64,7 @@
 #include "runtime/signature.hpp"
 #include "runtime/stubRoutines.hpp"
 #include "runtime/timer.hpp"
+#include "trace/tracing.hpp"
 #include "utilities/copy.hpp"
 #ifdef TARGET_ARCH_MODEL_x86_32
 # include "adfiles/ad_x86_32.hpp"
@@ -134,7 +138,7 @@ int Compile::intrinsic_insertion_index(ciMethod* m, bool is_virtual) {
 
 void Compile::register_intrinsic(CallGenerator* cg) {
   if (_intrinsics == NULL) {
-    _intrinsics = new GrowableArray<CallGenerator*>(60);
+    _intrinsics = new (comp_arena())GrowableArray<CallGenerator*>(comp_arena(), 60, 0, NULL);
   }
   // This code is stolen from ciObjectFactory::insert.
   // Really, GrowableArray should have methods for
@@ -316,7 +320,12 @@ void Compile::gvn_replace_by(Node* n, Node* nn) {
 }
 
 
-
+static inline bool not_a_node(const Node* n) {
+  if (n == NULL)                   return true;
+  if (((intptr_t)n & 1) != 0)      return true;  // uninitialized, etc.
+  if (*(address*)n == badAddress)  return true;  // kill by Node::destruct
+  return false;
+}
 
 // Identify all nodes that are reachable from below, useful.
 // Use breadth-first pass that records state in a Unique_Node_List,
@@ -337,24 +346,54 @@ void Compile::identify_useful_nodes(Unique_Node_List &useful) {
     uint max = n->len();
     for( uint i = 0; i < max; ++i ) {
       Node *m = n->in(i);
-      if( m == NULL ) continue;
+      if (not_a_node(m))  continue;
       useful.push(m);
     }
   }
 }
 
+// Update dead_node_list with any missing dead nodes using useful
+// list. Consider all non-useful nodes to be useless i.e., dead nodes.
+void Compile::update_dead_node_list(Unique_Node_List &useful) {
+  uint max_idx = unique();
+  VectorSet& useful_node_set = useful.member_set();
+
+  for (uint node_idx = 0; node_idx < max_idx; node_idx++) {
+    // If node with index node_idx is not in useful set,
+    // mark it as dead in dead node list.
+    if (! useful_node_set.test(node_idx) ) {
+      record_dead_node(node_idx);
+    }
+  }
+}
+
+void Compile::remove_useless_late_inlines(GrowableArray<CallGenerator*>* inlines, Unique_Node_List &useful) {
+  int shift = 0;
+  for (int i = 0; i < inlines->length(); i++) {
+    CallGenerator* cg = inlines->at(i);
+    CallNode* call = cg->call_node();
+    if (shift > 0) {
+      inlines->at_put(i-shift, cg);
+    }
+    if (!useful.member(call)) {
+      shift++;
+    }
+  }
+  inlines->trunc_to(inlines->length()-shift);
+}
+
 // Disconnect all useless nodes by disconnecting those at the boundary.
 void Compile::remove_useless_nodes(Unique_Node_List &useful) {
   uint next = 0;
-  while( next < useful.size() ) {
+  while (next < useful.size()) {
     Node *n = useful.at(next++);
     // Use raw traversal of out edges since this code removes out edges
     int max = n->outcnt();
-    for (int j = 0; j < max; ++j ) {
+    for (int j = 0; j < max; ++j) {
       Node* child = n->raw_out(j);
-      if( ! useful.member(child) ) {
-        assert( !child->is_top() || child != top(),
-                "If top is cached in Compile object it is in useful list");
+      if (! useful.member(child)) {
+        assert(!child->is_top() || child != top(),
+               "If top is cached in Compile object it is in useful list");
         // Only need to remove this out-edge to the useless node
         n->raw_del_out(j);
         --j;
@@ -362,9 +401,27 @@ void Compile::remove_useless_nodes(Unique_Node_List &useful) {
       }
     }
     if (n->outcnt() == 1 && n->has_special_unique_user()) {
-      record_for_igvn( n->unique_out() );
+      record_for_igvn(n->unique_out());
     }
   }
+  // Remove useless macro and predicate opaq nodes
+  for (int i = C->macro_count()-1; i >= 0; i--) {
+    Node* n = C->macro_node(i);
+    if (!useful.member(n)) {
+      remove_macro_node(n);
+    }
+  }
+  // Remove useless expensive node
+  for (int i = C->expensive_count()-1; i >= 0; i--) {
+    Node* n = C->expensive_node(i);
+    if (!useful.member(n)) {
+      remove_expensive_node(n);
+    }
+  }
+  // clean up the late inline lists
+  remove_useless_late_inlines(&_string_late_inlines, useful);
+  remove_useless_late_inlines(&_boxing_late_inlines, useful);
+  remove_useless_late_inlines(&_late_inlines, useful);
   debug_only(verify_graph_edges(true/*check for no_dead_code*/);)
 }
 
@@ -429,6 +486,12 @@ void Compile::print_compile_messages() {
     // Recompiling without escape analysis
     tty->print_cr("*********************************************************");
     tty->print_cr("** Bailout: Recompile without escape analysis          **");
+    tty->print_cr("*********************************************************");
+  }
+  if (_eliminate_boxing != EliminateAutoBox && PrintOpto) {
+    // Recompiling without boxing elimination
+    tty->print_cr("*********************************************************");
+    tty->print_cr("** Bailout: Recompile without boxing elimination       **");
     tty->print_cr("*********************************************************");
   }
   if (env()->break_at_compile()) {
@@ -517,7 +580,20 @@ uint Compile::scratch_emit_size(const Node* n) {
   buf.stubs()->initialize_shared_locs( &locs_buf[lsize * 2], lsize);
 
   // Do the emission.
+
+  Label fakeL; // Fake label for branch instructions.
+  Label*   saveL = NULL;
+  uint save_bnum = 0;
+  bool is_branch = n->is_MachBranch();
+  if (is_branch) {
+    MacroAssembler masm(&buf);
+    masm.bind(fakeL);
+    n->as_MachBranch()->save_label(&saveL, &save_bnum);
+    n->as_MachBranch()->label_set(&fakeL, 0);
+  }
   n->emit(buf, this->regalloc());
+  if (is_branch) // Restore label.
+    n->as_MachBranch()->label_set(saveL, save_bnum);
 
   // End scratch_emit_size section.
   set_in_scratch_emit_size(false);
@@ -534,7 +610,8 @@ debug_only( int Compile::_debug_idx = 100000; )
 // the continuation bci for on stack replacement.
 
 
-Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr_bci, bool subsume_loads, bool do_escape_analysis )
+Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr_bci,
+                  bool subsume_loads, bool do_escape_analysis, bool eliminate_boxing )
                 : Phase(Compiler),
                   _env(ci_env),
                   _log(ci_env->log()),
@@ -550,6 +627,7 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
                   _warm_calls(NULL),
                   _subsume_loads(subsume_loads),
                   _do_escape_analysis(do_escape_analysis),
+                  _eliminate_boxing(eliminate_boxing),
                   _failure_reason(NULL),
                   _code_buffer("Compile::Fill_buffer"),
                   _orig_pc_slot(0),
@@ -562,11 +640,23 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
                   _inner_loops(0),
                   _scratch_const_size(-1),
                   _in_scratch_emit_size(false),
+                  _dead_node_list(comp_arena()),
+                  _dead_node_count(0),
 #ifndef PRODUCT
                   _trace_opto_output(TraceOptoOutput || method()->has_option("TraceOptoOutput")),
                   _printer(IdealGraphPrinter::printer()),
 #endif
-                  _congraph(NULL) {
+                  _congraph(NULL),
+                  _late_inlines(comp_arena(), 2, 0, NULL),
+                  _string_late_inlines(comp_arena(), 2, 0, NULL),
+                  _boxing_late_inlines(comp_arena(), 2, 0, NULL),
+                  _late_inlines_pos(0),
+                  _number_of_mh_late_inlines(0),
+                  _inlining_progress(false),
+                  _inlining_incrementally(false),
+                  _print_inlining_list(NULL),
+                  _print_inlining_idx(0),
+                  _preserve_jvm_state(0) {
   C = this;
 
   CompileWrapper cw(this);
@@ -591,6 +681,8 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
   set_print_assembly(print_opto_assembly);
   set_parsed_irreducible_loop(false);
 #endif
+  set_print_inlining(PrintInlining || method()->has_option("PrintInlining") NOT_PRODUCT( || PrintOptoInlining));
+  set_print_intrinsics(PrintIntrinsics || method()->has_option("PrintIntrinsics"));
 
   if (ProfileTraps) {
     // Make sure the method being compiled gets its own MDO,
@@ -622,6 +714,9 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
   PhaseGVN gvn(node_arena(), estimated_size);
   set_initial_gvn(&gvn);
 
+  if (print_inlining() || print_intrinsics()) {
+    _print_inlining_list = new (comp_arena())GrowableArray<PrintInliningBuffer>(comp_arena(), 1, 1, PrintInliningBuffer());
+  }
   { // Scope for timing the parser
     TracePhase t3("parse", &_t_parser, true);
 
@@ -634,14 +729,14 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
       const TypeTuple *domain = StartOSRNode::osr_domain();
       const TypeTuple *range = TypeTuple::make_range(method()->signature());
       init_tf(TypeFunc::make(domain, range));
-      StartNode* s = new (this, 2) StartOSRNode(root(), domain);
+      StartNode* s = new (this) StartOSRNode(root(), domain);
       initial_gvn()->set_type_bottom(s);
       init_start(s);
       cg = CallGenerator::for_osr(method(), entry_bci());
     } else {
       // Normal case.
       init_tf(TypeFunc::make(method()));
-      StartNode* s = new (this, 2) StartNode(root(), tf()->domain());
+      StartNode* s = new (this) StartNode(root(), tf()->domain());
       initial_gvn()->set_type_bottom(s);
       init_start(s);
       if (method()->intrinsic_id() == vmIntrinsics::_Reference_get && UseG1GC) {
@@ -669,7 +764,7 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
       return;
     }
     JVMState* jvms = build_start_state(start(), tf());
-    if ((jvms = cg->generate(jvms)) == NULL) {
+    if ((jvms = cg->generate(jvms, NULL)) == NULL) {
       record_method_not_compilable("method parse failed");
       return;
     }
@@ -688,29 +783,15 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
       rethrow_exceptions(kit.transfer_exceptions_into_jvms());
     }
 
-    if (!failing() && has_stringbuilder()) {
-      {
-        // remove useless nodes to make the usage analysis simpler
-        ResourceMark rm;
-        PhaseRemoveUseless pru(initial_gvn(), &for_igvn);
-      }
+    assert(IncrementalInline || (_late_inlines.length() == 0 && !has_mh_late_inlines()), "incremental inlining is off");
 
-      {
-        ResourceMark rm;
-        print_method("Before StringOpts", 3);
-        PhaseStringOpts pso(initial_gvn(), &for_igvn);
-        print_method("After StringOpts", 3);
-      }
-
-      // now inline anything that we skipped the first time around
-      while (_late_inlines.length() > 0) {
-        CallGenerator* cg = _late_inlines.pop();
-        cg->do_late_inline();
-      }
+    if (_late_inlines.length() == 0 && !has_mh_late_inlines() && !failing() && has_stringbuilder()) {
+      inline_string_calls(true);
     }
-    assert(_late_inlines.length() == 0, "should have been processed");
 
-    print_method("Before RemoveUseless", 3);
+    if (failing())  return;
+
+    print_method(PHASE_BEFORE_REMOVEUSELESS, 3);
 
     // Remove clutter produced by parsing.
     if (!failing()) {
@@ -767,6 +848,7 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
   }
 #endif
 
+  NOT_PRODUCT( verify_barriers(); )
   // Now that we know the size of all the monitors we can add a fixed slot
   // for the original deopt pc.
 
@@ -804,9 +886,12 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
                            &_handler_table, &_inc_table,
                            compiler,
                            env()->comp_level(),
-                           true, /*has_debug_info*/
-                           has_unsafe_access()
+                           has_unsafe_access(),
+                           SharedRuntime::is_wide_vector(max_vector_size())
                            );
+
+    if (log() != NULL) // Print code cache state into compiler log
+      log()->code_cache_state();
   }
 }
 
@@ -823,7 +908,7 @@ Compile::Compile( ciEnv* ci_env,
   : Phase(Compiler),
     _env(ci_env),
     _log(ci_env->log()),
-    _compile_id(-1),
+    _compile_id(0),
     _save_argument_registers(save_arg_registers),
     _method(NULL),
     _stub_name(stub_name),
@@ -837,6 +922,7 @@ Compile::Compile( ciEnv* ci_env,
     _orig_pc_slot_offset_in_bytes(0),
     _subsume_loads(true),
     _do_escape_analysis(false),
+    _eliminate_boxing(false),
     _failure_reason(NULL),
     _code_buffer("Compile::Fill_buffer"),
     _has_method_handle_invokes(false),
@@ -849,7 +935,15 @@ Compile::Compile( ciEnv* ci_env,
     _trace_opto_output(TraceOptoOutput),
     _printer(NULL),
 #endif
-    _congraph(NULL) {
+    _dead_node_list(comp_arena()),
+    _dead_node_count(0),
+    _congraph(NULL),
+    _number_of_mh_late_inlines(0),
+    _inlining_progress(false),
+    _inlining_incrementally(false),
+    _print_inlining_list(NULL),
+    _print_inlining_idx(0),
+    _preserve_jvm_state(0) {
   C = this;
 
 #ifndef PRODUCT
@@ -905,17 +999,6 @@ Compile::Compile( ciEnv* ci_env,
   }
 }
 
-#ifndef PRODUCT
-void print_opto_verbose_signature( const TypeFunc *j_sig, const char *stub_name ) {
-  if(PrintOpto && Verbose) {
-    tty->print("%s   ", stub_name); j_sig->print_flattened(); tty->cr();
-  }
-}
-#endif
-
-void Compile::print_codes() {
-}
-
 //------------------------------Init-------------------------------------------
 // Prepare for a single compilation
 void Compile::Init(int aliaslevel) {
@@ -937,13 +1020,13 @@ void Compile::Init(int aliaslevel) {
   // Globally visible Nodes
   // First set TOP to NULL to give safe behavior during creation of RootNode
   set_cached_top_node(NULL);
-  set_root(new (this, 3) RootNode());
+  set_root(new (this) RootNode());
   // Now that you have a Root to point to, create the real TOP
-  set_cached_top_node( new (this, 1) ConNode(Type::TOP) );
+  set_cached_top_node( new (this) ConNode(Type::TOP) );
   set_recent_alloc(NULL, NULL);
 
   // Create Debug Information Recorder to record scopes, oopmaps, etc.
-  env()->set_oop_recorder(new OopRecorder(comp_arena()));
+  env()->set_oop_recorder(new OopRecorder(env()->arena()));
   env()->set_debug_info(new DebugInformationRecorder(env()->oop_recorder()));
   env()->set_dependencies(new Dependencies(env()));
 
@@ -951,9 +1034,11 @@ void Compile::Init(int aliaslevel) {
   set_has_split_ifs(false);
   set_has_loops(has_method() && method()->has_loops()); // first approximation
   set_has_stringbuilder(false);
+  set_has_boxed_value(false);
   _trap_can_recompile = false;  // no traps emitted yet
   _major_progress = true; // start out assuming good things will happen
   set_has_unsafe_access(false);
+  set_max_vector_size(0);
   Copy::zero_to_bytes(_trap_hist, sizeof(_trap_hist));
   set_decompile_count(0);
 
@@ -1002,6 +1087,7 @@ void Compile::Init(int aliaslevel) {
   _intrinsics = NULL;
   _macro_nodes = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
   _predicate_opaqs = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
+  _expensive_nodes = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
   register_library_intrinsics();
 }
 
@@ -1054,6 +1140,72 @@ void Compile::set_cached_top_node(Node* tn) {
   if (old_top != NULL)  old_top->setup_is_top();
   assert(_top == NULL || top()->is_top(), "");
 }
+
+#ifdef ASSERT
+uint Compile::count_live_nodes_by_graph_walk() {
+  Unique_Node_List useful(comp_arena());
+  // Get useful node list by walking the graph.
+  identify_useful_nodes(useful);
+  return useful.size();
+}
+
+void Compile::print_missing_nodes() {
+
+  // Return if CompileLog is NULL and PrintIdealNodeCount is false.
+  if ((_log == NULL) && (! PrintIdealNodeCount)) {
+    return;
+  }
+
+  // This is an expensive function. It is executed only when the user
+  // specifies VerifyIdealNodeCount option or otherwise knows the
+  // additional work that needs to be done to identify reachable nodes
+  // by walking the flow graph and find the missing ones using
+  // _dead_node_list.
+
+  Unique_Node_List useful(comp_arena());
+  // Get useful node list by walking the graph.
+  identify_useful_nodes(useful);
+
+  uint l_nodes = C->live_nodes();
+  uint l_nodes_by_walk = useful.size();
+
+  if (l_nodes != l_nodes_by_walk) {
+    if (_log != NULL) {
+      _log->begin_head("mismatched_nodes count='%d'", abs((int) (l_nodes - l_nodes_by_walk)));
+      _log->stamp();
+      _log->end_head();
+    }
+    VectorSet& useful_member_set = useful.member_set();
+    int last_idx = l_nodes_by_walk;
+    for (int i = 0; i < last_idx; i++) {
+      if (useful_member_set.test(i)) {
+        if (_dead_node_list.test(i)) {
+          if (_log != NULL) {
+            _log->elem("mismatched_node_info node_idx='%d' type='both live and dead'", i);
+          }
+          if (PrintIdealNodeCount) {
+            // Print the log message to tty
+              tty->print_cr("mismatched_node idx='%d' both live and dead'", i);
+              useful.at(i)->dump();
+          }
+        }
+      }
+      else if (! _dead_node_list.test(i)) {
+        if (_log != NULL) {
+          _log->elem("mismatched_node_info node_idx='%d' type='neither live nor dead'", i);
+        }
+        if (PrintIdealNodeCount) {
+          // Print the log message to tty
+          tty->print_cr("mismatched_node idx='%d' type='neither live nor dead'", i);
+        }
+      }
+    }
+    if (_log != NULL) {
+      _log->tail("mismatched_nodes");
+    }
+  }
+}
+#endif
 
 #ifndef PRODUCT
 void Compile::verify_top(Node* tn) const {
@@ -1151,6 +1303,10 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
 
   // Array pointers need some flattening
   const TypeAryPtr *ta = tj->isa_aryptr();
+  if (ta && ta->is_stable()) {
+    // Erase stability property for alias analysis.
+    tj = ta = ta->cast_to_stable(false);
+  }
   if( ta && is_known_inst ) {
     if ( offset != Type::OffsetBot &&
          offset > arrayOopDesc::length_offset_in_bytes() ) {
@@ -1162,7 +1318,7 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
     // space to include all of the array body.  Only the header, klass
     // and array length can be accessed un-aliased.
     if( offset != Type::OffsetBot ) {
-      if( ta->const_oop() ) { // methodDataOop or methodOop
+      if( ta->const_oop() ) { // MethodData* or Method*
         offset = Type::OffsetBot;   // Flatten constant access into array body
         tj = ta = TypeAryPtr::make(ptr,ta->const_oop(),ta->ary(),ta->klass(),false,offset);
       } else if( offset == arrayOopDesc::length_offset_in_bytes() ) {
@@ -1205,12 +1361,8 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
     // During the 2nd round of IterGVN, NotNull castings are removed.
     // Make sure the Bottom and NotNull variants alias the same.
     // Also, make sure exact and non-exact variants alias the same.
-    if( ptr == TypePtr::NotNull || ta->klass_is_exact() ) {
-      if (ta->const_oop()) {
-        tj = ta = TypeAryPtr::make(TypePtr::Constant,ta->const_oop(),ta->ary(),ta->klass(),false,offset);
-      } else {
-        tj = ta = TypeAryPtr::make(TypePtr::BotPTR,ta->ary(),ta->klass(),false,offset);
-      }
+    if (ptr == TypePtr::NotNull || ta->klass_is_exact() || ta->speculative() != NULL) {
+      tj = ta = TypeAryPtr::make(TypePtr::BotPTR,ta->ary(),ta->klass(),false,offset);
     }
   }
 
@@ -1233,6 +1385,9 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
       // Make sure the Bottom and NotNull variants alias the same.
       // Also, make sure exact and non-exact variants alias the same.
       tj = to = TypeInstPtr::make(TypePtr::BotPTR,to->klass(),false,0,offset);
+    }
+    if (to->speculative() != NULL) {
+      tj = to = TypeInstPtr::make(to->ptr(),to->klass(),to->klass_is_exact(),to->const_oop(),to->offset(), to->instance_id());
     }
     // Canonicalize the holder of this field
     if (offset >= 0 && offset < instanceOopDesc::base_offset_in_bytes()) {
@@ -1266,12 +1421,11 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
   if( tk ) {
     // If we are referencing a field within a Klass, we need
     // to assume the worst case of an Object.  Both exact and
-    // inexact types must flatten to the same alias class.
-    // Since the flattened result for a klass is defined to be
-    // precisely java.lang.Object, use a constant ptr.
+    // inexact types must flatten to the same alias class so
+    // use NotNull as the PTR.
     if ( offset == Type::OffsetBot || (offset >= 0 && (size_t)offset < sizeof(Klass)) ) {
 
-      tj = tk = TypeKlassPtr::make(TypePtr::Constant,
+      tj = tk = TypeKlassPtr::make(TypePtr::NotNull,
                                    TypeKlassPtr::OBJECT->klass(),
                                    offset);
     }
@@ -1291,10 +1445,12 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
     // these 2 disparate memories into the same alias class.  Since the
     // primary supertype array is read-only, there's no chance of confusion
     // where we bypass an array load and an array store.
-    uint off2 = offset - Klass::primary_supers_offset_in_bytes();
-    if( offset == Type::OffsetBot ||
-        off2 < Klass::primary_super_limit()*wordSize ) {
-      offset = sizeof(oopDesc) +Klass::secondary_super_cache_offset_in_bytes();
+    int primary_supers_offset = in_bytes(Klass::primary_supers_offset());
+    if (offset == Type::OffsetBot ||
+        (offset >= primary_supers_offset &&
+         offset < (int)(primary_supers_offset + Klass::primary_super_limit() * wordSize)) ||
+        offset == (int)in_bytes(Klass::secondary_super_cache_offset())) {
+      offset = in_bytes(Klass::secondary_super_cache_offset());
       tj = tk = TypeKlassPtr::make( TypePtr::NotNull, tk->klass(), offset );
     }
   }
@@ -1354,6 +1510,7 @@ void Compile::AliasType::Init(int i, const TypePtr* at) {
   _index = i;
   _adr_type = at;
   _field = NULL;
+  _element = NULL;
   _is_rewritable = true; // default
   const TypeOopPtr *atoop = (at != NULL) ? at->isa_oopptr() : NULL;
   if (atoop != NULL && atoop->is_known_instance()) {
@@ -1472,14 +1629,24 @@ Compile::AliasType* Compile::find_alias_type(const TypePtr* adr_type, bool no_cr
           && flat->is_instptr()->klass() == env()->Class_klass())
         alias_type(idx)->set_rewritable(false);
     }
+    if (flat->isa_aryptr()) {
+#ifdef ASSERT
+      const int header_size_min  = arrayOopDesc::base_offset_in_bytes(T_BYTE);
+      // (T_BYTE has the weakest alignment and size restrictions...)
+      assert(flat->offset() < header_size_min, "array body reference must be OffsetBot");
+#endif
+      if (flat->offset() == TypePtr::OffsetBot) {
+        alias_type(idx)->set_element(flat->is_aryptr()->elem());
+      }
+    }
     if (flat->isa_klassptr()) {
-      if (flat->offset() == Klass::super_check_offset_offset_in_bytes() + (int)sizeof(oopDesc))
+      if (flat->offset() == in_bytes(Klass::super_check_offset_offset()))
         alias_type(idx)->set_rewritable(false);
-      if (flat->offset() == Klass::modifier_flags_offset_in_bytes() + (int)sizeof(oopDesc))
+      if (flat->offset() == in_bytes(Klass::modifier_flags_offset()))
         alias_type(idx)->set_rewritable(false);
-      if (flat->offset() == Klass::access_flags_offset_in_bytes() + (int)sizeof(oopDesc))
+      if (flat->offset() == in_bytes(Klass::access_flags_offset()))
         alias_type(idx)->set_rewritable(false);
-      if (flat->offset() == Klass::java_mirror_offset_in_bytes() + (int)sizeof(oopDesc))
+      if (flat->offset() == in_bytes(Klass::java_mirror_offset()))
         alias_type(idx)->set_rewritable(false);
     }
     // %%% (We would like to finalize JavaThread::threadObj_offset(),
@@ -1534,7 +1701,7 @@ Compile::AliasType* Compile::alias_type(ciField* field) {
   else
     t = TypeOopPtr::make_from_klass_raw(field->holder());
   AliasType* atp = alias_type(t->add_offset(field->offset_in_bytes()), field);
-  assert(field->is_final() == !atp->is_rewritable(), "must get the rewritable bits correct");
+  assert((field->is_final() || field->is_stable()) == !atp->is_rewritable(), "must get the rewritable bits correct");
   return atp;
 }
 
@@ -1649,6 +1816,156 @@ void Compile::cleanup_loop_predicates(PhaseIterGVN &igvn) {
   assert(predicate_count()==0, "should be clean!");
 }
 
+// StringOpts and late inlining of string methods
+void Compile::inline_string_calls(bool parse_time) {
+  {
+    // remove useless nodes to make the usage analysis simpler
+    ResourceMark rm;
+    PhaseRemoveUseless pru(initial_gvn(), for_igvn());
+  }
+
+  {
+    ResourceMark rm;
+    print_method(PHASE_BEFORE_STRINGOPTS, 3);
+    PhaseStringOpts pso(initial_gvn(), for_igvn());
+    print_method(PHASE_AFTER_STRINGOPTS, 3);
+  }
+
+  // now inline anything that we skipped the first time around
+  if (!parse_time) {
+    _late_inlines_pos = _late_inlines.length();
+  }
+
+  while (_string_late_inlines.length() > 0) {
+    CallGenerator* cg = _string_late_inlines.pop();
+    cg->do_late_inline();
+    if (failing())  return;
+  }
+  _string_late_inlines.trunc_to(0);
+}
+
+// Late inlining of boxing methods
+void Compile::inline_boxing_calls(PhaseIterGVN& igvn) {
+  if (_boxing_late_inlines.length() > 0) {
+    assert(has_boxed_value(), "inconsistent");
+
+    PhaseGVN* gvn = initial_gvn();
+    set_inlining_incrementally(true);
+
+    assert( igvn._worklist.size() == 0, "should be done with igvn" );
+    for_igvn()->clear();
+    gvn->replace_with(&igvn);
+
+    while (_boxing_late_inlines.length() > 0) {
+      CallGenerator* cg = _boxing_late_inlines.pop();
+      cg->do_late_inline();
+      if (failing())  return;
+    }
+    _boxing_late_inlines.trunc_to(0);
+
+    {
+      ResourceMark rm;
+      PhaseRemoveUseless pru(gvn, for_igvn());
+    }
+
+    igvn = PhaseIterGVN(gvn);
+    igvn.optimize();
+
+    set_inlining_progress(false);
+    set_inlining_incrementally(false);
+  }
+}
+
+void Compile::inline_incrementally_one(PhaseIterGVN& igvn) {
+  assert(IncrementalInline, "incremental inlining should be on");
+  PhaseGVN* gvn = initial_gvn();
+
+  set_inlining_progress(false);
+  for_igvn()->clear();
+  gvn->replace_with(&igvn);
+
+  int i = 0;
+
+  for (; i <_late_inlines.length() && !inlining_progress(); i++) {
+    CallGenerator* cg = _late_inlines.at(i);
+    _late_inlines_pos = i+1;
+    cg->do_late_inline();
+    if (failing())  return;
+  }
+  int j = 0;
+  for (; i < _late_inlines.length(); i++, j++) {
+    _late_inlines.at_put(j, _late_inlines.at(i));
+  }
+  _late_inlines.trunc_to(j);
+
+  {
+    ResourceMark rm;
+    PhaseRemoveUseless pru(gvn, for_igvn());
+  }
+
+  igvn = PhaseIterGVN(gvn);
+}
+
+// Perform incremental inlining until bound on number of live nodes is reached
+void Compile::inline_incrementally(PhaseIterGVN& igvn) {
+  PhaseGVN* gvn = initial_gvn();
+
+  set_inlining_incrementally(true);
+  set_inlining_progress(true);
+  uint low_live_nodes = 0;
+
+  while(inlining_progress() && _late_inlines.length() > 0) {
+
+    if (live_nodes() > (uint)LiveNodeCountInliningCutoff) {
+      if (low_live_nodes < (uint)LiveNodeCountInliningCutoff * 8 / 10) {
+        // PhaseIdealLoop is expensive so we only try it once we are
+        // out of loop and we only try it again if the previous helped
+        // got the number of nodes down significantly
+        PhaseIdealLoop ideal_loop( igvn, false, true );
+        if (failing())  return;
+        low_live_nodes = live_nodes();
+        _major_progress = true;
+      }
+
+      if (live_nodes() > (uint)LiveNodeCountInliningCutoff) {
+        break;
+      }
+    }
+
+    inline_incrementally_one(igvn);
+
+    if (failing())  return;
+
+    igvn.optimize();
+
+    if (failing())  return;
+  }
+
+  assert( igvn._worklist.size() == 0, "should be done with igvn" );
+
+  if (_string_late_inlines.length() > 0) {
+    assert(has_stringbuilder(), "inconsistent");
+    for_igvn()->clear();
+    initial_gvn()->replace_with(&igvn);
+
+    inline_string_calls(false);
+
+    if (failing())  return;
+
+    {
+      ResourceMark rm;
+      PhaseRemoveUseless pru(initial_gvn(), for_igvn());
+    }
+
+    igvn = PhaseIterGVN(gvn);
+
+    igvn.optimize();
+  }
+
+  set_inlining_incrementally(false);
+}
+
+
 //------------------------------Optimize---------------------------------------
 // Given a graph, optimize it.
 void Compile::Optimize() {
@@ -1666,7 +1983,7 @@ void Compile::Optimize() {
 
   NOT_PRODUCT( verify_graph_edges(); )
 
-  print_method("After Parsing");
+  print_method(PHASE_AFTER_PARSING);
 
  {
   // Iterative Global Value Numbering, including ideal transforms
@@ -1677,22 +1994,69 @@ void Compile::Optimize() {
     igvn.optimize();
   }
 
-  print_method("Iter GVN 1", 2);
+  print_method(PHASE_ITER_GVN1, 2);
 
   if (failing())  return;
 
+  {
+    NOT_PRODUCT( TracePhase t2("incrementalInline", &_t_incrInline, TimeCompiler); )
+    inline_incrementally(igvn);
+  }
+
+  print_method(PHASE_INCREMENTAL_INLINE, 2);
+
+  if (failing())  return;
+
+  if (eliminate_boxing()) {
+    NOT_PRODUCT( TracePhase t2("incrementalInline", &_t_incrInline, TimeCompiler); )
+    // Inline valueOf() methods now.
+    inline_boxing_calls(igvn);
+
+    print_method(PHASE_INCREMENTAL_BOXING_INLINE, 2);
+
+    if (failing())  return;
+  }
+
+  // Remove the speculative part of types and clean up the graph from
+  // the extra CastPP nodes whose only purpose is to carry them. Do
+  // that early so that optimizations are not disrupted by the extra
+  // CastPP nodes.
+  remove_speculative_types(igvn);
+
+  // No more new expensive nodes will be added to the list from here
+  // so keep only the actual candidates for optimizations.
+  cleanup_expensive_nodes(igvn);
+
   // Perform escape analysis
   if (_do_escape_analysis && ConnectionGraph::has_candidates(this)) {
-    TracePhase t2("escapeAnalysis", &_t_escapeAnalysis, true);
+    if (has_loops()) {
+      // Cleanup graph (remove dead nodes).
+      TracePhase t2("idealLoop", &_t_idealLoop, true);
+      PhaseIdealLoop ideal_loop( igvn, false, true );
+      if (major_progress()) print_method(PHASE_PHASEIDEAL_BEFORE_EA, 2);
+      if (failing())  return;
+    }
     ConnectionGraph::do_analysis(this, &igvn);
 
     if (failing())  return;
 
+    // Optimize out fields loads from scalar replaceable allocations.
     igvn.optimize();
-    print_method("Iter GVN 3", 2);
+    print_method(PHASE_ITER_GVN_AFTER_EA, 2);
 
     if (failing())  return;
 
+    if (congraph() != NULL && macro_count() > 0) {
+      NOT_PRODUCT( TracePhase t2("macroEliminate", &_t_macroEliminate, TimeCompiler); )
+      PhaseMacroExpand mexp(igvn);
+      mexp.eliminate_macro_nodes();
+      igvn.set_delay_transform(false);
+
+      igvn.optimize();
+      print_method(PHASE_ITER_GVN_AFTER_ELIMINATION, 2);
+
+      if (failing())  return;
+    }
   }
 
   // Loop transforms on the ideal graph.  Range Check Elimination,
@@ -1705,7 +2069,7 @@ void Compile::Optimize() {
       TracePhase t2("idealLoop", &_t_idealLoop, true);
       PhaseIdealLoop ideal_loop( igvn, true );
       loop_opts_cnt--;
-      if (major_progress()) print_method("PhaseIdealLoop 1", 2);
+      if (major_progress()) print_method(PHASE_PHASEIDEALLOOP1, 2);
       if (failing())  return;
     }
     // Loop opts pass if partial peeling occurred in previous pass
@@ -1713,7 +2077,7 @@ void Compile::Optimize() {
       TracePhase t3("idealLoop", &_t_idealLoop, true);
       PhaseIdealLoop ideal_loop( igvn, false );
       loop_opts_cnt--;
-      if (major_progress()) print_method("PhaseIdealLoop 2", 2);
+      if (major_progress()) print_method(PHASE_PHASEIDEALLOOP2, 2);
       if (failing())  return;
     }
     // Loop opts pass for loop-unrolling before CCP
@@ -1721,7 +2085,7 @@ void Compile::Optimize() {
       TracePhase t4("idealLoop", &_t_idealLoop, true);
       PhaseIdealLoop ideal_loop( igvn, false );
       loop_opts_cnt--;
-      if (major_progress()) print_method("PhaseIdealLoop 3", 2);
+      if (major_progress()) print_method(PHASE_PHASEIDEALLOOP3, 2);
     }
     if (!failing()) {
       // Verify that last round of loop opts produced a valid graph
@@ -1738,7 +2102,7 @@ void Compile::Optimize() {
     TracePhase t2("ccp", &_t_ccp, true);
     ccp.do_transform();
   }
-  print_method("PhaseCPP 1", 2);
+  print_method(PHASE_CPP1, 2);
 
   assert( true, "Break here to ccp.dump_old2new_map()");
 
@@ -1749,7 +2113,7 @@ void Compile::Optimize() {
     igvn.optimize();
   }
 
-  print_method("Iter GVN 2", 2);
+  print_method(PHASE_ITER_GVN2, 2);
 
   if (failing())  return;
 
@@ -1762,7 +2126,7 @@ void Compile::Optimize() {
       assert( cnt++ < 40, "infinite cycle in loop optimization" );
       PhaseIdealLoop ideal_loop( igvn, true);
       loop_opts_cnt--;
-      if (major_progress()) print_method("PhaseIdealLoop iterations", 2);
+      if (major_progress()) print_method(PHASE_PHASEIDEALLOOP_ITERATIONS, 2);
       if (failing())  return;
     }
   }
@@ -1785,6 +2149,7 @@ void Compile::Optimize() {
 
  } // (End scope of igvn; run destructor if necessary for asserts.)
 
+  dump_inlining();
   // A method with only infinite loops has no edges entering loops from root
   {
     NOT_PRODUCT( TracePhase t2("graphReshape", &_t_graphReshaping, TimeCompiler); )
@@ -1794,14 +2159,16 @@ void Compile::Optimize() {
     }
   }
 
-  print_method("Optimize finished", 2);
+  print_method(PHASE_OPTIMIZE_FINISHED, 2);
 }
 
 
 //------------------------------Code_Gen---------------------------------------
 // Given a graph, generate code for it
 void Compile::Code_Gen() {
-  if (failing())  return;
+  if (failing()) {
+    return;
+  }
 
   // Perform instruction selection.  You might think we could reclaim Matcher
   // memory PDQ, but actually the Matcher is used in generating spill code.
@@ -1813,12 +2180,11 @@ void Compile::Code_Gen() {
   // nodes.  Mapping is only valid at the root of each matched subtree.
   NOT_PRODUCT( verify_graph_edges(); )
 
-  Node_List proj_list;
-  Matcher m(proj_list);
-  _matcher = &m;
+  Matcher matcher;
+  _matcher = &matcher;
   {
     TracePhase t2("matcher", &_t_matcher, true);
-    m.match();
+    matcher.match();
   }
   // In debug mode can dump m._nodes.dump() for mapping of ideal to machine
   // nodes.  Mapping is only valid at the root of each matched subtree.
@@ -1826,46 +2192,38 @@ void Compile::Code_Gen() {
 
   // If you have too many nodes, or if matching has failed, bail out
   check_node_count(0, "out of nodes matching instructions");
-  if (failing())  return;
+  if (failing()) {
+    return;
+  }
 
   // Build a proper-looking CFG
-  PhaseCFG cfg(node_arena(), root(), m);
+  PhaseCFG cfg(node_arena(), root(), matcher);
   _cfg = &cfg;
   {
     NOT_PRODUCT( TracePhase t2("scheduler", &_t_scheduler, TimeCompiler); )
-    cfg.Dominators();
-    if (failing())  return;
+    bool success = cfg.do_global_code_motion();
+    if (!success) {
+      return;
+    }
 
+    print_method(PHASE_GLOBAL_CODE_MOTION, 2);
     NOT_PRODUCT( verify_graph_edges(); )
-
-    cfg.Estimate_Block_Frequency();
-    cfg.GlobalCodeMotion(m,unique(),proj_list);
-
-    print_method("Global code motion", 2);
-
-    if (failing())  return;
-    NOT_PRODUCT( verify_graph_edges(); )
-
     debug_only( cfg.verify(); )
   }
-  NOT_PRODUCT( verify_graph_edges(); )
 
-  PhaseChaitin regalloc(unique(),cfg,m);
+  PhaseChaitin regalloc(unique(), cfg, matcher);
   _regalloc = &regalloc;
   {
     TracePhase t2("regalloc", &_t_registerAllocation, true);
-    // Perform any platform dependent preallocation actions.  This is used,
-    // for example, to avoid taking an implicit null pointer exception
-    // using the frame pointer on win95.
-    _regalloc->pd_preallocate_hook();
-
     // Perform register allocation.  After Chaitin, use-def chains are
     // no longer accurate (at spill code) and so must be ignored.
     // Node->LRG->reg mappings are still accurate.
     _regalloc->Register_Allocate();
 
     // Bail out if the allocator builds too many nodes
-    if (failing())  return;
+    if (failing()) {
+      return;
+    }
   }
 
   // Prior to register allocation we kept empty basic blocks in case the
@@ -1874,7 +2232,7 @@ void Compile::Code_Gen() {
   // can now safely remove it.
   {
     NOT_PRODUCT( TracePhase t2("blockOrdering", &_t_blockOrdering, TimeCompiler); )
-    cfg.remove_empty();
+    cfg.remove_empty_blocks();
     if (do_freq_based_layout()) {
       PhaseBlockLayout layout(cfg);
     } else {
@@ -1882,9 +2240,6 @@ void Compile::Code_Gen() {
     }
     cfg.fixup_flow();
   }
-
-  // Perform any platform dependent postallocation verifications.
-  debug_only( _regalloc->pd_postallocate_verify_hook(); )
 
   // Apply peephole optimizations
   if( OptoPeephole ) {
@@ -1901,7 +2256,7 @@ void Compile::Code_Gen() {
     Output();
   }
 
-  print_method("Final Code");
+  print_method(PHASE_FINAL_CODE);
 
   // He's dead, Jim.
   _cfg     = (PhaseCFG*)0xdeadbeef;
@@ -1924,38 +2279,50 @@ void Compile::dump_asm(int *pcs, uint pc_limit) {
   _regalloc->dump_frame();
 
   Node *n = NULL;
-  for( uint i=0; i<_cfg->_num_blocks; i++ ) {
-    if (VMThread::should_terminate()) { cut_short = true; break; }
-    Block *b = _cfg->_blocks[i];
-    if (b->is_connector() && !Verbose) continue;
-    n = b->_nodes[0];
-    if (pcs && n->_idx < pc_limit)
+  for (uint i = 0; i < _cfg->number_of_blocks(); i++) {
+    if (VMThread::should_terminate()) {
+      cut_short = true;
+      break;
+    }
+    Block* block = _cfg->get_block(i);
+    if (block->is_connector() && !Verbose) {
+      continue;
+    }
+    n = block->head();
+    if (pcs && n->_idx < pc_limit) {
       tty->print("%3.3x   ", pcs[n->_idx]);
-    else
+    } else {
       tty->print("      ");
-    b->dump_head( &_cfg->_bbs );
-    if (b->is_connector()) {
+    }
+    block->dump_head(_cfg);
+    if (block->is_connector()) {
       tty->print_cr("        # Empty connector block");
-    } else if (b->num_preds() == 2 && b->pred(1)->is_CatchProj() && b->pred(1)->as_CatchProj()->_con == CatchProjNode::fall_through_index) {
+    } else if (block->num_preds() == 2 && block->pred(1)->is_CatchProj() && block->pred(1)->as_CatchProj()->_con == CatchProjNode::fall_through_index) {
       tty->print_cr("        # Block is sole successor of call");
     }
 
     // For all instructions
     Node *delay = NULL;
-    for( uint j = 0; j<b->_nodes.size(); j++ ) {
-      if (VMThread::should_terminate()) { cut_short = true; break; }
-      n = b->_nodes[j];
+    for (uint j = 0; j < block->number_of_nodes(); j++) {
+      if (VMThread::should_terminate()) {
+        cut_short = true;
+        break;
+      }
+      n = block->get_node(j);
       if (valid_bundle_info(n)) {
-        Bundle *bundle = node_bundling(n);
+        Bundle* bundle = node_bundling(n);
         if (bundle->used_in_unconditional_delay()) {
           delay = n;
           continue;
         }
-        if (bundle->starts_bundle())
+        if (bundle->starts_bundle()) {
           starts_bundle = '+';
+        }
       }
 
-      if (WizardMode) n->dump();
+      if (WizardMode) {
+        n->dump();
+      }
 
       if( !n->is_Region() &&    // Dont print in the Assembly
           !n->is_Phi() &&       // a few noisely useless nodes
@@ -2049,16 +2416,18 @@ struct Final_Reshape_Counts : public StackObj {
   int  get_inner_loop_count() const { return _inner_loop_count; }
 };
 
+#ifdef ASSERT
 static bool oop_offset_is_sane(const TypeInstPtr* tp) {
   ciInstanceKlass *k = tp->klass()->as_instance_klass();
   // Make sure the offset goes inside the instance layout.
   return k->contains_field_offset(tp->offset());
   // Note that OffsetBot and OffsetTop are very negative.
 }
+#endif
 
 // Eliminate trivially redundant StoreCMs and accumulate their
 // precedence edges.
-static void eliminate_redundant_card_marks(Node* n) {
+void Compile::eliminate_redundant_card_marks(Node* n) {
   assert(n->Opcode() == Op_StoreCM, "expected StoreCM");
   if (n->in(MemNode::Address)->outcnt() > 1) {
     // There are multiple users of the same address so it might be
@@ -2093,7 +2462,7 @@ static void eliminate_redundant_card_marks(Node* n) {
         // Eliminate the previous StoreCM
         prev->set_req(MemNode::Memory, mem->in(MemNode::Memory));
         assert(mem->outcnt() == 0, "should be dead");
-        mem->disconnect_inputs(NULL);
+        mem->disconnect_inputs(NULL, this);
       } else {
         prev = mem;
       }
@@ -2104,7 +2473,7 @@ static void eliminate_redundant_card_marks(Node* n) {
 
 //------------------------------final_graph_reshaping_impl----------------------
 // Implement items 1-5 from final_graph_reshaping below.
-static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
+void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
 
   if ( n->outcnt() == 0 ) return; // dead node
   uint nop = n->Opcode();
@@ -2134,8 +2503,7 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
 
 #ifdef ASSERT
   if( n->is_Mem() ) {
-    Compile* C = Compile::current();
-    int alias_idx = C->get_alias_index(n->as_Mem()->adr_type());
+    int alias_idx = get_alias_index(n->as_Mem()->adr_type());
     assert( n->in(0) != NULL || alias_idx != Compile::AliasIdxRaw ||
             // oop will be recorded in oop map if load crosses safepoint
             n->is_Load() && (n->as_Load()->bottom_type()->isa_oopptr() ||
@@ -2184,7 +2552,7 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
     break;
   case Op_Opaque1:              // Remove Opaque Nodes before matching
   case Op_Opaque2:              // Remove Opaque Nodes before matching
-    n->subsume_by(n->in(1));
+    n->subsume_by(n->in(1), this);
     break;
   case Op_CallStaticJava:
   case Op_CallJava:
@@ -2210,6 +2578,7 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
           nop != Op_CreateEx &&
           nop != Op_CheckCastPP &&
           nop != Op_DecodeN &&
+          nop != Op_DecodeNKlass &&
           !n->is_Mem() ) {
         Node *x = n->clone();
         call->set_req( TypeFunc::Parms, x );
@@ -2250,19 +2619,24 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
   case Op_CompareAndSwapL:
   case Op_CompareAndSwapP:
   case Op_CompareAndSwapN:
+  case Op_GetAndAddI:
+  case Op_GetAndAddL:
+  case Op_GetAndSetI:
+  case Op_GetAndSetL:
+  case Op_GetAndSetP:
+  case Op_GetAndSetN:
   case Op_StoreP:
   case Op_StoreN:
+  case Op_StoreNKlass:
   case Op_LoadB:
   case Op_LoadUB:
   case Op_LoadUS:
   case Op_LoadI:
-  case Op_LoadUI2L:
   case Op_LoadKlass:
   case Op_LoadNKlass:
   case Op_LoadL:
   case Op_LoadL_unaligned:
   case Op_LoadPLocked:
-  case Op_LoadLLocked:
   case Op_LoadP:
   case Op_LoadN:
   case Op_LoadRange:
@@ -2287,7 +2661,7 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
             addp->in(AddPNode::Base) == n->in(AddPNode::Base),
             "Base pointers must match" );
 #ifdef _LP64
-    if (UseCompressedOops &&
+    if ((UseCompressedOops || UseCompressedClassPointers) &&
         addp->Opcode() == Op_ConP &&
         addp == n->in(AddPNode::Base) &&
         n->in(AddPNode::Offset)->is_Con()) {
@@ -2296,16 +2670,17 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
       // instructions (4) then load 64-bits constant (7).
       // Do this transformation here since IGVN will convert ConN back to ConP.
       const Type* t = addp->bottom_type();
-      if (t->isa_oopptr()) {
+      if (t->isa_oopptr() || t->isa_klassptr()) {
         Node* nn = NULL;
 
+        int op = t->isa_oopptr() ? Op_ConN : Op_ConNKlass;
+
         // Look for existing ConN node of the same exact type.
-        Compile* C = Compile::current();
-        Node* r  = C->root();
+        Node* r  = root();
         uint cnt = r->outcnt();
         for (uint i = 0; i < cnt; i++) {
           Node* m = r->raw_out(i);
-          if (m!= NULL && m->Opcode() == Op_ConN &&
+          if (m!= NULL && m->Opcode() == op &&
               m->bottom_type()->make_ptr() == t) {
             nn = m;
             break;
@@ -2314,11 +2689,15 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
         if (nn != NULL) {
           // Decode a narrow oop to match address
           // [R12 + narrow_oop_reg<<3 + offset]
-          nn = new (C,  2) DecodeNNode(nn, t);
+          if (t->isa_oopptr()) {
+            nn = new (this) DecodeNNode(nn, t);
+          } else {
+            nn = new (this) DecodeNKlassNode(nn, t);
+          }
           n->set_req(AddPNode::Base, nn);
           n->set_req(AddPNode::Address, nn);
           if (addp->outcnt() == 0) {
-            addp->disconnect_inputs(NULL);
+            addp->disconnect_inputs(NULL, this);
           }
         }
       }
@@ -2330,7 +2709,6 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
 #ifdef _LP64
   case Op_CastPP:
     if (n->in(1)->is_DecodeN() && Matcher::gen_narrow_oop_implicit_null_checks()) {
-      Compile* C = Compile::current();
       Node* in1 = n->in(1);
       const Type* t = n->bottom_type();
       Node* new_in1 = in1->clone();
@@ -2359,9 +2737,9 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
         new_in1->set_req(0, n->in(0));
       }
 
-      n->subsume_by(new_in1);
+      n->subsume_by(new_in1, this);
       if (in1->outcnt() == 0) {
-        in1->disconnect_inputs(NULL);
+        in1->disconnect_inputs(NULL, this);
       }
     }
     break;
@@ -2369,27 +2747,28 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
   case Op_CmpP:
     // Do this transformation here to preserve CmpPNode::sub() and
     // other TypePtr related Ideal optimizations (for example, ptr nullness).
-    if (n->in(1)->is_DecodeN() || n->in(2)->is_DecodeN()) {
+    if (n->in(1)->is_DecodeNarrowPtr() || n->in(2)->is_DecodeNarrowPtr()) {
       Node* in1 = n->in(1);
       Node* in2 = n->in(2);
-      if (!in1->is_DecodeN()) {
+      if (!in1->is_DecodeNarrowPtr()) {
         in2 = in1;
         in1 = n->in(2);
       }
-      assert(in1->is_DecodeN(), "sanity");
+      assert(in1->is_DecodeNarrowPtr(), "sanity");
 
-      Compile* C = Compile::current();
       Node* new_in2 = NULL;
-      if (in2->is_DecodeN()) {
+      if (in2->is_DecodeNarrowPtr()) {
+        assert(in2->Opcode() == in1->Opcode(), "must be same node type");
         new_in2 = in2->in(1);
       } else if (in2->Opcode() == Op_ConP) {
         const Type* t = in2->bottom_type();
         if (t == TypePtr::NULL_PTR) {
+          assert(in1->is_DecodeN(), "compare klass to null?");
           // Don't convert CmpP null check into CmpN if compressed
           // oops implicit null check is not generated.
           // This will allow to generate normal oop implicit null check.
           if (Matcher::gen_narrow_oop_implicit_null_checks())
-            new_in2 = ConNode::make(C, TypeNarrowOop::NULL_PTR);
+            new_in2 = ConNode::make(this, TypeNarrowOop::NULL_PTR);
           //
           // This transformation together with CastPP transformation above
           // will generated code for implicit NULL checks for compressed oops.
@@ -2428,44 +2807,50 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
           //    NullCheck base_reg
           //
         } else if (t->isa_oopptr()) {
-          new_in2 = ConNode::make(C, t->make_narrowoop());
+          new_in2 = ConNode::make(this, t->make_narrowoop());
+        } else if (t->isa_klassptr()) {
+          new_in2 = ConNode::make(this, t->make_narrowklass());
         }
       }
       if (new_in2 != NULL) {
-        Node* cmpN = new (C, 3) CmpNNode(in1->in(1), new_in2);
-        n->subsume_by( cmpN );
+        Node* cmpN = new (this) CmpNNode(in1->in(1), new_in2);
+        n->subsume_by(cmpN, this);
         if (in1->outcnt() == 0) {
-          in1->disconnect_inputs(NULL);
+          in1->disconnect_inputs(NULL, this);
         }
         if (in2->outcnt() == 0) {
-          in2->disconnect_inputs(NULL);
+          in2->disconnect_inputs(NULL, this);
         }
       }
     }
     break;
 
   case Op_DecodeN:
-    assert(!n->in(1)->is_EncodeP(), "should be optimized out");
+  case Op_DecodeNKlass:
+    assert(!n->in(1)->is_EncodeNarrowPtr(), "should be optimized out");
     // DecodeN could be pinned when it can't be fold into
     // an address expression, see the code for Op_CastPP above.
-    assert(n->in(0) == NULL || !Matcher::narrow_oop_use_complex_address(), "no control");
+    assert(n->in(0) == NULL || (UseCompressedOops && !Matcher::narrow_oop_use_complex_address()), "no control");
     break;
 
-  case Op_EncodeP: {
+  case Op_EncodeP:
+  case Op_EncodePKlass: {
     Node* in1 = n->in(1);
-    if (in1->is_DecodeN()) {
-      n->subsume_by(in1->in(1));
+    if (in1->is_DecodeNarrowPtr()) {
+      n->subsume_by(in1->in(1), this);
     } else if (in1->Opcode() == Op_ConP) {
-      Compile* C = Compile::current();
       const Type* t = in1->bottom_type();
       if (t == TypePtr::NULL_PTR) {
-        n->subsume_by(ConNode::make(C, TypeNarrowOop::NULL_PTR));
+        assert(t->isa_oopptr(), "null klass?");
+        n->subsume_by(ConNode::make(this, TypeNarrowOop::NULL_PTR), this);
       } else if (t->isa_oopptr()) {
-        n->subsume_by(ConNode::make(C, t->make_narrowoop()));
+        n->subsume_by(ConNode::make(this, t->make_narrowoop()), this);
+      } else if (t->isa_klassptr()) {
+        n->subsume_by(ConNode::make(this, t->make_narrowklass()), this);
       }
     }
     if (in1->outcnt() == 0) {
-      in1->disconnect_inputs(NULL);
+      in1->disconnect_inputs(NULL, this);
     }
     break;
   }
@@ -2487,15 +2872,15 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
             break;
           }
         }
-        assert(p != NULL, "must be found");
-        p->subsume_by(proj);
+        assert(proj != NULL, "must be found");
+        p->subsume_by(proj, this);
       }
     }
     break;
   }
 
   case Op_Phi:
-    if (n->as_Phi()->bottom_type()->isa_narrowoop()) {
+    if (n->as_Phi()->bottom_type()->isa_narrowoop() || n->as_Phi()->bottom_type()->isa_narrowklass()) {
       // The EncodeP optimization may create Phi with the same edges
       // for all paths. It is not handled well by Register Allocator.
       Node* unique_in = n->in(1);
@@ -2508,7 +2893,7 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
           unique_in = NULL;
       }
       if (unique_in != NULL) {
-        n->subsume_by(unique_in);
+        n->subsume_by(unique_in, this);
       }
     }
     break;
@@ -2521,16 +2906,15 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
       Node* d = n->find_similar(Op_DivI);
       if (d) {
         // Replace them with a fused divmod if supported
-        Compile* C = Compile::current();
         if (Matcher::has_match_rule(Op_DivModI)) {
-          DivModINode* divmod = DivModINode::make(C, n);
-          d->subsume_by(divmod->div_proj());
-          n->subsume_by(divmod->mod_proj());
+          DivModINode* divmod = DivModINode::make(this, n);
+          d->subsume_by(divmod->div_proj(), this);
+          n->subsume_by(divmod->mod_proj(), this);
         } else {
           // replace a%b with a-((a/b)*b)
-          Node* mult = new (C, 3) MulINode(d, d->in(2));
-          Node* sub  = new (C, 3) SubINode(d->in(1), mult);
-          n->subsume_by( sub );
+          Node* mult = new (this) MulINode(d, d->in(2));
+          Node* sub  = new (this) SubINode(d->in(1), mult);
+          n->subsume_by(sub, this);
         }
       }
     }
@@ -2542,53 +2926,26 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
       Node* d = n->find_similar(Op_DivL);
       if (d) {
         // Replace them with a fused divmod if supported
-        Compile* C = Compile::current();
         if (Matcher::has_match_rule(Op_DivModL)) {
-          DivModLNode* divmod = DivModLNode::make(C, n);
-          d->subsume_by(divmod->div_proj());
-          n->subsume_by(divmod->mod_proj());
+          DivModLNode* divmod = DivModLNode::make(this, n);
+          d->subsume_by(divmod->div_proj(), this);
+          n->subsume_by(divmod->mod_proj(), this);
         } else {
           // replace a%b with a-((a/b)*b)
-          Node* mult = new (C, 3) MulLNode(d, d->in(2));
-          Node* sub  = new (C, 3) SubLNode(d->in(1), mult);
-          n->subsume_by( sub );
+          Node* mult = new (this) MulLNode(d, d->in(2));
+          Node* sub  = new (this) SubLNode(d->in(1), mult);
+          n->subsume_by(sub, this);
         }
       }
     }
     break;
 
-  case Op_Load16B:
-  case Op_Load8B:
-  case Op_Load4B:
-  case Op_Load8S:
-  case Op_Load4S:
-  case Op_Load2S:
-  case Op_Load8C:
-  case Op_Load4C:
-  case Op_Load2C:
-  case Op_Load4I:
-  case Op_Load2I:
-  case Op_Load2L:
-  case Op_Load4F:
-  case Op_Load2F:
-  case Op_Load2D:
-  case Op_Store16B:
-  case Op_Store8B:
-  case Op_Store4B:
-  case Op_Store8C:
-  case Op_Store4C:
-  case Op_Store2C:
-  case Op_Store4I:
-  case Op_Store2I:
-  case Op_Store2L:
-  case Op_Store4F:
-  case Op_Store2F:
-  case Op_Store2D:
+  case Op_LoadVector:
+  case Op_StoreVector:
     break;
 
   case Op_PackB:
   case Op_PackS:
-  case Op_PackC:
   case Op_PackI:
   case Op_PackF:
   case Op_PackL:
@@ -2596,8 +2953,8 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
     if (n->req()-1 > 2) {
       // Replace many operand PackNodes with a binary tree for matching
       PackNode* p = (PackNode*) n;
-      Node* btp = p->binaryTreePack(Compile::current(), 1, n->req());
-      n->subsume_by(btp);
+      Node* btp = p->binary_tree_pack(this, 1, n->req());
+      n->subsume_by(btp, this);
     }
     break;
   case Op_Loop:
@@ -2621,18 +2978,60 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
       if (t != NULL && t->is_con()) {
         juint shift = t->get_con();
         if (shift > mask) { // Unsigned cmp
-          Compile* C = Compile::current();
-          n->set_req(2, ConNode::make(C, TypeInt::make(shift & mask)));
+          n->set_req(2, ConNode::make(this, TypeInt::make(shift & mask)));
         }
       } else {
         if (t == NULL || t->_lo < 0 || t->_hi > (int)mask) {
-          Compile* C = Compile::current();
-          Node* shift = new (C, 3) AndINode(in2, ConNode::make(C, TypeInt::make(mask)));
+          Node* shift = new (this) AndINode(in2, ConNode::make(this, TypeInt::make(mask)));
           n->set_req(2, shift);
         }
       }
       if (in2->outcnt() == 0) { // Remove dead node
-        in2->disconnect_inputs(NULL);
+        in2->disconnect_inputs(NULL, this);
+      }
+    }
+    break;
+  case Op_MemBarStoreStore:
+  case Op_MemBarRelease:
+    // Break the link with AllocateNode: it is no longer useful and
+    // confuses register allocation.
+    if (n->req() > MemBarNode::Precedent) {
+      n->set_req(MemBarNode::Precedent, top());
+    }
+    break;
+    // Must set a control edge on all nodes that produce a FlagsProj
+    // so they can't escape the block that consumes the flags.
+    // Must also set the non throwing branch as the control
+    // for all nodes that depends on the result. Unless the node
+    // already have a control that isn't the control of the
+    // flag producer
+  case Op_FlagsProj:
+    {
+      MathExactNode* math = (MathExactNode*)  n->in(0);
+      Node* ctrl = math->control_node();
+      Node* non_throwing = math->non_throwing_branch();
+      math->set_req(0, ctrl);
+
+      Node* result = math->result_node();
+      if (result != NULL) {
+        for (DUIterator_Fast jmax, j = result->fast_outs(jmax); j < jmax; j++) {
+          Node* out = result->fast_out(j);
+          // Phi nodes shouldn't be moved. They would only match below if they
+          // had the same control as the MathExactNode. The only time that
+          // would happen is if the Phi is also an input to the MathExact
+          //
+          // Cmp nodes shouldn't have control set at all.
+          if (out->is_Phi() ||
+              out->is_Cmp()) {
+            continue;
+          }
+
+          if (out->in(0) == NULL) {
+            out->set_req(0, non_throwing);
+          } else if (out->in(0) == ctrl) {
+            out->set_req(0, non_throwing);
+          }
+        }
       }
     }
     break;
@@ -2650,7 +3049,7 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
 //------------------------------final_graph_reshaping_walk---------------------
 // Replacing Opaque nodes with their input in final_graph_reshaping_impl(),
 // requires that the walk visits a node's inputs before visiting the node.
-static void final_graph_reshaping_walk( Node_Stack &nstack, Node *root, Final_Reshape_Counts &frc ) {
+void Compile::final_graph_reshaping_walk( Node_Stack &nstack, Node *root, Final_Reshape_Counts &frc ) {
   ResourceArea *area = Thread::current()->resource_area();
   Unique_Node_List sfpt(area);
 
@@ -2684,12 +3083,13 @@ static void final_graph_reshaping_walk( Node_Stack &nstack, Node *root, Final_Re
   }
 
   // Skip next transformation if compressed oops are not used.
-  if (!UseCompressedOops || !Matcher::gen_narrow_oop_implicit_null_checks())
+  if ((UseCompressedOops && !Matcher::gen_narrow_oop_implicit_null_checks()) ||
+      (!UseCompressedOops && !UseCompressedClassPointers))
     return;
 
-  // Go over safepoints nodes to skip DecodeN nodes for debug edges.
+  // Go over safepoints nodes to skip DecodeN/DecodeNKlass nodes for debug edges.
   // It could be done for an uncommon traps or any safepoints/calls
-  // if the DecodeN node is referenced only in a debug info.
+  // if the DecodeN/DecodeNKlass node is referenced only in a debug info.
   while (sfpt.size() > 0) {
     n = sfpt.pop();
     JVMState *jvms = n->as_SafePoint()->jvms();
@@ -2700,7 +3100,7 @@ static void final_graph_reshaping_walk( Node_Stack &nstack, Node *root, Final_Re
                         n->as_CallStaticJava()->uncommon_trap_request() != 0);
     for (int j = start; j < end; j++) {
       Node* in = n->in(j);
-      if (in->is_DecodeN()) {
+      if (in->is_DecodeNarrowPtr()) {
         bool safe_to_skip = true;
         if (!is_uncommon ) {
           // Is it safe to skip?
@@ -2716,7 +3116,7 @@ static void final_graph_reshaping_walk( Node_Stack &nstack, Node *root, Final_Re
           n->set_req(j, in->in(1));
         }
         if (in->outcnt() == 0) {
-          in->disconnect_inputs(NULL);
+          in->disconnect_inputs(NULL, this);
         }
       }
     }
@@ -2756,6 +3156,15 @@ bool Compile::final_graph_reshaping() {
   if (root()->req() == 1) {
     record_method_not_compilable("trivial infinite loop");
     return true;
+  }
+
+  // Expensive nodes have their control input set to prevent the GVN
+  // from freely commoning them. There's no GVN beyond this point so
+  // no need to keep the control input. We want the expensive nodes to
+  // be freely moved to the least frequent code path by gcm.
+  assert(OptimizeExpensiveOps || expensive_count() == 0, "optimization off but list non empty?");
+  for (int i = 0; i < expensive_count(); i++) {
+    _expensive_nodes->at(i)->set_req(0, NULL);
   }
 
   Final_Reshape_Counts frc;
@@ -2965,6 +3374,72 @@ void Compile::verify_graph_edges(bool no_dead_code) {
     }
   }
 }
+
+// Verify GC barriers consistency
+// Currently supported:
+// - G1 pre-barriers (see GraphKit::g1_write_barrier_pre())
+void Compile::verify_barriers() {
+  if (UseG1GC) {
+    // Verify G1 pre-barriers
+    const int marking_offset = in_bytes(JavaThread::satb_mark_queue_offset() + PtrQueue::byte_offset_of_active());
+
+    ResourceArea *area = Thread::current()->resource_area();
+    Unique_Node_List visited(area);
+    Node_List worklist(area);
+    // We're going to walk control flow backwards starting from the Root
+    worklist.push(_root);
+    while (worklist.size() > 0) {
+      Node* x = worklist.pop();
+      if (x == NULL || x == top()) continue;
+      if (visited.member(x)) {
+        continue;
+      } else {
+        visited.push(x);
+      }
+
+      if (x->is_Region()) {
+        for (uint i = 1; i < x->req(); i++) {
+          worklist.push(x->in(i));
+        }
+      } else {
+        worklist.push(x->in(0));
+        // We are looking for the pattern:
+        //                            /->ThreadLocal
+        // If->Bool->CmpI->LoadB->AddP->ConL(marking_offset)
+        //              \->ConI(0)
+        // We want to verify that the If and the LoadB have the same control
+        // See GraphKit::g1_write_barrier_pre()
+        if (x->is_If()) {
+          IfNode *iff = x->as_If();
+          if (iff->in(1)->is_Bool() && iff->in(1)->in(1)->is_Cmp()) {
+            CmpNode *cmp = iff->in(1)->in(1)->as_Cmp();
+            if (cmp->Opcode() == Op_CmpI && cmp->in(2)->is_Con() && cmp->in(2)->bottom_type()->is_int()->get_con() == 0
+                && cmp->in(1)->is_Load()) {
+              LoadNode* load = cmp->in(1)->as_Load();
+              if (load->Opcode() == Op_LoadB && load->in(2)->is_AddP() && load->in(2)->in(2)->Opcode() == Op_ThreadLocal
+                  && load->in(2)->in(3)->is_Con()
+                  && load->in(2)->in(3)->bottom_type()->is_intptr_t()->get_con() == marking_offset) {
+
+                Node* if_ctrl = iff->in(0);
+                Node* load_ctrl = load->in(0);
+
+                if (if_ctrl != load_ctrl) {
+                  // Skip possible CProj->NeverBranch in infinite loops
+                  if ((if_ctrl->is_Proj() && if_ctrl->Opcode() == Op_CProj)
+                      && (if_ctrl->in(0)->is_MultiBranch() && if_ctrl->in(0)->Opcode() == Op_NeverBranch)) {
+                    if_ctrl = if_ctrl->in(0)->in(0);
+                  }
+                }
+                assert(load_ctrl != NULL && if_ctrl == load_ctrl, "controls must match");
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 #endif
 
 // The Compile object keeps track of failure reasons separately from the ciEnv.
@@ -2982,14 +3457,23 @@ void Compile::record_failure(const char* reason) {
     // Record the first failure reason.
     _failure_reason = reason;
   }
+
+  EventCompilerFailure event;
+  if (event.should_commit()) {
+    event.set_compileID(Compile::compile_id());
+    event.set_failure(reason);
+    event.commit();
+  }
+
   if (!C->failure_reason_is(C2Compiler::retry_no_subsuming_loads())) {
-    C->print_method(_failure_reason);
+    C->print_method(PHASE_FAILURE);
   }
   _root = NULL;  // flush the graph, too
 }
 
 Compile::TracePhase::TracePhase(const char* name, elapsedTimer* accumulator, bool dolog)
-  : TraceTime(NULL, accumulator, false NOT_PRODUCT( || TimeCompiler ), false)
+  : TraceTime(NULL, accumulator, false NOT_PRODUCT( || TimeCompiler ), false),
+    _phase_name(name), _dolog(dolog)
 {
   if (dolog) {
     C = Compile::current();
@@ -2999,15 +3483,34 @@ Compile::TracePhase::TracePhase(const char* name, elapsedTimer* accumulator, boo
     _log = NULL;
   }
   if (_log != NULL) {
-    _log->begin_head("phase name='%s' nodes='%d'", name, C->unique());
+    _log->begin_head("phase name='%s' nodes='%d' live='%d'", _phase_name, C->unique(), C->live_nodes());
     _log->stamp();
     _log->end_head();
   }
 }
 
 Compile::TracePhase::~TracePhase() {
+
+  C = Compile::current();
+  if (_dolog) {
+    _log = C->log();
+  } else {
+    _log = NULL;
+  }
+
+#ifdef ASSERT
+  if (PrintIdealNodeCount) {
+    tty->print_cr("phase name='%s' nodes='%d' live='%d' live_graph_walk='%d'",
+                  _phase_name, C->unique(), C->live_nodes(), C->count_live_nodes_by_graph_walk());
+  }
+
+  if (VerifyIdealNodeCount) {
+    Compile::current()->print_missing_nodes();
+  }
+#endif
+
   if (_log != NULL) {
-    _log->done("phase nodes='%d'", C->unique());
+    _log->done("phase name='%s' nodes='%d' live='%d'", _phase_name, C->unique(), C->live_nodes());
   }
 }
 
@@ -3018,35 +3521,26 @@ bool Compile::Constant::operator==(const Constant& other) {
   if (can_be_reused() != other.can_be_reused())  return false;
   // For floating point values we compare the bit pattern.
   switch (type()) {
-  case T_FLOAT:   return (_value.i == other._value.i);
+  case T_FLOAT:   return (_v._value.i == other._v._value.i);
   case T_LONG:
-  case T_DOUBLE:  return (_value.j == other._value.j);
+  case T_DOUBLE:  return (_v._value.j == other._v._value.j);
   case T_OBJECT:
-  case T_ADDRESS: return (_value.l == other._value.l);
-  case T_VOID:    return (_value.l == other._value.l);  // jump-table entries
+  case T_ADDRESS: return (_v._value.l == other._v._value.l);
+  case T_VOID:    return (_v._value.l == other._v._value.l);  // jump-table entries
+  case T_METADATA: return (_v._metadata == other._v._metadata);
   default: ShouldNotReachHere();
   }
   return false;
 }
-
-// Emit constants grouped in the following order:
-static BasicType type_order[] = {
-  T_FLOAT,    // 32-bit
-  T_OBJECT,   // 32 or 64-bit
-  T_ADDRESS,  // 32 or 64-bit
-  T_DOUBLE,   // 64-bit
-  T_LONG,     // 64-bit
-  T_VOID,     // 32 or 64-bit (jump-tables are at the end of the constant table for code emission reasons)
-  T_ILLEGAL
-};
 
 static int type_to_size_in_bytes(BasicType t) {
   switch (t) {
   case T_LONG:    return sizeof(jlong  );
   case T_FLOAT:   return sizeof(jfloat );
   case T_DOUBLE:  return sizeof(jdouble);
+  case T_METADATA: return sizeof(Metadata*);
     // We use T_VOID as marker for jump-table entries (labels) which
-    // need an interal word relocation.
+    // need an internal word relocation.
   case T_VOID:
   case T_ADDRESS:
   case T_OBJECT:  return sizeof(jobject);
@@ -3056,87 +3550,98 @@ static int type_to_size_in_bytes(BasicType t) {
   return -1;
 }
 
+int Compile::ConstantTable::qsort_comparator(Constant* a, Constant* b) {
+  // sort descending
+  if (a->freq() > b->freq())  return -1;
+  if (a->freq() < b->freq())  return  1;
+  return 0;
+}
+
 void Compile::ConstantTable::calculate_offsets_and_size() {
-  int size = 0;
-  for (int t = 0; type_order[t] != T_ILLEGAL; t++) {
-    BasicType type = type_order[t];
+  // First, sort the array by frequencies.
+  _constants.sort(qsort_comparator);
 
-    for (int i = 0; i < _constants.length(); i++) {
-      Constant con = _constants.at(i);
-      if (con.type() != type)  continue;  // Skip other types.
+#ifdef ASSERT
+  // Make sure all jump-table entries were sorted to the end of the
+  // array (they have a negative frequency).
+  bool found_void = false;
+  for (int i = 0; i < _constants.length(); i++) {
+    Constant con = _constants.at(i);
+    if (con.type() == T_VOID)
+      found_void = true;  // jump-tables
+    else
+      assert(!found_void, "wrong sorting");
+  }
+#endif
 
-      // Align size for type.
-      int typesize = type_to_size_in_bytes(con.type());
-      size = align_size_up(size, typesize);
+  int offset = 0;
+  for (int i = 0; i < _constants.length(); i++) {
+    Constant* con = _constants.adr_at(i);
 
-      // Set offset.
-      con.set_offset(size);
-      _constants.at_put(i, con);
+    // Align offset for type.
+    int typesize = type_to_size_in_bytes(con->type());
+    offset = align_size_up(offset, typesize);
+    con->set_offset(offset);   // set constant's offset
 
-      // Add type size.
-      size = size + typesize;
+    if (con->type() == T_VOID) {
+      MachConstantNode* n = (MachConstantNode*) con->get_jobject();
+      offset = offset + typesize * n->outcnt();  // expand jump-table
+    } else {
+      offset = offset + typesize;
     }
   }
 
   // Align size up to the next section start (which is insts; see
   // CodeBuffer::align_at_start).
   assert(_size == -1, "already set?");
-  _size = align_size_up(size, CodeEntryAlignment);
-
-  if (Matcher::constant_table_absolute_addressing) {
-    set_table_base_offset(0);  // No table base offset required
-  } else {
-    if (UseRDPCForConstantTableBase) {
-      // table base offset is set in MachConstantBaseNode::emit
-    } else {
-      // When RDPC is not used, the table base is set into the middle of
-      // the constant table.
-      int half_size = _size / 2;
-      assert(half_size * 2 == _size, "sanity");
-      set_table_base_offset(-half_size);
-    }
-  }
+  _size = align_size_up(offset, CodeEntryAlignment);
 }
 
 void Compile::ConstantTable::emit(CodeBuffer& cb) {
   MacroAssembler _masm(&cb);
-  for (int t = 0; type_order[t] != T_ILLEGAL; t++) {
-    BasicType type = type_order[t];
-
-    for (int i = 0; i < _constants.length(); i++) {
-      Constant con = _constants.at(i);
-      if (con.type() != type)  continue;  // Skip other types.
-
-      address constant_addr;
-      switch (con.type()) {
-      case T_LONG:   constant_addr = _masm.long_constant(  con.get_jlong()  ); break;
-      case T_FLOAT:  constant_addr = _masm.float_constant( con.get_jfloat() ); break;
-      case T_DOUBLE: constant_addr = _masm.double_constant(con.get_jdouble()); break;
-      case T_OBJECT: {
-        jobject obj = con.get_jobject();
-        int oop_index = _masm.oop_recorder()->find_index(obj);
-        constant_addr = _masm.address_constant((address) obj, oop_Relocation::spec(oop_index));
-        break;
-      }
-      case T_ADDRESS: {
-        address addr = (address) con.get_jobject();
-        constant_addr = _masm.address_constant(addr);
-        break;
-      }
-      // We use T_VOID as marker for jump-table entries (labels) which
-      // need an interal word relocation.
-      case T_VOID: {
-        // Write a dummy word.  The real value is filled in later
-        // in fill_jump_table_in_constant_table.
-        address addr = (address) con.get_jobject();
-        constant_addr = _masm.address_constant(addr);
-        break;
-      }
-      default: ShouldNotReachHere();
-      }
-      assert(constant_addr != NULL, "consts section too small");
-      assert((constant_addr - _masm.code()->consts()->start()) == con.offset(), err_msg("must be: %d == %d", constant_addr - _masm.code()->consts()->start(), con.offset()));
+  for (int i = 0; i < _constants.length(); i++) {
+    Constant con = _constants.at(i);
+    address constant_addr;
+    switch (con.type()) {
+    case T_LONG:   constant_addr = _masm.long_constant(  con.get_jlong()  ); break;
+    case T_FLOAT:  constant_addr = _masm.float_constant( con.get_jfloat() ); break;
+    case T_DOUBLE: constant_addr = _masm.double_constant(con.get_jdouble()); break;
+    case T_OBJECT: {
+      jobject obj = con.get_jobject();
+      int oop_index = _masm.oop_recorder()->find_index(obj);
+      constant_addr = _masm.address_constant((address) obj, oop_Relocation::spec(oop_index));
+      break;
     }
+    case T_ADDRESS: {
+      address addr = (address) con.get_jobject();
+      constant_addr = _masm.address_constant(addr);
+      break;
+    }
+    // We use T_VOID as marker for jump-table entries (labels) which
+    // need an internal word relocation.
+    case T_VOID: {
+      MachConstantNode* n = (MachConstantNode*) con.get_jobject();
+      // Fill the jump-table with a dummy word.  The real value is
+      // filled in later in fill_jump_table.
+      address dummy = (address) n;
+      constant_addr = _masm.address_constant(dummy);
+      // Expand jump-table
+      for (uint i = 1; i < n->outcnt(); i++) {
+        address temp_addr = _masm.address_constant(dummy + i);
+        assert(temp_addr, "consts section too small");
+      }
+      break;
+    }
+    case T_METADATA: {
+      Metadata* obj = con.get_metadata();
+      int metadata_index = _masm.oop_recorder()->find_index(obj);
+      constant_addr = _masm.address_constant((address) obj, metadata_Relocation::spec(metadata_index));
+      break;
+    }
+    default: ShouldNotReachHere();
+    }
+    assert(constant_addr, "consts section too small");
+    assert((constant_addr - _masm.code()->consts()->start()) == con.offset(), err_msg_res("must be: %d == %d", constant_addr - _masm.code()->consts()->start(), con.offset()));
   }
 }
 
@@ -3152,19 +3657,27 @@ void Compile::ConstantTable::add(Constant& con) {
   if (con.can_be_reused()) {
     int idx = _constants.find(con);
     if (idx != -1 && _constants.at(idx).can_be_reused()) {
+      _constants.adr_at(idx)->inc_freq(con.freq());  // increase the frequency by the current value
       return;
     }
   }
   (void) _constants.append(con);
 }
 
-Compile::Constant Compile::ConstantTable::add(BasicType type, jvalue value) {
-  Constant con(type, value);
+Compile::Constant Compile::ConstantTable::add(MachConstantNode* n, BasicType type, jvalue value) {
+  Block* b = Compile::current()->cfg()->get_block_for_node(n);
+  Constant con(type, value, b->_freq);
   add(con);
   return con;
 }
 
-Compile::Constant Compile::ConstantTable::add(MachOper* oper) {
+Compile::Constant Compile::ConstantTable::add(Metadata* metadata) {
+  Constant con(metadata);
+  add(con);
+  return con;
+}
+
+Compile::Constant Compile::ConstantTable::add(MachConstantNode* n, MachOper* oper) {
   jvalue value;
   BasicType type = oper->type()->basic_type();
   switch (type) {
@@ -3173,22 +3686,21 @@ Compile::Constant Compile::ConstantTable::add(MachOper* oper) {
   case T_DOUBLE:  value.d = oper->constantD(); break;
   case T_OBJECT:
   case T_ADDRESS: value.l = (jobject) oper->constant(); break;
-  default: ShouldNotReachHere();
+  case T_METADATA: return add((Metadata*)oper->constant()); break;
+  default: guarantee(false, err_msg_res("unhandled type: %s", type2name(type)));
   }
-  return add(type, value);
+  return add(n, type, value);
 }
 
-Compile::Constant Compile::ConstantTable::allocate_jump_table(MachConstantNode* n) {
+Compile::Constant Compile::ConstantTable::add_jump_table(MachConstantNode* n) {
   jvalue value;
   // We can use the node pointer here to identify the right jump-table
   // as this method is called from Compile::Fill_buffer right before
   // the MachNodes are emitted and the jump-table is filled (means the
   // MachNode pointers do not change anymore).
   value.l = (jobject) n;
-  Constant con(T_VOID, value, false);  // Labels of a jump-table cannot be reused.
-  for (uint i = 0; i < n->outcnt(); i++) {
-    add(con);
-  }
+  Constant con(T_VOID, value, next_jump_table_freq(), false);  // Labels of a jump-table cannot be reused.
+  add(con);
   return con;
 }
 
@@ -3197,7 +3709,7 @@ void Compile::ConstantTable::fill_jump_table(CodeBuffer& cb, MachConstantNode* n
   if (Compile::current()->in_scratch_emit_size())  return;
 
   assert(labels.is_nonempty(), "must be");
-  assert((uint) labels.length() == n->outcnt(), err_msg("must be equal: %d == %d", labels.length(), n->outcnt()));
+  assert((uint) labels.length() == n->outcnt(), err_msg_res("must be equal: %d == %d", labels.length(), n->outcnt()));
 
   // Since MachConstantNode::constant_offset() also contains
   // table_base_offset() we need to subtract the table_base_offset()
@@ -3207,10 +3719,237 @@ void Compile::ConstantTable::fill_jump_table(CodeBuffer& cb, MachConstantNode* n
   MacroAssembler _masm(&cb);
   address* jump_table_base = (address*) (_masm.code()->consts()->start() + offset);
 
-  for (int i = 0; i < labels.length(); i++) {
+  for (uint i = 0; i < n->outcnt(); i++) {
     address* constant_addr = &jump_table_base[i];
-    assert(*constant_addr == (address) n, "all jump-table entries must contain node pointer");
+    assert(*constant_addr == (((address) n) + i), err_msg_res("all jump-table entries must contain adjusted node pointer: " INTPTR_FORMAT " == " INTPTR_FORMAT, *constant_addr, (((address) n) + i)));
     *constant_addr = cb.consts()->target(*labels.at(i), (address) constant_addr);
     cb.consts()->relocate((address) constant_addr, relocInfo::internal_word_type);
   }
+}
+
+void Compile::dump_inlining() {
+  if (print_inlining() || print_intrinsics()) {
+    // Print inlining message for candidates that we couldn't inline
+    // for lack of space or non constant receiver
+    for (int i = 0; i < _late_inlines.length(); i++) {
+      CallGenerator* cg = _late_inlines.at(i);
+      cg->print_inlining_late("live nodes > LiveNodeCountInliningCutoff");
+    }
+    Unique_Node_List useful;
+    useful.push(root());
+    for (uint next = 0; next < useful.size(); ++next) {
+      Node* n  = useful.at(next);
+      if (n->is_Call() && n->as_Call()->generator() != NULL && n->as_Call()->generator()->call_node() == n) {
+        CallNode* call = n->as_Call();
+        CallGenerator* cg = call->generator();
+        cg->print_inlining_late("receiver not constant");
+      }
+      uint max = n->len();
+      for ( uint i = 0; i < max; ++i ) {
+        Node *m = n->in(i);
+        if ( m == NULL ) continue;
+        useful.push(m);
+      }
+    }
+    for (int i = 0; i < _print_inlining_list->length(); i++) {
+      tty->print(_print_inlining_list->adr_at(i)->ss()->as_string());
+    }
+  }
+}
+
+int Compile::cmp_expensive_nodes(Node* n1, Node* n2) {
+  if (n1->Opcode() < n2->Opcode())      return -1;
+  else if (n1->Opcode() > n2->Opcode()) return 1;
+
+  assert(n1->req() == n2->req(), err_msg_res("can't compare %s nodes: n1->req() = %d, n2->req() = %d", NodeClassNames[n1->Opcode()], n1->req(), n2->req()));
+  for (uint i = 1; i < n1->req(); i++) {
+    if (n1->in(i) < n2->in(i))      return -1;
+    else if (n1->in(i) > n2->in(i)) return 1;
+  }
+
+  return 0;
+}
+
+int Compile::cmp_expensive_nodes(Node** n1p, Node** n2p) {
+  Node* n1 = *n1p;
+  Node* n2 = *n2p;
+
+  return cmp_expensive_nodes(n1, n2);
+}
+
+void Compile::sort_expensive_nodes() {
+  if (!expensive_nodes_sorted()) {
+    _expensive_nodes->sort(cmp_expensive_nodes);
+  }
+}
+
+bool Compile::expensive_nodes_sorted() const {
+  for (int i = 1; i < _expensive_nodes->length(); i++) {
+    if (cmp_expensive_nodes(_expensive_nodes->adr_at(i), _expensive_nodes->adr_at(i-1)) < 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool Compile::should_optimize_expensive_nodes(PhaseIterGVN &igvn) {
+  if (_expensive_nodes->length() == 0) {
+    return false;
+  }
+
+  assert(OptimizeExpensiveOps, "optimization off?");
+
+  // Take this opportunity to remove dead nodes from the list
+  int j = 0;
+  for (int i = 0; i < _expensive_nodes->length(); i++) {
+    Node* n = _expensive_nodes->at(i);
+    if (!n->is_unreachable(igvn)) {
+      assert(n->is_expensive(), "should be expensive");
+      _expensive_nodes->at_put(j, n);
+      j++;
+    }
+  }
+  _expensive_nodes->trunc_to(j);
+
+  // Then sort the list so that similar nodes are next to each other
+  // and check for at least two nodes of identical kind with same data
+  // inputs.
+  sort_expensive_nodes();
+
+  for (int i = 0; i < _expensive_nodes->length()-1; i++) {
+    if (cmp_expensive_nodes(_expensive_nodes->adr_at(i), _expensive_nodes->adr_at(i+1)) == 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void Compile::cleanup_expensive_nodes(PhaseIterGVN &igvn) {
+  if (_expensive_nodes->length() == 0) {
+    return;
+  }
+
+  assert(OptimizeExpensiveOps, "optimization off?");
+
+  // Sort to bring similar nodes next to each other and clear the
+  // control input of nodes for which there's only a single copy.
+  sort_expensive_nodes();
+
+  int j = 0;
+  int identical = 0;
+  int i = 0;
+  for (; i < _expensive_nodes->length()-1; i++) {
+    assert(j <= i, "can't write beyond current index");
+    if (_expensive_nodes->at(i)->Opcode() == _expensive_nodes->at(i+1)->Opcode()) {
+      identical++;
+      _expensive_nodes->at_put(j++, _expensive_nodes->at(i));
+      continue;
+    }
+    if (identical > 0) {
+      _expensive_nodes->at_put(j++, _expensive_nodes->at(i));
+      identical = 0;
+    } else {
+      Node* n = _expensive_nodes->at(i);
+      igvn.hash_delete(n);
+      n->set_req(0, NULL);
+      igvn.hash_insert(n);
+    }
+  }
+  if (identical > 0) {
+    _expensive_nodes->at_put(j++, _expensive_nodes->at(i));
+  } else if (_expensive_nodes->length() >= 1) {
+    Node* n = _expensive_nodes->at(i);
+    igvn.hash_delete(n);
+    n->set_req(0, NULL);
+    igvn.hash_insert(n);
+  }
+  _expensive_nodes->trunc_to(j);
+}
+
+void Compile::add_expensive_node(Node * n) {
+  assert(!_expensive_nodes->contains(n), "duplicate entry in expensive list");
+  assert(n->is_expensive(), "expensive nodes with non-null control here only");
+  assert(!n->is_CFG() && !n->is_Mem(), "no cfg or memory nodes here");
+  if (OptimizeExpensiveOps) {
+    _expensive_nodes->append(n);
+  } else {
+    // Clear control input and let IGVN optimize expensive nodes if
+    // OptimizeExpensiveOps is off.
+    n->set_req(0, NULL);
+  }
+}
+
+/**
+ * Remove the speculative part of types and clean up the graph
+ */
+void Compile::remove_speculative_types(PhaseIterGVN &igvn) {
+  if (UseTypeSpeculation) {
+    Unique_Node_List worklist;
+    worklist.push(root());
+    int modified = 0;
+    // Go over all type nodes that carry a speculative type, drop the
+    // speculative part of the type and enqueue the node for an igvn
+    // which may optimize it out.
+    for (uint next = 0; next < worklist.size(); ++next) {
+      Node *n  = worklist.at(next);
+      if (n->is_Type() && n->as_Type()->type()->isa_oopptr() != NULL &&
+          n->as_Type()->type()->is_oopptr()->speculative() != NULL) {
+        TypeNode* tn = n->as_Type();
+        const TypeOopPtr* t = tn->type()->is_oopptr();
+        bool in_hash = igvn.hash_delete(n);
+        assert(in_hash, "node should be in igvn hash table");
+        tn->set_type(t->remove_speculative());
+        igvn.hash_insert(n);
+        igvn._worklist.push(n); // give it a chance to go away
+        modified++;
+      }
+      uint max = n->len();
+      for( uint i = 0; i < max; ++i ) {
+        Node *m = n->in(i);
+        if (not_a_node(m))  continue;
+        worklist.push(m);
+      }
+    }
+    // Drop the speculative part of all types in the igvn's type table
+    igvn.remove_speculative_types();
+    if (modified > 0) {
+      igvn.optimize();
+    }
+  }
+}
+
+// Auxiliary method to support randomized stressing/fuzzing.
+//
+// This method can be called the arbitrary number of times, with current count
+// as the argument. The logic allows selecting a single candidate from the
+// running list of candidates as follows:
+//    int count = 0;
+//    Cand* selected = null;
+//    while(cand = cand->next()) {
+//      if (randomized_select(++count)) {
+//        selected = cand;
+//      }
+//    }
+//
+// Including count equalizes the chances any candidate is "selected".
+// This is useful when we don't have the complete list of candidates to choose
+// from uniformly. In this case, we need to adjust the randomicity of the
+// selection, or else we will end up biasing the selection towards the latter
+// candidates.
+//
+// Quick back-envelope calculation shows that for the list of n candidates
+// the equal probability for the candidate to persist as "best" can be
+// achieved by replacing it with "next" k-th candidate with the probability
+// of 1/k. It can be easily shown that by the end of the run, the
+// probability for any candidate is converged to 1/n, thus giving the
+// uniform distribution among all the candidates.
+//
+// We don't care about the domain size as long as (RANDOMIZED_DOMAIN / count) is large.
+#define RANDOMIZED_DOMAIN_POW 29
+#define RANDOMIZED_DOMAIN (1 << RANDOMIZED_DOMAIN_POW)
+#define RANDOMIZED_DOMAIN_MASK ((1 << (RANDOMIZED_DOMAIN_POW + 1)) - 1)
+bool Compile::randomized_select(int count) {
+  assert(count > 0, "only positive");
+  return (os::random() & RANDOMIZED_DOMAIN_MASK) < (RANDOMIZED_DOMAIN / count);
 }

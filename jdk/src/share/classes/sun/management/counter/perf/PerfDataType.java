@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,7 @@ import java.io.UnsupportedEncodingException;
  * performance data.
  *
  * <p> The enumeration values for this typesafe enumeration must be
- * kept in sychronization with the PerfDataType enum in the
+ * kept in synchronization with the PerfDataType enum in the
  * globalsDefinitions.hpp file in the HotSpot source base.</p>
  *
  * @author  Brian Doherty
@@ -93,7 +93,7 @@ class PerfDataType {
             this.value = b[0];
         } catch (UnsupportedEncodingException e) {
             // ignore, "UTF-8" is always a known encoding
-            throw new InternalError("Unknown encoding");
+            throw new InternalError("Unknown encoding", e);
         }
     }
 }

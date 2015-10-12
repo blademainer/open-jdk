@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,7 +22,7 @@
  */
 /*
  * @test
- * @bug 4904082 4917089 6337226
+ * @bug 4904082 4917089 6337226 6378503
  * @summary Tests that integral division and related methods return the proper result and scale.
  * @author Joseph D. Darcy
  */
@@ -47,6 +47,9 @@ public class IntegralDivisionTests {
             {new BigDecimal("400e1"),   new BigDecimal("5"),    new BigDecimal("80e1")},
             {new BigDecimal("400e1"),   new BigDecimal("4.999999999"),  new BigDecimal("8e2")},
             {new BigDecimal("40e2"),    new BigDecimal("5"),    new BigDecimal("8e2")},
+            {BigDecimal.valueOf(1, Integer.MIN_VALUE),
+                BigDecimal.valueOf(1, -(Integer.MAX_VALUE & 0x7fffff00)),
+                BigDecimal.valueOf(1, -256)},
         };
 
         for(BigDecimal [] testCase: moreTestCases) {

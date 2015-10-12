@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,7 +55,6 @@ private:
 
   ciMethod* _method;           // the method
   ciInstanceKlass* _holder;
-  ciCPCache* _cpcache;
   address _bc_start;            // Start of current bytecode for table
   address _was_wide;            // Address past last wide bytecode
   jint* _table_base;            // Aligned start of last table or switch
@@ -69,7 +68,6 @@ private:
   void reset( address base, unsigned int size ) {
     _bc_start =_was_wide = 0;
     _start = _pc = base; _end = base + size;
-    _cpcache = NULL;
   }
 
   void assert_wide(bool require_wide) const {
@@ -129,7 +127,8 @@ public:
   // Return current ByteCode and increment PC to next bytecode, skipping all
   // intermediate constants.  Returns EOBC at end.
   // Expected usage:
-  //     while( (bc = iter.next()) != EOBC() ) { ... }
+  //     ciBytecodeStream iter(m);
+  //     while (iter.next() != ciBytecodeStream::EOBC()) { ... }
   Bytecodes::Code next() {
     _bc_start = _pc;                        // Capture start of bc
     if( _pc >= _end ) return EOBC();        // End-Of-Bytecodes
@@ -149,6 +148,8 @@ public:
 
   // Does this instruction contain an index which refes into the CP cache?
   bool has_cache_index() const { return Bytecodes::uses_cp_cache(cur_bc_raw()); }
+
+  bool has_optional_appendix() { return Bytecodes::has_optional_appendix(cur_bc_raw()); }
 
   int get_index_u1() const {
     return bytecode().get_index_u1(cur_bc_raw());
@@ -256,14 +257,17 @@ public:
   int      get_field_holder_index();
   int      get_field_signature_index();
 
-  // If this is a method invocation bytecode, get the invoked method.
-  ciMethod* get_method(bool& will_link);
-  ciKlass*  get_declared_method_holder();
-  int       get_method_holder_index();
-  int       get_method_signature_index();
+  ciMethod*     get_method(bool& will_link, ciSignature* *declared_signature_result);
+  bool          has_appendix();
+  ciObject*     get_appendix();
+  bool          has_method_type();
+  ciMethodType* get_method_type();
+  ciKlass*      get_declared_method_holder();
+  int           get_method_holder_index();
+  int           get_method_signature_index();
 
-  ciCPCache*  get_cpcache() const;
-  ciCallSite* get_call_site();
+  // Get the resolved references arrays from the constant pool
+  ciObjArray* get_resolved_references();
 };
 
 
@@ -273,11 +277,14 @@ public:
 class ciSignatureStream : public StackObj {
 private:
   ciSignature* _sig;
-  int    _pos;
+  int          _pos;
+  // holder is a method's holder
+  ciKlass*     _holder;
 public:
-  ciSignatureStream(ciSignature* signature) {
+  ciSignatureStream(ciSignature* signature, ciKlass* holder = NULL) {
     _sig = signature;
     _pos = 0;
+    _holder = holder;
   }
 
   bool at_return_type() { return _pos == _sig->count(); }
@@ -296,6 +303,23 @@ public:
     } else {
       return _sig->type_at(_pos);
     }
+  }
+
+  // next klass in the signature
+  ciKlass* next_klass() {
+    ciKlass* sig_k;
+    if (_holder != NULL) {
+      sig_k = _holder;
+      _holder = NULL;
+    } else {
+      while (!type()->is_klass()) {
+        next();
+      }
+      assert(!at_return_type(), "passed end of signature");
+      sig_k = type()->as_klass();
+      next();
+    }
+    return sig_k;
   }
 };
 

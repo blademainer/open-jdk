@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -72,7 +72,10 @@ class ServerSocketChannelImpl
     private int state = ST_UNINITIALIZED;
 
     // Binding
-    private SocketAddress localAddress; // null => unbound
+    private InetSocketAddress localAddress; // null => unbound
+
+    // set true when exclusive binding is on and SO_REUSEADDR is emulated
+    private boolean isReuseAddress;
 
     // Our socket adaptor, if any
     ServerSocket socket;
@@ -113,7 +116,9 @@ class ServerSocketChannelImpl
         synchronized (stateLock) {
             if (!isOpen())
                 throw new ClosedChannelException();
-            return localAddress;
+            return localAddress == null ? localAddress
+                    : Net.getRevealedLocalAddress(
+                          Net.asInetSocketAddress(localAddress));
         }
     }
 
@@ -125,13 +130,18 @@ class ServerSocketChannelImpl
             throw new NullPointerException();
         if (!supportedOptions().contains(name))
             throw new UnsupportedOperationException("'" + name + "' not supported");
-
         synchronized (stateLock) {
             if (!isOpen())
                 throw new ClosedChannelException();
-
-            // no options that require special handling
-            Net.setSocketOption(fd, Net.UNSPEC, name, value);
+            if (name == StandardSocketOptions.SO_REUSEADDR &&
+                    Net.useExclusiveBind())
+            {
+                // SO_REUSEADDR emulated when using exclusive bind
+                isReuseAddress = (Boolean)value;
+            } else {
+                // no options that require special handling
+                Net.setSocketOption(fd, Net.UNSPEC, name, value);
+            }
             return this;
         }
     }
@@ -149,7 +159,12 @@ class ServerSocketChannelImpl
         synchronized (stateLock) {
             if (!isOpen())
                 throw new ClosedChannelException();
-
+            if (name == StandardSocketOptions.SO_REUSEADDR &&
+                    Net.useExclusiveBind())
+            {
+                // SO_REUSEADDR emulated when using exclusive bind
+                return (T)Boolean.valueOf(isReuseAddress);
+            }
             // no options that require special handling
             return (T) Net.getSocketOption(fd, Net.UNSPEC, name);
         }
@@ -177,7 +192,7 @@ class ServerSocketChannelImpl
         }
     }
 
-    public SocketAddress localAddress() {
+    public InetSocketAddress localAddress() {
         synchronized (stateLock) {
             return localAddress;
         }
@@ -261,7 +276,8 @@ class ServerSocketChannelImpl
 
     protected void implCloseSelectableChannel() throws IOException {
         synchronized (stateLock) {
-            nd.preClose(fd);
+            if (state != ST_KILLED)
+                nd.preClose(fd);
             long th = thread;
             if (th != 0)
                 NativeThread.signal(th);
@@ -323,6 +339,28 @@ class ServerSocketChannelImpl
         return translateReadyOps(ops, 0, sk);
     }
 
+    // package-private
+    int poll(int events, long timeout) throws IOException {
+        assert Thread.holdsLock(blockingLock()) && !isBlocking();
+
+        synchronized (lock) {
+            int n = 0;
+            try {
+                begin();
+                synchronized (stateLock) {
+                    if (!isOpen())
+                        return 0;
+                    thread = NativeThread.current();
+                }
+                n = Net.poll(fd, events, timeout);
+            } finally {
+                thread = 0;
+                end(n > 0);
+            }
+            return n;
+        }
+    }
+
     /**
      * Translates an interest operation set into a native poll event set
      */
@@ -348,14 +386,15 @@ class ServerSocketChannelImpl
         StringBuffer sb = new StringBuffer();
         sb.append(this.getClass().getName());
         sb.append('[');
-        if (!isOpen())
+        if (!isOpen()) {
             sb.append("closed");
-        else {
+        } else {
             synchronized (stateLock) {
-                if (localAddress() == null) {
+                InetSocketAddress addr = localAddress();
+                if (addr == null) {
                     sb.append("unbound");
                 } else {
-                    sb.append(localAddress().toString());
+                    sb.append(Net.getRevealedLocalAddressAsString(addr));
                 }
             }
         }
@@ -377,7 +416,7 @@ class ServerSocketChannelImpl
     private static native void initIDs();
 
     static {
-        Util.load();
+        IOUtil.load();
         initIDs();
         nd = new SocketDispatcher();
     }

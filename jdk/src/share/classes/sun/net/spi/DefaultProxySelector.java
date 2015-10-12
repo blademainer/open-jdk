@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -95,7 +95,12 @@ public class DefaultProxySelector extends ProxySelector {
                 }});
         if (b != null && b.booleanValue()) {
             java.security.AccessController.doPrivileged(
-                      new sun.security.action.LoadLibraryAction("net"));
+                new java.security.PrivilegedAction<Void>() {
+                    public Void run() {
+                        System.loadLibrary("net");
+                        return null;
+                    }
+                });
             hasSystemProxies = init();
         }
     }
@@ -111,7 +116,7 @@ public class DefaultProxySelector extends ProxySelector {
     static class NonProxyInfo {
         // Default value for nonProxyHosts, this provides backward compatibility
         // by excluding localhost and its litteral notations.
-        static final String defStringVal = "localhost|127.*|[::1]";
+        static final String defStringVal = "localhost|127.*|[::1]|0.0.0.0|[::0]";
 
         String hostsSource;
         RegexpPool hostsPool;
@@ -119,6 +124,7 @@ public class DefaultProxySelector extends ProxySelector {
         final String defaultVal;
         static NonProxyInfo ftpNonProxyInfo = new NonProxyInfo("ftp.nonProxyHosts", null, null, defStringVal);
         static NonProxyInfo httpNonProxyInfo = new NonProxyInfo("http.nonProxyHosts", null, null, defStringVal);
+        static NonProxyInfo socksNonProxyInfo = new NonProxyInfo("socksNonProxyHosts", null, null, defStringVal);
 
         NonProxyInfo(String p, String s, RegexpPool pool, String d) {
             property = p;
@@ -181,6 +187,8 @@ public class DefaultProxySelector extends ProxySelector {
             pinfo = NonProxyInfo.httpNonProxyInfo;
         } else if ("ftp".equalsIgnoreCase(protocol)) {
             pinfo = NonProxyInfo.ftpNonProxyInfo;
+        } else if ("socket".equalsIgnoreCase(protocol)) {
+            pinfo = NonProxyInfo.socksNonProxyInfo;
         }
 
         /**
@@ -249,6 +257,12 @@ public class DefaultProxySelector extends ProxySelector {
                                             nprop.hostsSource = null;
                                             nprop.hostsPool = null;
                                         }
+                                    } else if (nphosts.length() != 0) {
+                                        // add the required default patterns
+                                        // but only if property no set. If it
+                                        // is empty, leave empty.
+                                        nphosts += "|" + NonProxyInfo
+                                                         .defStringVal;
                                     }
                                     if (nphosts != null) {
                                         if (!nphosts.equals(nprop.hostsSource)) {
@@ -340,5 +354,5 @@ public class DefaultProxySelector extends ProxySelector {
     }
 
     private native static boolean init();
-    private native Proxy getSystemProxy(String protocol, String host);
+    private synchronized native Proxy getSystemProxy(String protocol, String host);
 }

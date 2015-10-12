@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2002, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,11 @@ extern "C" {
 #if defined(DEBUG)
 
 #include "debug_util.h"
+
+/* Use THIS_FILE when it is available. */
+#ifndef THIS_FILE
+    #define THIS_FILE __FILE__
+#endif
 
 typedef int     dtrace_id;
 enum {
@@ -69,7 +74,7 @@ static dtrace_id        _Dt_FileTraceId = UNDEFINED_TRACE_ID;
 #define _DTrace_Template(_func, _ac, _f, _a1, _a2, _a3, _a4, _a5, _a6, _a7, _a8) \
 { \
     static dtrace_id _dt_lineid_ = UNDEFINED_TRACE_ID; \
-    DTrace_PrintFunction((_func), &_Dt_FileTraceId, &_dt_lineid_, __FILE__, __LINE__, (_ac), (_f), (_a1), (_a2), (_a3), (_a4), (_a5), (_a6), (_a7), (_a8) ); \
+    DTrace_PrintFunction((_func), &_Dt_FileTraceId, &_dt_lineid_, THIS_FILE, __LINE__, (_ac), (_f), (_a1), (_a2), (_a3), (_a4), (_a5), (_a6), (_a7), (_a8) ); \
 }
 
 /* printf style trace macros */

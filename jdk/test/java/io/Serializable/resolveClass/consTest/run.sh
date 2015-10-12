@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2001, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -28,21 +28,26 @@
 
 if [ "${TESTJAVA}" = "" ]
 then
-	echo "TESTJAVA not set.  Test cannot execute.  Failed."
+    echo "TESTJAVA not set.  Test cannot execute.  Failed."
 exit 1
+fi
+
+if [ "${COMPILEJAVA}" = "" ] ; then
+    COMPILEJAVA="${TESTJAVA}"
 fi
 
 if [ "${TESTSRC}" = "" ]
 then
-	TESTSRC="."
+    TESTSRC="."
 fi
 
 set -ex
 
 rm -f *.class *.jar
-${TESTJAVA}/bin/javac -d . ${TESTSRC}/Boot.java
-${TESTJAVA}/bin/jar cf boot.jar *.class
+${COMPILEJAVA}/bin/javac ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} -d . ${TESTSRC}/Boot.java
+${COMPILEJAVA}/bin/jar ${TESTTOOLVMOPTS} cf boot.jar *.class
 rm -f *.class
-${TESTJAVA}/bin/javac -classpath boot.jar -d . ${TESTSRC}/Test.java
-${TESTJAVA}/bin/java -Xbootclasspath/a:boot.jar Test
+${COMPILEJAVA}/bin/javac ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} -classpath boot.jar -d . \
+    ${TESTSRC}/Test.java
+${TESTJAVA}/bin/java ${TESTVMOPTS} -Xbootclasspath/a:boot.jar Test
 rm -f *.class *.jar

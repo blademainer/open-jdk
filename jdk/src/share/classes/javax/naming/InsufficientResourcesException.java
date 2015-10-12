@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,7 @@ package javax.naming;
   * the requested operation. This might due to a lack of resources on
   * the server or on the client. There are no restrictions to resource types,
   * as different services might make use of different resources. Such
-  * restrictions might be due to physical limits and/or adminstrative quotas.
+  * restrictions might be due to physical limits and/or administrative quotas.
   * Examples of limited resources are internal buffers, memory, network bandwidth.
   *<p>
   * InsufficientResourcesException is different from LimitExceededException in that

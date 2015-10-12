@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,7 +35,6 @@
 
 jint fdval(JNIEnv *env, jobject fdo);
 jlong handleval(JNIEnv *env, jobject fdo);
-jboolean isNT();
 jint convertReturnVal(JNIEnv *env, jint n, jboolean r);
 jlong convertLongReturnVal(JNIEnv *env, jlong n, jboolean r);
 jboolean purgeOutstandingICMP(JNIEnv *env, jclass clazz, jint fd);

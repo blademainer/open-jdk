@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,7 +40,7 @@ HSpaceCounters::HSpaceCounters(const char* name,
     const char* cns =
       PerfDataManager::name_space(gc->name_space(), "space", ordinal);
 
-    _name_space = NEW_C_HEAP_ARRAY(char, strlen(cns)+1);
+    _name_space = NEW_C_HEAP_ARRAY(char, strlen(cns)+1, mtGC);
     strcpy(_name_space, cns);
 
     const char* cname = PerfDataManager::counter_name(_name_space, "name");

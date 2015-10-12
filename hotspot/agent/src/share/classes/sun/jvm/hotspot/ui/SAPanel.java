@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -50,7 +50,7 @@ import com.sun.java.swing.action.*;
 /**
  * This base class encapsulates many of the events that are fired from
  * the various panels in this directory so they can easily be plugged
- * in to different containing frameworks (HSDB, BugSpot).
+ * in to different containing frameworks (HSDB).
  */
 public class SAPanel extends JPanel {
     protected List listeners = new ArrayList();

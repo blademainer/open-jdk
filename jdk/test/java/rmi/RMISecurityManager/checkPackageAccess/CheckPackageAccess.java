@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,10 +28,9 @@
  * as when the default java.lang.SecurityManager is set, which with the
  * default "java.security" file in the JDK means that access to packages in
  * the sun.* package hierarchy is denied (without explicit runtime permission
- * "accessClassInPackge.*").
+ * "accessClassInPackage.*").
  * @author Peter Jones
  *
- * @build CheckPackageAccess
  * @run main/othervm CheckPackageAccess
  */
 

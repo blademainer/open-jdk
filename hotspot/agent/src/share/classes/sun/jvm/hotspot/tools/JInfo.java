@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,11 +24,21 @@
 
 package sun.jvm.hotspot.tools;
 
-import sun.jvm.hotspot.runtime.*;
+import sun.jvm.hotspot.debugger.JVMDebugger;
+import sun.jvm.hotspot.runtime.Arguments;
+import sun.jvm.hotspot.runtime.VM;
 
 public class JInfo extends Tool {
+    public JInfo() {
+        super();
+    }
+
     public JInfo(int m) {
         mode = m;
+    }
+
+    public JInfo(JVMDebugger d) {
+        super(d);
     }
 
     protected boolean needsJavaPrefix() {
@@ -125,19 +135,37 @@ public class JInfo extends Tool {
         }
 
         JInfo jinfo = new JInfo(mode);
-        jinfo.start(args);
-        jinfo.stop();
+        jinfo.execute(args);
     }
 
     private void printVMFlags() {
+        VM.Flag[] flags = VM.getVM().getCommandLineFlags();
+        System.out.print("Non-default VM flags: ");
+        for (VM.Flag flag : flags) {
+            if (flag.getOrigin() == 0) {
+                // only print flags which aren't their defaults
+                continue;
+            }
+            if (flag.isBool()) {
+                String onoff = flag.getBool() ? "+" : "-";
+                System.out.print("-XX:" + onoff + flag.getName() + " ");
+            } else {
+                System.out.print("-XX:" + flag.getName() + "="
+                        + flag.getValue() + " ");
+            }
+        }
+        System.out.println();
+
+        System.out.print("Command line: ");
         String str = Arguments.getJVMFlags();
         if (str != null) {
-            System.out.println(str);
+            System.out.print(str + " ");
         }
         str = Arguments.getJVMArgs();
         if (str != null) {
-            System.out.println(str);
+            System.out.print(str);
         }
+        System.out.println();
     }
 
     private int mode;

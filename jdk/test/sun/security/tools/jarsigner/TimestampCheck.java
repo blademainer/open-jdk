@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -185,7 +185,7 @@ public class TimestampCheck {
             DerOutputStream tstInfo2 = new DerOutputStream();
             tstInfo2.putOctetString(tstInfo.toByteArray());
 
-            Signature sig = Signature.getInstance("SHA1withDSA");
+            Signature sig = Signature.getInstance("SHA1withRSA");
             sig.initSign((PrivateKey)(ks.getKey(
                     alias, "changeit".toCharArray())));
             sig.update(tstInfo.toByteArray());
@@ -202,7 +202,7 @@ public class TimestampCheck {
             SignerInfo signerInfo = new SignerInfo(
                     new X500Name(signer.getIssuerX500Principal().getName()),
                     signer.getSerialNumber(),
-                    aid, AlgorithmId.get("DSA"), sig.sign());
+                    aid, AlgorithmId.get("RSA"), sig.sign());
 
             SignerInfo[] signerInfos = {signerInfo};
             PKCS7 p7 =
@@ -239,13 +239,13 @@ public class TimestampCheck {
                 " -J-Djava.security.egd=file:/dev/./urandom" +
                 " -debug -keystore " + TSKS + " -storepass changeit" +
                 " -tsa http://localhost:" + port + "/%d" +
-                " -signedjar new.jar " + JAR + " old";
+                " -signedjar new_%d.jar " + JAR + " old";
         } else {
             cmd = System.getProperty("java.home") + "/bin/jarsigner" +
                 " -J-Djava.security.egd=file:/dev/./urandom" +
                 " -debug -keystore " + TSKS + " -storepass changeit" +
                 " -tsa http://localhost:" + port + "/%d" +
-                " -signedjar new.jar " + JAR + " old";
+                " -signedjar new_%d.jar " + JAR + " old";
         }
 
         try {
@@ -260,6 +260,8 @@ public class TimestampCheck {
                 jarsigner(cmd, 7, false);   // tsbad2
                 jarsigner(cmd, 8, false);   // tsbad3
                 jarsigner(cmd, 9, false);   // no cert in timestamp
+                jarsigner(cmd + " -tsapolicyid 1.2.3.4", 0, true);
+                jarsigner(cmd + " -tsapolicyid 1.2.3.5", 0, false);
             } else {                        // Run as a standalone server
                 System.err.println("Press Enter to quit server");
                 System.in.read();
@@ -278,7 +280,7 @@ public class TimestampCheck {
     static void jarsigner(String cmd, int path, boolean expected)
             throws Exception {
         System.err.println("Test " + path);
-        Process p = Runtime.getRuntime().exec(String.format(cmd, path));
+        Process p = Runtime.getRuntime().exec(String.format(cmd, path, path));
         BufferedReader reader = new BufferedReader(
                 new InputStreamReader(p.getErrorStream()));
         while (true) {
@@ -286,9 +288,25 @@ public class TimestampCheck {
             if (s == null) break;
             System.err.println(s);
         }
+
+        // Will not see noTimestamp warning
+        boolean seeWarning = false;
+        reader = new BufferedReader(
+                new InputStreamReader(p.getInputStream()));
+        while (true) {
+            String s = reader.readLine();
+            if (s == null) break;
+            System.err.println(s);
+            if (s.indexOf("Warning:") >= 0) {
+                seeWarning = true;
+            }
+        }
         int result = p.waitFor();
         if (expected && result != 0 || !expected && result == 0) {
             throw new Exception("Failed");
+        }
+        if (seeWarning) {
+            throw new Exception("See warning");
         }
     }
 }

@@ -25,7 +25,7 @@
 
 /*
  *
- * (C) Copyright IBM Corp. 1998-2009 - All Rights Reserved
+ * (C) Copyright IBM Corp. 1998-2013 - All Rights Reserved
  *
  */
 
@@ -42,7 +42,7 @@
 
 U_NAMESPACE_BEGIN
 
-// Characters that get refered to by name...
+// Characters that get referred to by name...
 #define C_SIGN_ZWNJ           0x200C
 #define C_SIGN_ZWJ            0x200D
 
@@ -96,7 +96,9 @@ U_NAMESPACE_BEGIN
 #define SF_POST_BASE_LIMIT_MASK  0x0000FFFFU
 #define SF_NO_POST_BASE_LIMIT    0x00007FFFU
 
-typedef LEUnicode SplitMatra[3];
+#define SM_MAX_PIECES 3
+
+typedef LEUnicode SplitMatra[SM_MAX_PIECES];
 
 class MPreFixups;
 class LEGlyphStorage;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,7 +49,7 @@ public class SharedMemoryListeningConnector extends GenericListeningConnector {
 
         transport = new Transport() {
             public String name() {
-                return "dt_shmem";              // compatability
+                return "dt_shmem";              // compatibility
             }
         };
     }

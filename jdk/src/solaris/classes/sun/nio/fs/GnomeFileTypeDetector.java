@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -67,16 +67,17 @@ public class GnomeFileTypeDetector
         NativeBuffer buffer = NativeBuffers.asNativeBuffer(path.getByteArrayForSysCalls());
         try {
             if (gioAvailable) {
+                // GIO may access file so need permission check
+                path.checkRead();
                 byte[] type = probeUsingGio(buffer.address());
-                return (type == null) ? null : new String(type);
+                return (type == null) ? null : Util.toString(type);
             } else {
                 byte[] type = probeUsingGnomeVfs(buffer.address());
                 if (type == null)
                     return null;
-                String s = new String(type);
+                String s = Util.toString(type);
                 return s.equals(GNOME_VFS_MIME_TYPE_UNKNOWN) ? null : s;
             }
-
         } finally {
             buffer.release();
         }

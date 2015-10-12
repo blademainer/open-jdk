@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -231,7 +231,7 @@ class WindowsLinkSupport {
             int end = (next == -1) ? path.length() : next;
             String search = sb.toString() + path.substring(curr, end);
             try {
-                FirstFile fileData = FindFirstFile(addLongPathPrefixIfNeeded(search));
+                FirstFile fileData = FindFirstFile(WindowsPath.addPrefixIfNeeded(search));
                 FindClose(fileData.handle());
 
                 // if a reparse point is encountered then we must return the
@@ -402,20 +402,6 @@ class WindowsLinkSupport {
             }
         }
 
-        return path;
-    }
-
-    /**
-     * Add long path prefix to path if required.
-     */
-    private static String addLongPathPrefixIfNeeded(String path) {
-        if (path.length() > 248) {
-            if (path.startsWith("\\\\")) {
-                path = "\\\\?\\UNC" + path.substring(1, path.length());
-            } else {
-                path = "\\\\?\\" + path;
-            }
-        }
         return path;
     }
 

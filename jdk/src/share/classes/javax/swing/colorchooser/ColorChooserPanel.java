@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -135,6 +135,7 @@ final class ColorChooserPanel extends AbstractColorChooserPanel implements Prope
         String label = this.model.getText(this, "HexCode"); // NON-NLS: suffix
         boolean visible = label != null;
         this.text.setVisible(visible);
+        this.text.getAccessibleContext().setAccessibleDescription(label);
         this.label.setVisible(visible);
         if (visible) {
             this.label.setText(label);

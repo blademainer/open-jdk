@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,7 +33,6 @@ import java.nio.channels.*;
 import java.nio.channels.spi.*;
 import java.util.*;
 import sun.net.ResourceManager;
-
 
 /**
  * An implementation of DatagramChannels.
@@ -86,14 +85,20 @@ class DatagramChannelImpl
     private int state = ST_UNINITIALIZED;
 
     // Binding
-    private SocketAddress localAddress;
-    private SocketAddress remoteAddress;
+    private InetSocketAddress localAddress;
+    private InetSocketAddress remoteAddress;
 
     // Our socket adaptor, if any
     private DatagramSocket socket;
 
     // Multicast support
     private MembershipRegistry registry;
+
+    // set true when socket is bound and SO_REUSEADDRESS is emulated
+    private boolean reuseAddressEmulated;
+
+    // set true/false when socket is already bound and SO_REUSEADDR is emulated
+    private boolean isReuseAddress;
 
     // -- End of fields protected by stateLock
 
@@ -163,7 +168,8 @@ class DatagramChannelImpl
         synchronized (stateLock) {
             if (!isOpen())
                 throw new ClosedChannelException();
-            return localAddress;
+            // Perform security check before returning address
+            return Net.getRevealedLocalAddress(localAddress);
         }
     }
 
@@ -223,6 +229,12 @@ class DatagramChannelImpl
                 }
                 return this;
             }
+            if (name == StandardSocketOptions.SO_REUSEADDR &&
+                    Net.useExclusiveBind() && localAddress != null)
+            {
+                reuseAddressEmulated = true;
+                this.isReuseAddress = (Boolean)value;
+            }
 
             // remaining options don't need any special handling
             Net.setSocketOption(fd, Net.UNSPEC, name, value);
@@ -279,6 +291,12 @@ class DatagramChannelImpl
                         throw new IOException("Unable to map index to interface");
                     return (T) ni;
                 }
+            }
+
+            if (name == StandardSocketOptions.SO_REUSEADDR &&
+                    reuseAddressEmulated)
+            {
+                return (T)Boolean.valueOf(isReuseAddress);
             }
 
             // no special handling
@@ -419,7 +437,7 @@ class DatagramChannelImpl
 
         synchronized (writeLock) {
             ensureOpen();
-            InetSocketAddress isa = (InetSocketAddress)target;
+            InetSocketAddress isa = Net.checkAddress(target);
             InetAddress ia = isa.getAddress();
             if (ia == null)
                 throw new IOException("Target address not resolved");
@@ -430,9 +448,9 @@ class DatagramChannelImpl
                     SecurityManager sm = System.getSecurityManager();
                     if (sm != null) {
                         if (ia.isMulticastAddress()) {
-                            sm.checkMulticast(isa.getAddress());
+                            sm.checkMulticast(ia);
                         } else {
-                            sm.checkConnect(isa.getAddress().getHostAddress(),
+                            sm.checkConnect(ia.getHostAddress(),
                                             isa.getPort());
                         }
                     }
@@ -452,7 +470,7 @@ class DatagramChannelImpl
                     return 0;
                 writerThread = NativeThread.current();
                 do {
-                    n = send(fd, src, target);
+                    n = send(fd, src, isa);
                 } while ((n == IOStatus.INTERRUPTED) && isOpen());
 
                 synchronized (stateLock) {
@@ -469,7 +487,7 @@ class DatagramChannelImpl
         }
     }
 
-    private int send(FileDescriptor fd, ByteBuffer src, SocketAddress target)
+    private int send(FileDescriptor fd, ByteBuffer src, InetSocketAddress target)
         throws IOException
     {
         if (src instanceof DirectBuffer)
@@ -500,7 +518,7 @@ class DatagramChannelImpl
     }
 
     private int sendFromNativeBuffer(FileDescriptor fd, ByteBuffer bb,
-                                            SocketAddress target)
+                                     InetSocketAddress target)
         throws IOException
     {
         int pos = bb.position();
@@ -509,8 +527,15 @@ class DatagramChannelImpl
         int rem = (pos <= lim ? lim - pos : 0);
 
         boolean preferIPv6 = (family != StandardProtocolFamily.INET);
-        int written = send0(preferIPv6, fd, ((DirectBuffer)bb).address() + pos,
-                            rem, target);
+        int written;
+        try {
+            written = send0(preferIPv6, fd, ((DirectBuffer)bb).address() + pos,
+                            rem, target.getAddress(), target.getPort());
+        } catch (PortUnreachableException pue) {
+            if (isConnected())
+                throw pue;
+            written = rem;
+        }
         if (written > 0)
             bb.position(pos + written);
         return written;
@@ -532,7 +557,7 @@ class DatagramChannelImpl
                     return 0;
                 readerThread = NativeThread.current();
                 do {
-                    n = IOUtil.read(fd, buf, -1, nd, readLock);
+                    n = IOUtil.read(fd, buf, -1, nd);
                 } while ((n == IOStatus.INTERRUPTED) && isOpen());
                 return IOStatus.normalize(n);
             } finally {
@@ -588,7 +613,7 @@ class DatagramChannelImpl
                     return 0;
                 writerThread = NativeThread.current();
                 do {
-                    n = IOUtil.write(fd, buf, -1, nd, writeLock);
+                    n = IOUtil.write(fd, buf, -1, nd);
                 } while ((n == IOStatus.INTERRUPTED) && isOpen());
                 return IOStatus.normalize(n);
             } finally {
@@ -654,7 +679,12 @@ class DatagramChannelImpl
                         throw new AlreadyBoundException();
                     InetSocketAddress isa;
                     if (local == null) {
-                        isa = new InetSocketAddress(0);
+                        // only Inet4Address allowed with IPv4 socket
+                        if (family == StandardProtocolFamily.INET) {
+                            isa = new InetSocketAddress(InetAddress.getByName("0.0.0.0"), 0);
+                        } else {
+                            isa = new InetSocketAddress(0);
+                        }
                     } else {
                         isa = Net.checkAddress(local);
 
@@ -692,6 +722,7 @@ class DatagramChannelImpl
         }
     }
 
+    @Override
     public DatagramChannel connect(SocketAddress sa) throws IOException {
         int localPort = 0;
 
@@ -713,7 +744,7 @@ class DatagramChannelImpl
 
                     // Connection succeeded; disallow further invocation
                     state = ST_CONNECTED;
-                    remoteAddress = sa;
+                    remoteAddress = isa;
                     sender = isa;
                     cachedSenderInetAddress = isa.getAddress();
                     cachedSenderPort = isa.getPort();
@@ -732,12 +763,13 @@ class DatagramChannelImpl
                 synchronized (stateLock) {
                     if (!isConnected() || !isOpen())
                         return this;
-                    InetSocketAddress isa = (InetSocketAddress)remoteAddress;
+                    InetSocketAddress isa = remoteAddress;
                     SecurityManager sm = System.getSecurityManager();
                     if (sm != null)
                         sm.checkConnect(isa.getAddress().getHostAddress(),
                                         isa.getPort());
-                    disconnect0(fd);
+                    boolean isIPv6 = (family == StandardProtocolFamily.INET6);
+                    disconnect0(fd, isIPv6);
                     remoteAddress = null;
                     state = ST_UNCONNECTED;
 
@@ -963,7 +995,8 @@ class DatagramChannelImpl
 
     protected void implCloseSelectableChannel() throws IOException {
         synchronized (stateLock) {
-            nd.preClose(fd);
+            if (state != ST_KILLED)
+                nd.preClose(fd);
             ResourceManager.afterUdpClose();
 
             // if member of mulitcast group then invalidate all keys
@@ -1043,6 +1076,28 @@ class DatagramChannelImpl
         return translateReadyOps(ops, 0, sk);
     }
 
+    // package-private
+    int poll(int events, long timeout) throws IOException {
+        assert Thread.holdsLock(blockingLock()) && !isBlocking();
+
+        synchronized (readLock) {
+            int n = 0;
+            try {
+                begin();
+                synchronized (stateLock) {
+                    if (!isOpen())
+                        return 0;
+                    readerThread = NativeThread.current();
+                }
+                n = Net.poll(fd, events, timeout);
+            } finally {
+                readerThread = 0;
+                end(n > 0);
+            }
+            return n;
+        }
+    }
+
     /**
      * Translates an interest operation set into a native poll event set
      */
@@ -1071,19 +1126,19 @@ class DatagramChannelImpl
 
     private static native void initIDs();
 
-    private static native void disconnect0(FileDescriptor fd)
+    private static native void disconnect0(FileDescriptor fd, boolean isIPv6)
         throws IOException;
 
     private native int receive0(FileDescriptor fd, long address, int len,
                                 boolean connected)
         throws IOException;
 
-    private native int send0(boolean preferIPv6, FileDescriptor fd, long address, int len,
-                             SocketAddress sa)
+    private native int send0(boolean preferIPv6, FileDescriptor fd, long address,
+                             int len, InetAddress addr, int port)
         throws IOException;
 
     static {
-        Util.load();
+        IOUtil.load();
         initIDs();
     }
 

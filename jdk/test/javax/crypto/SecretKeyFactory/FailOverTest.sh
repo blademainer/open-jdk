@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2006, 2007, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -35,6 +35,11 @@ then
 fi
 echo "TESTJAVA=${TESTJAVA}"
 
+if [ "${COMPILEJAVA}" = "" ]; then
+  COMPILEJAVA="${TESTJAVA}"
+fi
+echo "COMPILEJAVA=${COMPILEJAVA}"
+
 if [ "${TESTSRC}" = "" ]
 then
     TESTSRC="."
@@ -51,7 +56,7 @@ echo "TESTCLASSES=${TESTCLASSES}"
 # set platform-dependent variables
 OS=`uname -s`
 case "$OS" in
-  SunOS | Linux )
+  SunOS | Linux | Darwin )
     NULL=/dev/null
     PS=":"
     FS="/"
@@ -72,7 +77,7 @@ case "$OS" in
     ;;
 esac
 
-${TESTJAVA}${FS}bin${FS}javac \
+${COMPILEJAVA}${FS}bin${FS}javac ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} \
     -d . \
     -classpath "${TESTSRC}${FS}P1.jar${PS}${TESTSRC}${FS}P2.jar" \
     ${TESTSRC}${FS}FailOverTest.java
@@ -82,6 +87,7 @@ if [ $? -ne 0 ]; then
 fi
 
 ${TESTJAVA}${FS}bin${FS}java \
+    ${TESTVMOPTS} \
     -classpath "${TESTSRC}${FS}P1.jar${PS}${TESTSRC}${FS}P2.jar${PS}." \
     FailOverTest
 result=$?

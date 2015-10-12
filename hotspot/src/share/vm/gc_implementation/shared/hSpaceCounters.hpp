@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,11 +25,10 @@
 #ifndef SHARE_VM_GC_IMPLEMENTATION_SHARED_HSPACECOUNTERS_HPP
 #define SHARE_VM_GC_IMPLEMENTATION_SHARED_HSPACECOUNTERS_HPP
 
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
 #include "gc_implementation/shared/generationCounters.hpp"
 #include "memory/generation.hpp"
 #include "runtime/perfData.hpp"
-#endif
 
 // A HSpaceCounter is a holder class for performance counters
 // that track a collections (logical spaces) in a heap;
@@ -37,7 +36,7 @@
 class HeapSpaceUsedHelper;
 class G1SpaceMonitoringSupport;
 
-class HSpaceCounters: public CHeapObj {
+class HSpaceCounters: public CHeapObj<mtGC> {
   friend class VMStructs;
 
  private:
@@ -55,7 +54,7 @@ class HSpaceCounters: public CHeapObj {
                  size_t initial_capacity, GenerationCounters* gc);
 
   ~HSpaceCounters() {
-    if (_name_space != NULL) FREE_C_HEAP_ARRAY(char, _name_space);
+    if (_name_space != NULL) FREE_C_HEAP_ARRAY(char, _name_space, mtGC);
   }
 
   inline void update_capacity(size_t v) {

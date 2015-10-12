@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,6 +55,7 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.StringTokenizer;
 import java.util.WeakHashMap;
+import sun.reflect.misc.ReflectUtil;
 import sun.rmi.runtime.Log;
 import sun.security.action.GetPropertyAction;
 
@@ -66,6 +67,7 @@ import sun.security.action.GetPropertyAction;
  * @author      Peter Jones
  * @author      Laird Dornin
  */
+@SuppressWarnings("deprecation")
 public final class LoaderHandler {
 
     /** RMI class loader log level */
@@ -112,11 +114,11 @@ public final class LoaderHandler {
      * garbage collected.
      */
     private static final HashMap<LoaderKey, LoaderEntry> loaderTable
-        = new HashMap<LoaderKey, LoaderEntry>(5);
+        = new HashMap<>(5);
 
     /** reference queue for cleared class loader entries */
     private static final ReferenceQueue<Loader> refQueue
-        = new ReferenceQueue<Loader>();
+        = new ReferenceQueue<>();
 
     /*
      * Disallow anyone from creating one of these.
@@ -149,8 +151,8 @@ public final class LoaderHandler {
      * but first try to resolve the named class through the given
      * "default loader".
      */
-    public static Class loadClass(String codebase, String name,
-                                  ClassLoader defaultLoader)
+    public static Class<?> loadClass(String codebase, String name,
+                                     ClassLoader defaultLoader)
         throws MalformedURLException, ClassNotFoundException
     {
         if (loaderLog.isLoggable(Log.BRIEF)) {
@@ -170,7 +172,7 @@ public final class LoaderHandler {
 
         if (defaultLoader != null) {
             try {
-                Class c = Class.forName(name, false, defaultLoader);
+                Class<?> c = loadClassForName(name, false, defaultLoader);
                 if (loaderLog.isLoggable(Log.VERBOSE)) {
                     loaderLog.log(Log.VERBOSE,
                         "class \"" + name + "\" found via defaultLoader, " +
@@ -189,7 +191,7 @@ public final class LoaderHandler {
      * a class) that RMI will use to annotate the call stream when
      * marshalling objects of the given class.
      */
-    public static String getClassAnnotation(Class cl) {
+    public static String getClassAnnotation(Class<?> cl) {
         String name = cl.getName();
 
         /*
@@ -261,15 +263,13 @@ public final class LoaderHandler {
 
                     annotation = urlsToPath(urls);
                 }
-            } catch (SecurityException e) {
+            } catch (SecurityException | IOException e) {
                 /*
-                 * If access was denied to the knowledge of the class
-                 * loader's URLs, fall back to the default behavior.
-                 */
-            } catch (IOException e) {
-                /*
-                 * This shouldn't happen, although it is declared to be
-                 * thrown by openConnection() and getPermission().  If it
+                 * SecurityException: If access was denied to the knowledge of
+                 * the class loader's URLs, fall back to the default behavior.
+                 *
+                 * IOException: This shouldn't happen, although it is declared
+                 * to be thrown by openConnection() and getPermission().  If it
                  * does happen, forget about this class loader's URLs and
                  * fall back to the default behavior.
                  */
@@ -358,7 +358,7 @@ public final class LoaderHandler {
      * Load a class from the RMI class loader corresponding to the given
      * codebase URL path in the current execution context.
      */
-    private static Class loadClass(URL[] urls, String name)
+    private static Class<?> loadClass(URL[] urls, String name)
         throws ClassNotFoundException
     {
         ClassLoader parent = getRMIContextClassLoader();
@@ -375,7 +375,7 @@ public final class LoaderHandler {
         SecurityManager sm = System.getSecurityManager();
         if (sm == null) {
             try {
-                Class c = Class.forName(name, false, parent);
+                Class<?> c = Class.forName(name, false, parent);
                 if (loaderLog.isLoggable(Log.VERBOSE)) {
                     loaderLog.log(Log.VERBOSE,
                         "class \"" + name + "\" found via " +
@@ -424,7 +424,7 @@ public final class LoaderHandler {
                  * resolved without the security-offending codebase anyway;
                  * if so, return successfully (see bugids 4191926 & 4349670).
                  */
-                Class c = Class.forName(name, false, parent);
+                Class<?> c = loadClassForName(name, false, parent);
                 if (loaderLog.isLoggable(Log.VERBOSE)) {
                     loaderLog.log(Log.VERBOSE,
                         "class \"" + name + "\" found via " +
@@ -450,7 +450,7 @@ public final class LoaderHandler {
         }
 
         try {
-            Class c = Class.forName(name, false, loader);
+            Class<?> c = loadClassForName(name, false, loader);
             if (loaderLog.isLoggable(Log.VERBOSE)) {
                 loaderLog.log(Log.VERBOSE,
                     "class \"" + name + "\" " + "found via codebase, " +
@@ -472,8 +472,8 @@ public final class LoaderHandler {
      * implement interface classes named by the given array of
      * interface names.
      */
-    public static Class loadProxyClass(String codebase, String[] interfaces,
-                                       ClassLoader defaultLoader)
+    public static Class<?> loadProxyClass(String codebase, String[] interfaces,
+                                          ClassLoader defaultLoader)
         throws MalformedURLException, ClassNotFoundException
     {
         if (loaderLog.isLoggable(Log.BRIEF)) {
@@ -537,7 +537,7 @@ public final class LoaderHandler {
         SecurityManager sm = System.getSecurityManager();
         if (sm == null) {
             try {
-                Class c = loadProxyClass(interfaces, defaultLoader, parent,
+                Class<?> c = loadProxyClass(interfaces, defaultLoader, parent,
                                          false);
                 if (loaderLog.isLoggable(Log.VERBOSE)) {
                     loaderLog.log(Log.VERBOSE,
@@ -584,8 +584,8 @@ public final class LoaderHandler {
                  * resolved without the security-offending codebase anyway;
                  * if so, return successfully (see bugids 4191926 & 4349670).
                  */
-                Class c = loadProxyClass(interfaces, defaultLoader, parent,
-                                         false);
+                Class<?> c = loadProxyClass(interfaces, defaultLoader, parent,
+                                            false);
                 if (loaderLog.isLoggable(Log.VERBOSE)) {
                     loaderLog.log(Log.VERBOSE,
                         "(access to codebase denied) " +
@@ -608,7 +608,7 @@ public final class LoaderHandler {
         }
 
         try {
-            Class c = loadProxyClass(interfaces, defaultLoader, loader, true);
+            Class<?> c = loadProxyClass(interfaces, defaultLoader, loader, true);
             if (loaderLog.isLoggable(Log.VERBOSE)) {
                 loaderLog.log(Log.VERBOSE,
                               "proxy class defined by " + c.getClassLoader());
@@ -629,14 +629,14 @@ public final class LoaderHandler {
      * class will implement classes which are named in the supplied
      * interfaceNames.
      */
-    private static Class loadProxyClass(String[] interfaceNames,
-                                        ClassLoader defaultLoader,
-                                        ClassLoader codebaseLoader,
-                                        boolean preferCodebase)
+    private static Class<?> loadProxyClass(String[] interfaceNames,
+                                           ClassLoader defaultLoader,
+                                           ClassLoader codebaseLoader,
+                                           boolean preferCodebase)
         throws ClassNotFoundException
     {
         ClassLoader proxyLoader = null;
-        Class[] classObjs = new Class[interfaceNames.length];
+        Class<?>[] classObjs = new Class<?>[interfaceNames.length];
         boolean[] nonpublic = { false };
 
       defaultLoaderCase:
@@ -692,7 +692,7 @@ public final class LoaderHandler {
      * Define a proxy class in the given class loader.  The proxy
      * class will implement the given interfaces Classes.
      */
-    private static Class loadProxyClass(ClassLoader loader, Class[] interfaces)
+    private static Class<?> loadProxyClass(ClassLoader loader, Class<?>[] interfaces)
         throws ClassNotFoundException
     {
         try {
@@ -719,7 +719,7 @@ public final class LoaderHandler {
      */
     private static ClassLoader loadProxyInterfaces(String[] interfaces,
                                                    ClassLoader loader,
-                                                   Class[] classObjs,
+                                                   Class<?>[] classObjs,
                                                    boolean[] nonpublic)
         throws ClassNotFoundException
     {
@@ -727,8 +727,8 @@ public final class LoaderHandler {
         ClassLoader nonpublicLoader = null;
 
         for (int i = 0; i < interfaces.length; i++) {
-            Class cl =
-                (classObjs[i] = Class.forName(interfaces[i], false, loader));
+            Class<?> cl =
+                (classObjs[i] = loadClassForName(interfaces[i], false, loader));
 
             if (!Modifier.isPublic(cl.getModifiers())) {
                 ClassLoader current = cl.getClassLoader();
@@ -778,7 +778,7 @@ public final class LoaderHandler {
 
     /** map from weak(key=string) to [URL[], soft(key)] */
     private static final Map<String, Object[]> pathToURLsCache
-        = new WeakHashMap<String, Object[]>(5);
+        = new WeakHashMap<>(5);
 
     /**
      * Convert an array of URL objects into a corresponding string
@@ -1032,8 +1032,8 @@ public final class LoaderHandler {
      * it is not already implied by the collection.
      */
     private static void addPermissionsForURLs(URL[] urls,
-                                              PermissionCollection perms,
-                                              boolean forLoader)
+                                             PermissionCollection perms,
+                                             boolean forLoader)
     {
         for (int i = 0; i < urls.length; i++) {
             URL url = urls[i];
@@ -1171,9 +1171,9 @@ public final class LoaderHandler {
         private void checkPermissions() {
             SecurityManager sm = System.getSecurityManager();
             if (sm != null) {           // should never be null?
-                Enumeration enum_ = permissions.elements();
+                Enumeration<Permission> enum_ = permissions.elements();
                 while (enum_.hasMoreElements()) {
-                    sm.checkPermission((Permission) enum_.nextElement());
+                    sm.checkPermission(enum_.nextElement());
                 }
             }
         }
@@ -1197,5 +1197,28 @@ public final class LoaderHandler {
         public String toString() {
             return super.toString() + "[\"" + annotation + "\"]";
         }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve)
+                throws ClassNotFoundException {
+            if (parent == null) {
+                ReflectUtil.checkPackageAccess(name);
+            }
+            return super.loadClass(name, resolve);
+        }
+
+
     }
+
+    private static Class<?> loadClassForName(String name,
+                                              boolean initialize,
+                                              ClassLoader loader)
+            throws ClassNotFoundException
+    {
+        if (loader == null) {
+            ReflectUtil.checkPackageAccess(name);
+        }
+        return Class.forName(name, initialize, loader);
+    }
+
 }

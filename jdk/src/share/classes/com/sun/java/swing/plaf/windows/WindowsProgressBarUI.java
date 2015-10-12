@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -137,6 +137,11 @@ public class WindowsProgressBarUI extends BasicProgressBarUI
                 g.setColor(progressBar.getForeground());
                 barRectHeight -= 2;
                 barRectWidth -= 2;
+
+                if (barRectWidth <= 0 || barRectHeight <= 0) {
+                    return;
+                }
+
                 Graphics2D g2 = (Graphics2D)g;
                 g2.setStroke(new BasicStroke((float)(vertical ? barRectWidth : barRectHeight),
                                              BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL));

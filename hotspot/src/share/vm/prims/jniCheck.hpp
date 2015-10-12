@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,7 @@
 #ifndef SHARE_VM_PRIMS_JNICHECK_HPP
 #define SHARE_VM_PRIMS_JNICHECK_HPP
 
-#ifndef KERNEL
 #include "runtime/thread.hpp"
-#endif
 
 extern "C" {
   // Report a JNI failure caught by -Xcheck:jni.  Perform a core dump.
@@ -35,7 +33,7 @@ extern "C" {
   // within IN_VM macro), one to be called when in NATIVE state.
 
   // When in VM state:
-  static void ReportJNIFatalError(JavaThread* thr, const char *msg) {
+  static inline void ReportJNIFatalError(JavaThread* thr, const char *msg) {
     tty->print_cr("FATAL ERROR in native method: %s", msg);
     thr->print_stack();
     os::abort(true);
@@ -50,12 +48,12 @@ class jniCheck : public AllStatic {
  public:
   static oop validate_handle(JavaThread* thr, jobject obj);
   static oop validate_object(JavaThread* thr, jobject obj);
-  static klassOop validate_class(JavaThread* thr, jclass clazz, bool allow_primitive = false);
+  static Klass* validate_class(JavaThread* thr, jclass clazz, bool allow_primitive = false);
   static void validate_class_descriptor(JavaThread* thr, const char* name);
-  static void validate_throwable_klass(JavaThread* thr, klassOop klass);
+  static void validate_throwable_klass(JavaThread* thr, Klass* klass);
   static void validate_call_object(JavaThread* thr, jobject obj, jmethodID method_id);
   static void validate_call_class(JavaThread* thr, jclass clazz, jmethodID method_id);
-  static methodOop validate_jmethod_id(JavaThread* thr, jmethodID method_id);
+  static Method* validate_jmethod_id(JavaThread* thr, jmethodID method_id);
 };
 
 #endif // SHARE_VM_PRIMS_JNICHECK_HPP

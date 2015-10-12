@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -118,6 +118,16 @@ public abstract class RasterPrinterJob extends PrinterJob {
     protected static final int STREAM = 2;
 
     /**
+     * Pageable MAX pages
+     */
+    protected static final int MAX_UNKNOWN_PAGES = 9999;
+
+    protected static final int PD_ALLPAGES = 0x00000000;
+    protected static final int PD_SELECTION = 0x00000001;
+    protected static final int PD_PAGENUMS = 0x00000002;
+    protected static final int PD_NOSELECTION = 0x00000004;
+
+    /**
      * Maximum amount of memory in bytes to use for the
      * buffered image "band". 4Mb is a compromise between
      * limiting the number of bands on hi-res printers and
@@ -195,7 +205,7 @@ public abstract class RasterPrinterJob extends PrinterJob {
     /* Instance Variables */
 
     /**
-     * Used to minimise GC & reallocation of band when printing
+     * Used to minimize GC & reallocation of band when printing
      */
     private int cachedBandWidth = 0;
     private int cachedBandHeight = 0;
@@ -240,7 +250,8 @@ public abstract class RasterPrinterJob extends PrinterJob {
      * The document to be printed. It is initialized to an
      * empty (zero pages) book.
      */
-    private Pageable mDocument = new Book();
+// MacOSX - made protected so subclasses can reference it.
+    protected Pageable mDocument = new Book();
 
     /**
      * The name of the job being printed.
@@ -251,8 +262,10 @@ public abstract class RasterPrinterJob extends PrinterJob {
     /**
      * Printing cancellation flags
      */
-    private boolean performingPrinting = false;
-    private boolean userCancelled = false;
+ // MacOSX - made protected so subclasses can reference it.
+    protected boolean performingPrinting = false;
+ // MacOSX - made protected so subclasses can reference it.
+    protected boolean userCancelled = false;
 
    /**
     * Print to file permission variables.
@@ -524,10 +537,97 @@ public abstract class RasterPrinterJob extends PrinterJob {
         }
     }
 
+    private PageFormat attributeToPageFormat(PrintService service,
+                                               PrintRequestAttributeSet attSet) {
+        PageFormat page = defaultPage();
+
+        if (service == null) {
+            return page;
+        }
+
+        OrientationRequested orient = (OrientationRequested)
+                                      attSet.get(OrientationRequested.class);
+        if (orient == null) {
+            orient = (OrientationRequested)
+                    service.getDefaultAttributeValue(OrientationRequested.class);
+        }
+        if (orient == OrientationRequested.REVERSE_LANDSCAPE) {
+            page.setOrientation(PageFormat.REVERSE_LANDSCAPE);
+        } else if (orient == OrientationRequested.LANDSCAPE) {
+            page.setOrientation(PageFormat.LANDSCAPE);
+        } else {
+            page.setOrientation(PageFormat.PORTRAIT);
+        }
+
+        Media media = (Media)attSet.get(Media.class);
+        if (media == null) {
+            media =
+                (Media)service.getDefaultAttributeValue(Media.class);
+        }
+        if (!(media instanceof MediaSizeName)) {
+            media = MediaSizeName.NA_LETTER;
+        }
+        MediaSize size =
+            MediaSize.getMediaSizeForName((MediaSizeName)media);
+        if (size == null) {
+            size = MediaSize.NA.LETTER;
+        }
+        Paper paper = new Paper();
+        float dim[] = size.getSize(1); //units == 1 to avoid FP error
+        double w = Math.rint((dim[0]*72.0)/Size2DSyntax.INCH);
+        double h = Math.rint((dim[1]*72.0)/Size2DSyntax.INCH);
+        paper.setSize(w, h);
+        MediaPrintableArea area =
+             (MediaPrintableArea)
+             attSet.get(MediaPrintableArea.class);
+        double ix, iw, iy, ih;
+
+        if (area != null) {
+            // Should pass in same unit as updatePageAttributes
+            // to avoid rounding off errors.
+            ix = Math.rint(
+                           area.getX(MediaPrintableArea.INCH) * DPI);
+            iy = Math.rint(
+                           area.getY(MediaPrintableArea.INCH) * DPI);
+            iw = Math.rint(
+                           area.getWidth(MediaPrintableArea.INCH) * DPI);
+            ih = Math.rint(
+                           area.getHeight(MediaPrintableArea.INCH) * DPI);
+        }
+        else {
+            if (w >= 72.0 * 6.0) {
+                ix = 72.0;
+                iw = w - 2 * 72.0;
+            } else {
+                ix = w / 6.0;
+                iw = w * 0.75;
+            }
+            if (h >= 72.0 * 6.0) {
+                iy = 72.0;
+                ih = h - 2 * 72.0;
+            } else {
+                iy = h / 6.0;
+                ih = h * 0.75;
+            }
+        }
+        paper.setImageableArea(ix, iy, iw, ih);
+        page.setPaper(paper);
+        return page;
+    }
 
     protected void updatePageAttributes(PrintService service,
                                         PageFormat page) {
-        if (service == null || page == null) {
+        if (this.attributes == null) {
+            this.attributes = new HashPrintRequestAttributeSet();
+        }
+
+        updateAttributesWithPageFormat(service, page, this.attributes);
+    }
+
+    protected void updateAttributesWithPageFormat(PrintService service,
+                                        PageFormat page,
+                                        PrintRequestAttributeSet pageAttributes) {
+        if (service == null || page == null || pageAttributes == null) {
             return;
         }
 
@@ -567,13 +667,10 @@ public abstract class RasterPrinterJob extends PrinterJob {
             orient = OrientationRequested.PORTRAIT;
         }
 
-        if (attributes == null) {
-            attributes = new HashPrintRequestAttributeSet();
-        }
         if (media != null) {
-            attributes.add(media);
+            pageAttributes.add(media);
         }
-        attributes.add(orient);
+        pageAttributes.add(orient);
 
         float ix = (float)(page.getPaper().getImageableX()/DPI);
         float iw = (float)(page.getPaper().getImageableWidth()/DPI);
@@ -581,7 +678,7 @@ public abstract class RasterPrinterJob extends PrinterJob {
         float ih = (float)(page.getPaper().getImageableHeight()/DPI);
         if (ix < 0) ix = 0f; if (iy < 0) iy = 0f;
         try {
-            attributes.add(new MediaPrintableArea(ix, iy, iw, ih,
+            pageAttributes.add(new MediaPrintableArea(ix, iy, iw, ih,
                                                   MediaPrintableArea.INCH));
         } catch (IllegalArgumentException iae) {
         }
@@ -656,6 +753,18 @@ public abstract class RasterPrinterJob extends PrinterJob {
             throw new HeadlessException();
         }
 
+        DialogTypeSelection dlg =
+            (DialogTypeSelection)attributes.get(DialogTypeSelection.class);
+
+        // Check for native, note that default dialog is COMMON.
+        if (dlg == DialogTypeSelection.NATIVE) {
+            PrintService pservice = getPrintService();
+            PageFormat page = pageDialog(attributeToPageFormat(pservice,
+                                                               attributes));
+            updateAttributesWithPageFormat(pservice, page, attributes);
+            return page;
+        }
+
         final GraphicsConfiguration gc =
             GraphicsEnvironment.getLocalGraphicsEnvironment().
             getDefaultScreenDevice().getDefaultConfiguration();
@@ -695,81 +804,19 @@ public abstract class RasterPrinterJob extends PrinterJob {
                 attributes.remove(amCategory);
             }
             attributes.addAll(newas);
-
-            PageFormat page = defaultPage();
-
-            OrientationRequested orient =
-                (OrientationRequested)
-                attributes.get(OrientationRequested.class);
-            int pfOrient =  PageFormat.PORTRAIT;
-            if (orient != null) {
-                if (orient == OrientationRequested.REVERSE_LANDSCAPE) {
-                    pfOrient = PageFormat.REVERSE_LANDSCAPE;
-                } else if (orient == OrientationRequested.LANDSCAPE) {
-                    pfOrient = PageFormat.LANDSCAPE;
-                }
-            }
-            page.setOrientation(pfOrient);
-
-            Media media = (Media)attributes.get(Media.class);
-            if (media == null) {
-                media =
-                    (Media)service.getDefaultAttributeValue(Media.class);
-            }
-            if (!(media instanceof MediaSizeName)) {
-                media = MediaSizeName.NA_LETTER;
-            }
-            MediaSize size =
-                MediaSize.getMediaSizeForName((MediaSizeName)media);
-            if (size == null) {
-                size = MediaSize.NA.LETTER;
-            }
-            Paper paper = new Paper();
-            float dim[] = size.getSize(1); //units == 1 to avoid FP error
-            double w = Math.rint((dim[0]*72.0)/Size2DSyntax.INCH);
-            double h = Math.rint((dim[1]*72.0)/Size2DSyntax.INCH);
-            paper.setSize(w, h);
-            MediaPrintableArea area =
-                (MediaPrintableArea)
-                attributes.get(MediaPrintableArea.class);
-            double ix, iw, iy, ih;
-
-            if (area != null) {
-                // Should pass in same unit as updatePageAttributes
-                // to avoid rounding off errors.
-                ix = Math.rint(
-                               area.getX(MediaPrintableArea.INCH) * DPI);
-                iy = Math.rint(
-                               area.getY(MediaPrintableArea.INCH) * DPI);
-                iw = Math.rint(
-                               area.getWidth(MediaPrintableArea.INCH) * DPI);
-                ih = Math.rint(
-                               area.getHeight(MediaPrintableArea.INCH) * DPI);
-            }
-            else {
-                if (w >= 72.0 * 6.0) {
-                    ix = 72.0;
-                    iw = w - 2 * 72.0;
-                } else {
-                    ix = w / 6.0;
-                    iw = w * 0.75;
-                }
-                if (h >= 72.0 * 6.0) {
-                    iy = 72.0;
-                    ih = h - 2 * 72.0;
-                } else {
-                    iy = h / 6.0;
-                    ih = h * 0.75;
-                }
-            }
-            paper.setImageableArea(ix, iy, iw, ih);
-            page.setPaper(paper);
-
-            return page;
+            return attributeToPageFormat(service, attributes);
         } else {
             return null;
         }
    }
+
+   protected PageFormat getPageFormatFromAttributes() {
+       if (attributes == null) {
+            return null;
+        }
+        return attributeToPageFormat(getPrintService(), this.attributes);
+   }
+
 
    /**
      * Presents the user a dialog for changing properties of the
@@ -792,7 +839,6 @@ public abstract class RasterPrinterJob extends PrinterJob {
             throw new HeadlessException();
         }
 
-
         DialogTypeSelection dlg =
             (DialogTypeSelection)attributes.get(DialogTypeSelection.class);
 
@@ -812,7 +858,6 @@ public abstract class RasterPrinterJob extends PrinterJob {
             return ret;
 
         }
-
 
         /* A security check has already been performed in the
          * java.awt.print.printerJob.getPrinterJob method.
@@ -876,6 +921,9 @@ public abstract class RasterPrinterJob extends PrinterJob {
         int x = bounds.x+bounds.width/3;
         int y = bounds.y+bounds.height/3;
         PrintService newService;
+        // temporarily add an attribute pointing back to this job.
+        PrinterJobWrapper jobWrapper = new PrinterJobWrapper(this);
+        attributes.add(jobWrapper);
         try {
             newService =
             ServiceUI.printDialog(gc, x, y,
@@ -888,6 +936,7 @@ public abstract class RasterPrinterJob extends PrinterJob {
                                   DocFlavor.SERVICE_FORMATTED.PAGEABLE,
                                   attributes);
         }
+        attributes.remove(PrinterJobWrapper.class);
 
         if (newService == null) {
             return false;
@@ -1241,7 +1290,8 @@ public abstract class RasterPrinterJob extends PrinterJob {
      * a DocPrintJob from their service and pass a Doc representing
      * the application's printjob
      */
-    private void spoolToService(PrintService psvc,
+// MacOSX - made protected so subclasses can reference it.
+    protected void spoolToService(PrintService psvc,
                                 PrintRequestAttributeSet attributes)
         throws PrinterException {
 
@@ -1327,34 +1377,7 @@ public abstract class RasterPrinterJob extends PrinterJob {
             setAttributes(attributes);
             // throw exception for invalid destination
             if (destinationAttr != null) {
-                // destinationAttr is null for Destination(new URI(""))
-                // because isAttributeValueSupported returns false in setAttributes
-
-                // Destination(new URI(" ")) throws URISyntaxException
-                File f = new File(destinationAttr);
-                try {
-                    // check if this is a new file and if filename chars are valid
-                    if (f.createNewFile()) {
-                        f.delete();
-                    }
-                } catch (IOException ioe) {
-                    throw new PrinterException("Cannot write to file:"+
-                                               destinationAttr);
-                } catch (SecurityException se) {
-                    //There is already file read/write access so at this point
-                    // only delete access is denied.  Just ignore it because in
-                    // most cases the file created in createNewFile gets overwritten
-                    // anyway.
-                }
-
-                File pFile = f.getParentFile();
-                if ((f.exists() &&
-                     (!f.isFile() || !f.canWrite())) ||
-                    ((pFile != null) &&
-                     (!pFile.exists() || (pFile.exists() && !pFile.canWrite())))) {
-                    throw new PrinterException("Cannot write to file:"+
-                                               destinationAttr);
-                }
+                validateDestination(destinationAttr);
             }
         } else {
             spoolToService(psvc, attributes);
@@ -1474,6 +1497,40 @@ public abstract class RasterPrinterJob extends PrinterJob {
                 performingPrinting = false;
                 notify();
             }
+        }
+    }
+
+    protected void validateDestination(String dest) throws PrinterException {
+        if (dest == null) {
+            return;
+        }
+        // dest is null for Destination(new URI(""))
+        // because isAttributeValueSupported returns false in setAttributes
+
+        // Destination(new URI(" ")) throws URISyntaxException
+        File f = new File(dest);
+        try {
+            // check if this is a new file and if filename chars are valid
+            if (f.createNewFile()) {
+                f.delete();
+            }
+        } catch (IOException ioe) {
+            throw new PrinterException("Cannot write to file:"+
+                                       dest);
+        } catch (SecurityException se) {
+            //There is already file read/write access so at this point
+            // only delete access is denied.  Just ignore it because in
+            // most cases the file created in createNewFile gets overwritten
+            // anyway.
+        }
+
+        File pFile = f.getParentFile();
+        if ((f.exists() &&
+             (!f.isFile() || !f.canWrite())) ||
+            ((pFile != null) &&
+             (!pFile.exists() || (pFile.exists() && !pFile.canWrite())))) {
+            throw new PrinterException("Cannot write to file:"+
+                                       dest);
         }
     }
 
@@ -1723,6 +1780,78 @@ public abstract class RasterPrinterJob extends PrinterJob {
             return mCollate;
     }
 
+    protected final int getSelectAttrib() {
+        if (attributes != null) {
+            SunPageSelection pages =
+                (SunPageSelection)attributes.get(SunPageSelection.class);
+            if (pages == SunPageSelection.RANGE) {
+                return PD_PAGENUMS;
+            } else if (pages == SunPageSelection.SELECTION) {
+                return PD_SELECTION;
+            } else if (pages ==  SunPageSelection.ALL) {
+                return PD_ALLPAGES;
+            }
+        }
+        return PD_NOSELECTION;
+    }
+
+    //returns 1-based index for "From" page
+    protected final int getFromPageAttrib() {
+        if (attributes != null) {
+            PageRanges pageRangesAttr =
+                (PageRanges)attributes.get(PageRanges.class);
+            if (pageRangesAttr != null) {
+                int[][] range = pageRangesAttr.getMembers();
+                return range[0][0];
+            }
+        }
+        return getMinPageAttrib();
+    }
+
+    //returns 1-based index for "To" page
+    protected final int getToPageAttrib() {
+        if (attributes != null) {
+            PageRanges pageRangesAttr =
+                (PageRanges)attributes.get(PageRanges.class);
+            if (pageRangesAttr != null) {
+                int[][] range = pageRangesAttr.getMembers();
+                return range[range.length-1][1];
+            }
+        }
+        return getMaxPageAttrib();
+    }
+
+    protected final int getMinPageAttrib() {
+        if (attributes != null) {
+            SunMinMaxPage s =
+                (SunMinMaxPage)attributes.get(SunMinMaxPage.class);
+            if (s != null) {
+                return s.getMin();
+            }
+        }
+        return 1;
+    }
+
+    protected final int getMaxPageAttrib() {
+        if (attributes != null) {
+            SunMinMaxPage s =
+                (SunMinMaxPage)attributes.get(SunMinMaxPage.class);
+            if (s != null) {
+                return s.getMax();
+            }
+        }
+
+        Pageable pageable = getPageable();
+        if (pageable != null) {
+            int numPages = pageable.getNumberOfPages();
+            if (numPages <= Pageable.UNKNOWN_NUMBER_OF_PAGES) {
+                numPages = MAX_UNKNOWN_PAGES;
+            }
+            return  ((numPages == 0) ? 1 : numPages);
+        }
+
+        return Integer.MAX_VALUE;
+    }
     /**
      * Called by the print() method at the start of
      * a print job.
@@ -1738,7 +1867,8 @@ public abstract class RasterPrinterJob extends PrinterJob {
     /* Called by cancelDoc */
     protected abstract void abortDoc();
 
-    private void cancelDoc() throws PrinterAbortException {
+// MacOSX - made protected so subclasses can reference it.
+    protected void cancelDoc() throws PrinterAbortException {
         abortDoc();
         synchronized (this) {
             userCancelled = false;
@@ -2220,7 +2350,8 @@ public abstract class RasterPrinterJob extends PrinterJob {
      *      color:  black.
      *      clip:   <as passed in>
      */
-    void initPrinterGraphics(Graphics2D g, Rectangle2D clip) {
+// MacOSX - made protected so subclasses can reference it.
+    protected void initPrinterGraphics(Graphics2D g, Rectangle2D clip) {
 
         g.setClip(clip);
         g.setPaint(Color.black);

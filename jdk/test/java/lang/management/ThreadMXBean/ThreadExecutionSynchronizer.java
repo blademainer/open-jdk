@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
 
 /*
  *
- * @summary Thiseclass is used to synchronize execution off two threads.
+ * @summary This class is used to synchronize execution of two threads.
  * @author  Swamy Venkataramanappa
  */
 
@@ -31,8 +31,8 @@ import java.util.concurrent.Semaphore;
 
 public class ThreadExecutionSynchronizer {
 
-    private boolean  waiting;
-    private Semaphore semaphore;
+    private volatile boolean waiting;
+    private final Semaphore semaphore;
 
     public ThreadExecutionSynchronizer() {
         semaphore = new Semaphore(1);

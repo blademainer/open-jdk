@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -67,8 +67,8 @@ class SocketInputStream extends FileInputStream
      * Returns the unique {@link java.nio.channels.FileChannel FileChannel}
      * object associated with this file input stream.</p>
      *
-     * The <code>getChannel</code> method of <code>SocketInputStream</code>
-     * returns <code>null</code> since it is a socket based stream.</p>
+     * The {@code getChannel} method of {@code SocketInputStream}
+     * returns {@code null} since it is a socket based stream.</p>
      *
      * @return  the file channel associated with this file input stream
      *
@@ -112,7 +112,7 @@ class SocketInputStream extends FileInputStream
      * <i>length</i> bytes of data.
      * @param b the buffer into which the data is read
      * @param off the start offset of the data
-     * @param len the maximum number of bytes read
+     * @param length the maximum number of bytes read
      * @return the actual number of bytes read, -1 is
      *          returned when the end of the stream is reached.
      * @exception IOException If an I/O error has occurred.
@@ -209,7 +209,7 @@ class SocketInputStream extends FileInputStream
 
     /**
      * Skips n bytes of input.
-     * @param n the number of bytes to skip
+     * @param numbytes the number of bytes to skip
      * @return  the actual number of bytes skipped.
      * @exception IOException If an I/O error has occurred.
      */

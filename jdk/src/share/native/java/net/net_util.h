@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,9 +53,30 @@
  * i.e. psi_timeoutID is PlainSocketImpl's timeout field's ID.
  */
 extern jclass ia_class;
-extern jfieldID ia_addressID;
-extern jfieldID ia_familyID;
+extern jfieldID iac_addressID;
+extern jfieldID iac_familyID;
+extern jfieldID iac_hostNameID;
 extern jfieldID ia_preferIPv6AddressID;
+
+/** (Inet6Address accessors)
+ * set_ methods return JNI_TRUE on success JNI_FALSE on error
+ * get_ methods that return int/boolean, return -1 on error
+ * get_ methods that return objects return NULL on error.
+ */
+extern jobject getInet6Address_scopeifname(JNIEnv *env, jobject ia6Obj);
+extern int setInet6Address_scopeifname(JNIEnv *env, jobject ia6Obj, jobject scopeifname);
+extern int getInet6Address_scopeid_set(JNIEnv *env, jobject ia6Obj);
+extern int getInet6Address_scopeid(JNIEnv *env, jobject ia6Obj);
+extern int setInet6Address_scopeid(JNIEnv *env, jobject ia6Obj, int scopeid);
+extern int getInet6Address_ipaddress(JNIEnv *env, jobject ia6Obj, char *dest);
+extern int setInet6Address_ipaddress(JNIEnv *env, jobject ia6Obj, char *address);
+
+extern void setInetAddress_addr(JNIEnv *env, jobject iaObj, int address);
+extern void setInetAddress_family(JNIEnv *env, jobject iaObj, int family);
+extern void setInetAddress_hostName(JNIEnv *env, jobject iaObj, jobject h);
+extern int getInetAddress_addr(JNIEnv *env, jobject iaObj);
+extern int getInetAddress_family(JNIEnv *env, jobject iaObj);
+extern jobject getInetAddress_hostName(JNIEnv *env, jobject iaObj);
 
 extern jclass ia4_class;
 extern jmethodID ia4_ctrID;
@@ -85,12 +106,12 @@ extern jfieldID dp_bufLengthID;
 
 /* Inet6Address fields */
 extern jclass ia6_class;
+extern jfieldID ia6_holder6ID;
 extern jfieldID ia6_ipaddressID;
 extern jfieldID ia6_scopeidID;
 extern jfieldID ia6_cachedscopeidID;
 extern jfieldID ia6_scopeidsetID;
 extern jfieldID ia6_scopeifnameID;
-extern jfieldID ia6_scopeifnamesetID;
 extern jmethodID ia6_ctrID;
 
 /************************************************************************
@@ -120,6 +141,7 @@ JNIEXPORT jobject JNICALL
 NET_SockaddrToInetAddress(JNIEnv *env, struct sockaddr *him, int *port);
 
 void initLocalAddrTable ();
+void parseExclusiveBindProperty(JNIEnv *env);
 
 void
 NET_SetTrafficClass(struct sockaddr *him, int trafficClass);
@@ -138,6 +160,9 @@ NET_IPv4MappedToIPv4(jbyte* caddr);
 
 int
 NET_IsEqual(jbyte* caddr1, jbyte* caddr2);
+
+int
+NET_IsZeroAddr(jbyte* caddr);
 
 /* Socket operations
  *

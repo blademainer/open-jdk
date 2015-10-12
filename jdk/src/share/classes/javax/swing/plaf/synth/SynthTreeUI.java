@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -50,7 +50,7 @@ import javax.swing.tree.TreePath;
 import sun.swing.plaf.synth.SynthIcon;
 
 /**
- * Provides the Synth L&F UI delegate for
+ * Provides the Synth L&amp;F UI delegate for
  * {@link javax.swing.JTree}.
  *
  * @author Scott Violet
@@ -85,7 +85,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public Icon getExpandedIcon() {
@@ -93,7 +93,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void installDefaults() {
@@ -156,7 +156,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void installListeners() {
@@ -165,7 +165,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public SynthContext getContext(JComponent c) {
@@ -193,7 +193,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected TreeCellEditor createDefaultCellEditor() {
@@ -211,7 +211,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected TreeCellRenderer createDefaultCellRenderer() {
@@ -219,7 +219,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void uninstallDefaults() {
@@ -241,7 +241,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void uninstallListeners() {
@@ -273,7 +273,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public void paintBorder(SynthContext context, Graphics g, int x,
@@ -344,7 +344,8 @@ public class SynthTreeUI extends BasicTreeUI
             configureRenderer(cellContext);
             while (!done && paintingEnumerator.hasMoreElements()) {
                 path = (TreePath)paintingEnumerator.nextElement();
-                if (path != null) {
+                bounds = getPathBounds(tree, path);
+                if ((path != null) && (bounds != null)) {
                     isLeaf = treeModel.isLeaf(path.getLastPathComponent());
                     if (isLeaf) {
                         isExpanded = hasBeenExpanded = false;
@@ -353,7 +354,6 @@ public class SynthTreeUI extends BasicTreeUI
                         isExpanded = treeState.getExpandedState(path);
                         hasBeenExpanded = tree.hasBeenExpanded(path);
                     }
-                    bounds = getPathBounds(tree, path);
                     rowBounds.y = bounds.y;
                     rowBounds.height = bounds.height;
                     paintRow(renderer, dtcr, context, cellContext, g,
@@ -383,7 +383,8 @@ public class SynthTreeUI extends BasicTreeUI
             paintingEnumerator = treeState.getVisiblePathsFrom(initialPath);
             while (!done && paintingEnumerator.hasMoreElements()) {
                 path = (TreePath)paintingEnumerator.nextElement();
-                if (path != null) {
+                bounds = getPathBounds(tree, path);
+                if ((path != null) && (bounds != null)) {
                     isLeaf = treeModel.isLeaf(path.getLastPathComponent());
                     if (isLeaf) {
                         isExpanded = hasBeenExpanded = false;
@@ -392,7 +393,6 @@ public class SynthTreeUI extends BasicTreeUI
                         isExpanded = treeState.getExpandedState(path);
                         hasBeenExpanded = tree.hasBeenExpanded(path);
                     }
-                    bounds = getPathBounds(tree, path);
                     // See if the vertical line to the parent has been drawn.
                     parentPath = path.getParentPath();
                     if (parentPath != null) {
@@ -434,6 +434,8 @@ public class SynthTreeUI extends BasicTreeUI
 
         // Empty out the renderer pane, allowing renderers to be gc'ed.
         rendererPane.removeAll();
+
+        paintContext = null;
     }
 
     private void configureRenderer(SynthContext context) {
@@ -470,7 +472,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void paintHorizontalPartOfLeg(Graphics g, Rectangle clipBounds,
@@ -487,7 +489,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void paintHorizontalLine(Graphics g, JComponent c, int y,
@@ -497,7 +499,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void paintVerticalPartOfLeg(Graphics g,
@@ -509,7 +511,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void paintVerticalLine(Graphics g, JComponent c, int x, int top,
@@ -584,7 +586,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void paintExpandControl(Graphics g, Rectangle clipBounds,
@@ -605,7 +607,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void drawCentered(Component c, Graphics graphics, Icon icon,
@@ -619,7 +621,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public void propertyChange(PropertyChangeEvent event) {
@@ -635,7 +637,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void paintDropLine(Graphics g) {
@@ -675,7 +677,7 @@ public class SynthTreeUI extends BasicTreeUI
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected int getRowX(int row, int depth) {

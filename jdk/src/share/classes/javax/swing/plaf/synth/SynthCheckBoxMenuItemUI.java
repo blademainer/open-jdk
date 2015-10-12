@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,7 @@ import javax.swing.plaf.*;
 
 
 /**
- * Provides the Synth L&F UI delegate for
+ * Provides the Synth L&amp;F UI delegate for
  * {@link javax.swing.JCheckBoxMenuItem}.
  *
  * @author Leif Samuelsson
@@ -54,7 +54,7 @@ public class SynthCheckBoxMenuItemUI extends SynthMenuItemUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected String getPropertyPrefix() {
@@ -68,7 +68,7 @@ public class SynthCheckBoxMenuItemUI extends SynthMenuItemUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public void paintBorder(SynthContext context, Graphics g, int x,

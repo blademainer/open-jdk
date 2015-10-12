@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,25 +23,13 @@
  */
 
 #include "precompiled.hpp"
+#include "asm/macroAssembler.hpp"
+#include "asm/macroAssembler.inline.hpp"
+#include "code/codeCache.hpp"
 #include "compiler/disassembler.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/forte.hpp"
 #include "runtime/stubCodeGenerator.hpp"
-#ifdef TARGET_ARCH_x86
-# include "assembler_x86.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_sparc
-# include "assembler_sparc.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_zero
-# include "assembler_zero.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_arm
-# include "assembler_arm.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_ppc
-# include "assembler_ppc.inline.hpp"
-#endif
 
 
 // Implementation of StubCodeDesc
@@ -99,7 +87,7 @@ StubCodeGenerator::~StubCodeGenerator() {
     CodeBuffer* cbuf = _masm->code();
     CodeBlob*   blob = CodeCache::find_blob_unsafe(cbuf->insts()->start());
     if (blob != NULL) {
-      blob->set_comments(cbuf->comments());
+      blob->set_strings(cbuf->strings());
     }
     bool saw_first = false;
     StubCodeDesc* toprint[1000];

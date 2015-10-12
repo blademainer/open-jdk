@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,10 +45,7 @@ import javax.net.ssl.*;
 import javax.security.auth.Subject;
 
 import sun.security.ssl.HandshakeMessage.*;
-import sun.security.ssl.CipherSuite.*;
 import static sun.security.ssl.CipherSuite.KeyExchange.*;
-
-import sun.net.util.IPAddressUtil;
 
 /**
  * ClientHandshaker does the protocol handshaking from the point
@@ -92,6 +89,11 @@ final class ClientHandshaker extends Handshaker {
     private final static boolean enableSNIExtension =
             Debug.getBooleanProperty("jsse.enableSNIExtension", true);
 
+    private List<SNIServerName> requestedServerNames =
+            Collections.<SNIServerName>emptyList();
+
+    private boolean serverNamesAccepted = false;
+
     /*
      * Constructors
      */
@@ -127,10 +129,10 @@ final class ClientHandshaker extends Handshaker {
      * is processed, and writes responses as needed using the connection
      * in the constructor.
      */
+    @Override
     void processMessage(byte type, int messageLen) throws IOException {
-        if (state > type
-                && (type != HandshakeMessage.ht_hello_request
-                    && state != HandshakeMessage.ht_client_hello)) {
+        if (state >= type
+                && (type != HandshakeMessage.ht_hello_request)) {
             throw new SSLProtocolException(
                     "Handshake message sequence violation, " + type);
         }
@@ -193,8 +195,12 @@ final class ClientHandshaker extends Handshaker {
                 }
                 break;
             case K_DH_ANON:
-                this.serverKeyExchange(new DH_ServerKeyExchange(
+                try {
+                    this.serverKeyExchange(new DH_ServerKeyExchange(
                                                 input, protocolVersion));
+                } catch (GeneralSecurityException e) {
+                    throwSSLException("Server key", e);
+                }
                 break;
             case K_DHE_DSS:
             case K_DHE_RSA:
@@ -504,6 +510,7 @@ final class ClientHandshaker extends Handshaker {
                     try {
                         subject = AccessController.doPrivileged(
                             new PrivilegedExceptionAction<Subject>() {
+                            @Override
                             public Subject run() throws Exception {
                                 return Krb5Helper.getClientSubject(getAccSE());
                             }});
@@ -555,10 +562,6 @@ final class ClientHandshaker extends Handshaker {
         }
 
         if (resumingSession && session != null) {
-            if (protocolVersion.v >= ProtocolVersion.TLS12.v) {
-                handshakeHash.setCertificateVerifyAlg(null);
-            }
-
             setHandshakeSessionSE(session);
             return;
         }
@@ -566,7 +569,9 @@ final class ClientHandshaker extends Handshaker {
         // check extensions
         for (HelloExtension ext : mesg.extensions.list()) {
             ExtensionType type = ext.type;
-            if ((type != ExtensionType.EXT_ELLIPTIC_CURVES)
+            if (type == ExtensionType.EXT_SERVER_NAME) {
+                serverNamesAccepted = true;
+            } else if ((type != ExtensionType.EXT_ELLIPTIC_CURVES)
                     && (type != ExtensionType.EXT_EC_POINT_FORMATS)
                     && (type != ExtensionType.EXT_SERVER_NAME)
                     && (type != ExtensionType.EXT_RENEGOTIATION_INFO)) {
@@ -579,6 +584,7 @@ final class ClientHandshaker extends Handshaker {
         session = new SSLSessionImpl(protocolVersion, cipherSuite,
                             getLocalSupportedSignAlgs(),
                             mesg.sessionId, getHostSE(), getPortSE());
+        session.setRequestedServerNames(requestedServerNames);
         setHandshakeSessionSE(session);
         if (debug != null && Debug.isOn("handshake")) {
             System.out.println("** " + cipherSuite);
@@ -862,15 +868,47 @@ final class ClientHandshaker extends Handshaker {
             break;
         case K_KRB5:
         case K_KRB5_EXPORT:
-            String hostname = getHostSE();
-            if (hostname == null) {
-                throw new IOException("Hostname is required" +
-                                " to use Kerberos cipher suites");
+            String sniHostname = null;
+            for (SNIServerName serverName : requestedServerNames) {
+                if (serverName instanceof SNIHostName) {
+                    sniHostname = ((SNIHostName) serverName).getAsciiName();
+                    break;
+                }
             }
-            KerberosClientKeyExchange kerberosMsg =
-                new KerberosClientKeyExchange(
-                    hostname, isLoopbackSE(), getAccSE(), protocolVersion,
-                sslContext.getSecureRandom());
+
+            KerberosClientKeyExchange kerberosMsg = null;
+            if (sniHostname != null) {
+                // use first requested SNI hostname
+                try {
+                    kerberosMsg = new KerberosClientKeyExchange(
+                        sniHostname, getAccSE(), protocolVersion,
+                        sslContext.getSecureRandom());
+                } catch(IOException e) {
+                    if (serverNamesAccepted) {
+                        // server accepted requested SNI hostname,
+                        // so it must be used
+                        throw e;
+                    }
+                    // fallback to using hostname
+                    if (debug != null && Debug.isOn("handshake")) {
+                        System.out.println(
+                            "Warning, cannot use Server Name Indication: "
+                                + e.getMessage());
+                    }
+                }
+            }
+
+            if (kerberosMsg == null) {
+                String hostname = getHostSE();
+                if (hostname == null) {
+                    throw new IOException("Hostname is required" +
+                        " to use Kerberos cipher suites");
+                }
+                kerberosMsg = new KerberosClientKeyExchange(
+                     hostname, getAccSE(), protocolVersion,
+                     sslContext.getSecureRandom());
+            }
+
             // Record the principals involved in exchange
             session.setPeerPrincipal(kerberosMsg.getPeerPrincipal());
             session.setLocalPrincipal(kerberosMsg.getLocalPrincipal());
@@ -922,7 +960,7 @@ final class ClientHandshaker extends Handshaker {
         case K_DHE_RSA:
         case K_DHE_DSS:
         case K_DH_ANON:
-            preMasterSecret = dh.getAgreedSecret(serverDH);
+            preMasterSecret = dh.getAgreedSecret(serverDH, true);
             break;
         case K_ECDHE_RSA:
         case K_ECDHE_ECDSA:
@@ -957,7 +995,8 @@ final class ClientHandshaker extends Handshaker {
                 if (protocolVersion.v >= ProtocolVersion.TLS12.v) {
                     preferableSignatureAlgorithm =
                         SignatureAndHashAlgorithm.getPreferableAlgorithm(
-                            peerSupportedSignAlgs, signingKey.getAlgorithm());
+                            peerSupportedSignAlgs, signingKey.getAlgorithm(),
+                            signingKey);
 
                     if (preferableSignatureAlgorithm == null) {
                         throw new SSLHandshakeException(
@@ -971,8 +1010,6 @@ final class ClientHandshaker extends Handshaker {
                         throw new SSLHandshakeException(
                                 "No supported hash algorithm");
                     }
-
-                    handshakeHash.setCertificateVerifyAlg(hashAlg);
                 }
 
                 m3 = new CertificateVerify(protocolVersion, handshakeHash,
@@ -990,10 +1027,6 @@ final class ClientHandshaker extends Handshaker {
             }
             m3.write(output);
             output.doHashes();
-        } else {
-            if (protocolVersion.v >= ProtocolVersion.TLS12.v) {
-                handshakeHash.setCertificateVerifyAlg(null);
-            }
         }
 
         /*
@@ -1101,6 +1134,7 @@ final class ClientHandshaker extends Handshaker {
     /*
      * Returns a ClientHello message to kickstart renegotiations
      */
+    @Override
     HandshakeMessage getKickstartMessage() throws SSLException {
         // session ID of the ClientHello message
         SessionId sessionId = SSLSessionImpl.nullSession.getSessionId();
@@ -1245,17 +1279,14 @@ final class ClientHandshaker extends Handshaker {
 
         // add server_name extension
         if (enableSNIExtension) {
-            // We cannot use the hostname resolved from name services.  For
-            // virtual hosting, multiple hostnames may be bound to the same IP
-            // address, so the hostname resolved from name services is not
-            // reliable.
-            String hostname = getRawHostnameSE();
+            if (session != null) {
+                requestedServerNames = session.getRequestedServerNames();
+            } else {
+                requestedServerNames = serverNames;
+            }
 
-            // we only allow FQDN
-            if (hostname != null && hostname.indexOf('.') > 0 &&
-                    !IPAddressUtil.isIPv4LiteralAddress(hostname) &&
-                    !IPAddressUtil.isIPv6LiteralAddress(hostname)) {
-                clientHelloMessage.addServerNameIndicationExtension(hostname);
+            if (!requestedServerNames.isEmpty()) {
+                clientHelloMessage.addSNIExtension(requestedServerNames);
             }
         }
 
@@ -1279,6 +1310,7 @@ final class ClientHandshaker extends Handshaker {
     /*
      * Fault detected during handshake.
      */
+    @Override
     void handshakeAlert(byte description) throws SSLProtocolException {
         String message = Alerts.alertDescription(description);
 

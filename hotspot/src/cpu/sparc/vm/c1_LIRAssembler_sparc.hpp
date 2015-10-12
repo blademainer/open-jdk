@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -69,7 +69,7 @@ enum {
 #else
          call_stub_size = 20,
 #endif // _LP64
-         exception_handler_size = DEBUG_ONLY(1*K) NOT_DEBUG(10*4),
-         deopt_handler_size = DEBUG_ONLY(1*K) NOT_DEBUG(10*4) };
+         exception_handler_size = DEBUG_ONLY(1*K) NOT_DEBUG(128),
+         deopt_handler_size = DEBUG_ONLY(1*K) NOT_DEBUG(64)  };
 
 #endif // CPU_SPARC_VM_C1_LIRASSEMBLER_SPARC_HPP

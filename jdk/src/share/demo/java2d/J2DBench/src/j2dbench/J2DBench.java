@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,15 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+/*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
 
 package j2dbench;
 
@@ -60,6 +69,7 @@ import j2dbench.tests.MiscTests;
 import j2dbench.tests.RenderTests;
 import j2dbench.tests.PixelTests;
 import j2dbench.tests.iio.IIOTests;
+import j2dbench.tests.cmm.CMMTests;
 import j2dbench.tests.text.TextConstructionTests;
 import j2dbench.tests.text.TextMeasureTests;
 import j2dbench.tests.text.TextRenderTests;
@@ -190,6 +200,7 @@ public class J2DBench {
         TextMeasureTests.init();
         TextConstructionTests.init();
         IIOTests.init();
+        CMMTests.init();
 
         boolean gui = true;
         boolean showresults = true;

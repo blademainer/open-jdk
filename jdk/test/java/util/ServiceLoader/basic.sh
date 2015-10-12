@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -22,7 +22,7 @@
 #
 
 # @test
-# @bug 4640520 6354623
+# @bug 4640520 6354623 7198496
 # @summary Unit test for java.util.ServiceLoader
 #
 # @build Basic Load FooService FooProvider1 FooProvider2 FooProvider3
@@ -33,16 +33,17 @@
 if [ -z "$TESTJAVA" ]; then
   if [ $# -lt 1 ]; then exit 1; fi
   TESTJAVA="$1"; shift
+  COMPILEJAVA="${TESTJAVA}"
   TESTSRC="`pwd`"
   TESTCLASSES="`pwd`"
 fi
 
 JAVA="$TESTJAVA/bin/java"
-JAR="$TESTJAVA/bin/jar"
+JAR="$COMPILEJAVA/bin/jar"
 
 OS=`uname -s`
 case "$OS" in
-    SunOS )
+    SunOS | Darwin )
       SEP=':' ;;
     Linux )
       SEP=':' ;;
@@ -63,12 +64,12 @@ if [ \! -d $EXTD ]; then
     for n in 2 3; do
       rm -rf $JARD/*; mkdir -p $JARD/META-INF/services
       echo FooProvider$n \
-	>$JARD/META-INF/services/FooService
+        >$JARD/META-INF/services/FooService
       cp $TESTCLASSES/FooProvider$n.class $JARD
       if [ $n = 3 ]; then
         cp $TESTCLASSES/FooService.class $JARD
       fi
-      (cd $JARD; "$JAR" -cf ../p$n.jar *)
+      (cd $JARD; "$JAR" ${TESTTOOLVMOPTS} -cf ../p$n.jar *)
     done
 
     mv p3.jar $EXTD
@@ -94,7 +95,7 @@ go() {
   cp="$1"; shift
   if [ -z "$cp" ]; then cp="$TESTCLASSES"; else cp="$TESTCLASSES$SEP$cp"; fi
   vmargs="$1"; shift
-  sh -xc "'$JAVA' -cp $cp $vmargs $T $*" 2>&1
+  sh -xc "'$JAVA' ${TESTVMOPTS} -cp $cp $vmargs $T $*" 2>&1
   if [ $? != 0 ]; then failures=`expr $failures + 1`; fi
 }
 

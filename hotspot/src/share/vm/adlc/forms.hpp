@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -146,7 +146,7 @@ public:
   // Public Methods
   Form(int formType=0, int line=0)
     : _next(NULL), _linenum(line), _ftype(formType) { };
-  ~Form() {};
+  virtual ~Form() {};
 
   virtual bool ideal_only() const {
     assert(0,"Check of ideal status on non-instruction/operand form.\n");
@@ -172,7 +172,9 @@ public:
     idealB      =  6,  // Byte    type
     idealC      =  7,  // Char    type
     idealS      =  8,  // String  type
-    idealN      =  9   // Narrow oop types
+    idealN      =  9,  // Narrow oop types
+    idealNKlass = 10,  // Narrow klass types
+    idealV      = 11   // Vector  type
   };
   // Convert ideal name to a DataType, return DataType::none if not a 'ConX'
   Form::DataType  ideal_to_const_type(const char *ideal_type_name) const;
@@ -447,11 +449,11 @@ public:
   // Return number of USEs + number of DEFs
   int        num_operands();
   // Return zero-based position in list;  -1 if not in list.
-  int        operand_position(const char *name, int usedef);
+  int        operand_position(const char *name, int usedef, Form *fm);
   // Find position for this name, regardless of use/def information
   int        operand_position(const char *name);
   // Find position for this name when looked up for output via "format"
-  int        operand_position_format(const char *name);
+  int        operand_position_format(const char *name, Form *fm);
   // Find position for the Label when looked up for output via "format"
   int        label_position();
   // Find position for the Method when looked up for output via "format"

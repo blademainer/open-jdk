@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,10 +29,11 @@
 
 class ConcurrentMarkSweepPolicy : public TwoGenerationCollectorPolicy {
  protected:
+  void initialize_alignments();
   void initialize_generations();
 
  public:
-  ConcurrentMarkSweepPolicy();
+  ConcurrentMarkSweepPolicy() {}
 
   ConcurrentMarkSweepPolicy* as_concurrent_mark_sweep_policy() { return this; }
 

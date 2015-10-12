@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -158,7 +158,7 @@ public final class Krb5MechFactory implements MechanismFactory {
     public static void checkAcceptCredPermission(Krb5NameElement name,
                                            GSSNameSpi originalName) {
         SecurityManager sm = System.getSecurityManager();
-        if (sm != null) {
+        if (sm != null && name != null) {
             ServicePermission perm = new ServicePermission
                 (name.getKrb5PrincipalName().getName(), "accept");
             try {

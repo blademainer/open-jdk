@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,7 +33,7 @@ import static java.util.Locale.ENGLISH;
  * This element looks like &lt;void&gt; element,
  * but its value is always used as an argument for element
  * that contains this one.
- * <p>The following atributes are supported:
+ * <p>The following attributes are supported:
  * <dl>
  * <dt>class
  * <dd>the type is used for static methods and fields
@@ -64,7 +64,7 @@ class ObjectElementHandler extends NewElementHandler {
 
     /**
      * Parses attributes of the element.
-     * The following atributes are supported:
+     * The following attributes are supported:
      * <dl>
      * <dt>class
      * <dd>the type is used for static methods and fields

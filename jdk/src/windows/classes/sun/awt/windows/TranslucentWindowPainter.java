@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,6 +40,7 @@ import sun.java2d.DestSurfaceProvider;
 import sun.java2d.InvalidPipeException;
 import sun.java2d.Surface;
 import sun.java2d.pipe.RenderQueue;
+import sun.java2d.pipe.BufferedContext;
 import sun.java2d.pipe.hw.AccelGraphicsConfig;
 import sun.java2d.pipe.hw.AccelSurface;
 import sun.security.action.GetPropertyAction;
@@ -310,7 +311,7 @@ public abstract class TranslucentWindowPainter {
                     RenderQueue rq = as.getContext().getRenderQueue();
                     rq.lock();
                     try {
-                        as.getContext().validateContext(as);
+                        BufferedContext.validateContext(as);
                         rq.flushAndInvokeNow(new Runnable() {
                             public void run() {
                                 long psdops = as.getNativeOps();

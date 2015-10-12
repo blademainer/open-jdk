@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -33,7 +33,7 @@
 # SA components are built if BUILD_WIN_SA=1 is specified.
 # See notes in README. This produces files:
 #  1. sa-jdi.jar       - This is built before building jvm.dll
-#  2. sawindbg[_g].dll - Native library for SA - This is built after jvm.dll
+#  2. sawindbg.dll     - Native library for SA - This is built after jvm.dll
 #                      - Also, .lib, .map, .pdb.
 #
 # Please refer to ./makefiles/sa.make
@@ -110,12 +110,10 @@ VARIANT_TEXT=Server
 !endif
 !elseif "$(Variant)" == "tiered"
 VARIANT_TEXT=Tiered
-!elseif "$(Variant)" == "kernel"
-VARIANT_TEXT=Kernel
 !endif
 
 #########################################################################
-# Parameters for VERSIONINFO resource for jvm[_g].dll.
+# Parameters for VERSIONINFO resource for jvm.dll.
 # These can be overridden via the nmake.exe command line.
 # They are overridden by RE during the control builds.
 #
@@ -198,6 +196,12 @@ HS_BUILD_VER=$(HOTSPOT_RELEASE_VERSION)-$(HOTSPOT_BUILD_VERSION)
 
 # End VERSIONINFO parameters
 
+# if hotspot-only build and/or OPENJDK isn't passed down, need to set OPENJDK
+!ifndef OPENJDK
+!if !exists($(WorkSpace)\src\closed)
+OPENJDK=true
+!endif
+!endif
 
 # We don't support SA on ia64, and we can't
 # build it if we are using a version of Vis Studio
@@ -225,11 +229,6 @@ checkSA::
 
 #########################################################################
 
-# With the jvm_g.dll now being named jvm.dll, we can't build both and place
-#   the dll's in the same directory, so we only build one at a time,
-#   re-directing the output to different output directories (done by user
-#   of this makefile).
-#
 defaultTarget: product
 
 # The product or release build is an optimized build, and is the default
@@ -242,17 +241,13 @@ product release optimized: checks $(variantDir) $(variantDir)\local.make sanity
 	cd $(variantDir)
 	nmake -nologo -f $(WorkSpace)\make\windows\makefiles\top.make BUILD_FLAVOR=product ARCH=$(ARCH)
 
-# The debug or jvmg (all the same thing) is an optional build
-debug jvmg: checks $(variantDir) $(variantDir)\local.make sanity
+# The debug build is an optional build
+debug: checks $(variantDir) $(variantDir)\local.make sanity
 	cd $(variantDir)
 	nmake -nologo -f $(WorkSpace)\make\windows\makefiles\top.make BUILD_FLAVOR=debug ARCH=$(ARCH)
 fastdebug: checks $(variantDir) $(variantDir)\local.make sanity
 	cd $(variantDir)
 	nmake -nologo -f $(WorkSpace)\make\windows\makefiles\top.make BUILD_FLAVOR=fastdebug ARCH=$(ARCH)
-
-develop: checks $(variantDir) $(variantDir)\local.make sanity
-	cd $(variantDir)
-	nmake -nologo -f $(WorkSpace)\make\windows\makefiles\top.make BUILD_FLAVOR=product DEVELOP=1 ARCH=$(ARCH)
 
 # target to create just the directory structure
 tree: checks $(variantDir) $(variantDir)\local.make sanity
@@ -284,6 +279,7 @@ $(variantDir)\local.make: checks
 	@ echo HS_COMPANY=$(COMPANY_NAME)			>> $@
 	@ echo HS_FILEDESC=$(HS_FILEDESC)			>> $@
 	@ echo HOTSPOT_VM_DISTRO=$(HOTSPOT_VM_DISTRO)		>> $@
+	@ if "$(OPENJDK)" NEQ "" echo OPENJDK=$(OPENJDK)	>> $@
 	@ echo HS_COPYRIGHT=$(HOTSPOT_VM_COPYRIGHT)		>> $@
 	@ echo HS_NAME=$(PRODUCT_NAME) $(JDK_MKTG_VERSION)	>> $@
 	@ echo HS_BUILD_VER=$(HS_BUILD_VER)			>> $@
@@ -297,14 +293,22 @@ $(variantDir)\local.make: checks
 	@ echo BUILDARCH=$(BUILDARCH)         			>> $@
 	@ echo Platform_arch=$(Platform_arch)        		>> $@
 	@ echo Platform_arch_model=$(Platform_arch_model)	>> $@
+	@ echo CXX=$(CXX)					>> $@
+	@ echo LD=$(LD)						>> $@
+	@ echo MT=$(MT)						>> $@
+	@ echo RC=$(RC)						>> $@
 	@ sh $(WorkSpace)/make/windows/get_msc_ver.sh		>> $@
+	@ if "$(ENABLE_FULL_DEBUG_SYMBOLS)" NEQ "" echo ENABLE_FULL_DEBUG_SYMBOLS=$(ENABLE_FULL_DEBUG_SYMBOLS) >> $@
+	@ if "$(ZIP_DEBUGINFO_FILES)" NEQ "" echo ZIP_DEBUGINFO_FILES=$(ZIP_DEBUGINFO_FILES) >> $@
+	@ if "$(RM)" NEQ "" echo RM=$(RM)                       >> $@
+	@ if "$(ZIPEXE)" NEQ "" echo ZIPEXE=$(ZIPEXE)           >> $@
 
 checks: checkVariant checkWorkSpace checkSA
 
 checkVariant:
-	@ if "$(Variant)"=="" echo Need to specify "Variant=[tiered|compiler2|compiler1|kernel|core]" && false
-	@ if "$(Variant)" NEQ "tiered" if "$(Variant)" NEQ "compiler2" if "$(Variant)" NEQ "compiler1" if "$(Variant)" NEQ "kernel" if "$(Variant)" NEQ "core" \
-          echo Need to specify "Variant=[tiered|compiler2|compiler1|kernel|core]" && false
+	@ if "$(Variant)"=="" echo Need to specify "Variant=[tiered|compiler2|compiler1|core]" && false
+	@ if "$(Variant)" NEQ "tiered" if "$(Variant)" NEQ "compiler2" if "$(Variant)" NEQ "compiler1" if "$(Variant)" NEQ "core" \
+          echo Need to specify "Variant=[tiered|compiler2|compiler1|core]" && false
 
 checkWorkSpace:
 	@ if "$(WorkSpace)"=="" echo Need to specify "WorkSpace=..." && false

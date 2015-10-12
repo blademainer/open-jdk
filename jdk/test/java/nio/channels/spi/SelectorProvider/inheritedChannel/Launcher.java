@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -133,8 +133,11 @@ public class Launcher {
         dc.close();
 
         dc = DatagramChannel.open();
-
-        InetSocketAddress isa = new InetSocketAddress(InetAddress.getLocalHost(), port);
+        InetAddress address = InetAddress.getLocalHost();
+        if (address.isLoopbackAddress()) {
+            address = InetAddress.getLoopbackAddress();
+        }
+        InetSocketAddress isa = new InetSocketAddress(address, port);
 
         dc.connect(isa);
         return dc;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,6 +32,7 @@
 #include "opto/loopnode.hpp"
 #include "opto/machnode.hpp"
 #include "opto/memnode.hpp"
+#include "opto/mathexactnode.hpp"
 #include "opto/mulnode.hpp"
 #include "opto/multnode.hpp"
 #include "opto/node.hpp"

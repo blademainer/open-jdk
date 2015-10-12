@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -62,9 +62,9 @@ public final class ObjectTable {
 
     /** tables mapping to Target, keyed from ObjectEndpoint and impl object */
     private static final Map<ObjectEndpoint,Target> objTable =
-        new HashMap<ObjectEndpoint,Target>();
+        new HashMap<>();
     private static final Map<WeakRef,Target> implTable =
-        new HashMap<WeakRef,Target>();
+        new HashMap<>();
 
     /**
      * lock guarding keepAliveCount, reaper, and gcLatencyRequest.
@@ -79,7 +79,7 @@ public final class ObjectTable {
     private static Thread reaper = null;
 
     /** queue notified when weak refs in the table are cleared */
-    static final ReferenceQueue reapQueue = new ReferenceQueue();
+    static final ReferenceQueue<Object> reapQueue = new ReferenceQueue<>();
 
     /** handle for GC latency request (for future cancellation) */
     private static GC.LatencyRequest gcLatencyRequest = null;
@@ -223,7 +223,7 @@ public final class ObjectTable {
 
     /**
      * Process client VM signalling reference for given ObjID: forward to
-     * correspoding Target entry.  If ObjID is not found in table,
+     * corresponding Target entry.  If ObjID is not found in table,
      * no action is taken.
      */
     static void referenced(ObjID id, long sequenceNum, VMID vmid) {
@@ -239,7 +239,7 @@ public final class ObjectTable {
 
     /**
      * Process client VM dropping reference for given ObjID: forward to
-     * correspoding Target entry.  If ObjID is not found in table,
+     * corresponding Target entry.  If ObjID is not found in table,
      * no action is taken.
      */
     static void unreferenced(ObjID id, long sequenceNum, VMID vmid,

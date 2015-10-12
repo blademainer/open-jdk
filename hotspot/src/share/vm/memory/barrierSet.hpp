@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,7 +31,7 @@
 // This class provides the interface between a barrier implementation and
 // the rest of the system.
 
-class BarrierSet: public CHeapObj {
+class BarrierSet: public CHeapObj<mtGC> {
   friend class VMStructs;
 public:
   enum Name {
@@ -70,7 +70,6 @@ public:
   // kinds requires a barrier.
   virtual bool read_ref_needs_barrier(void* field) = 0;
   virtual bool read_prim_needs_barrier(HeapWord* field, size_t bytes) = 0;
-  virtual bool write_ref_needs_barrier(void* field, oop new_val) = 0;
   virtual bool write_prim_needs_barrier(HeapWord* field, size_t bytes,
                                         juint val1, juint val2) = 0;
 
@@ -181,6 +180,8 @@ public:
   // within the heap, this function tells whether they are met.
   virtual bool is_aligned(HeapWord* addr) = 0;
 
+  // Print a description of the memory for the barrier set
+  virtual void print_on(outputStream* st) const = 0;
 };
 
 #endif // SHARE_VM_MEMORY_BARRIERSET_HPP

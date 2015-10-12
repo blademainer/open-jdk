@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,7 @@ import java.security.cert.Certificate;
 import javax.net.ssl.*;
 
 import sun.security.provider.certpath.AlgorithmChecker;
+import sun.security.action.GetPropertyAction;
 
 public abstract class SSLContextImpl extends SSLContextSpi {
 
@@ -71,6 +72,7 @@ public abstract class SSLContextImpl extends SSLContextSpi {
         serverCache = new SSLSessionContextImpl();
     }
 
+    @Override
     protected void engineInit(KeyManager[] km, TrustManager[] tm,
                                 SecureRandom sr) throws KeyManagementException {
         isInitialized = false;
@@ -144,7 +146,7 @@ public abstract class SSLContextImpl extends SSLContextSpi {
             throws KeyManagementException {
         for (int i = 0; kms != null && i < kms.length; i++) {
             KeyManager km = kms[i];
-            if (km instanceof X509KeyManager == false) {
+            if (!(km instanceof X509KeyManager)) {
                 continue;
             }
             if (SunJSSE.isFIPS()) {
@@ -177,6 +179,7 @@ public abstract class SSLContextImpl extends SSLContextSpi {
         return DummyX509KeyManager.INSTANCE;
     }
 
+    @Override
     protected SSLSocketFactory engineGetSocketFactory() {
         if (!isInitialized) {
             throw new IllegalStateException(
@@ -185,6 +188,7 @@ public abstract class SSLContextImpl extends SSLContextSpi {
        return new SSLSocketFactoryImpl(this);
     }
 
+    @Override
     protected SSLServerSocketFactory engineGetServerSocketFactory() {
         if (!isInitialized) {
             throw new IllegalStateException("SSLContext is not initialized");
@@ -192,6 +196,7 @@ public abstract class SSLContextImpl extends SSLContextSpi {
         return new SSLServerSocketFactoryImpl(this);
     }
 
+    @Override
     protected SSLEngine engineCreateSSLEngine() {
         if (!isInitialized) {
             throw new IllegalStateException(
@@ -200,6 +205,7 @@ public abstract class SSLContextImpl extends SSLContextSpi {
         return new SSLEngineImpl(this);
     }
 
+    @Override
     protected SSLEngine engineCreateSSLEngine(String host, int port) {
         if (!isInitialized) {
             throw new IllegalStateException(
@@ -208,10 +214,12 @@ public abstract class SSLContextImpl extends SSLContextSpi {
         return new SSLEngineImpl(this, host, port);
     }
 
+    @Override
     protected SSLSessionContext engineGetClientSessionContext() {
         return clientCache;
     }
 
+    @Override
     protected SSLSessionContext engineGetServerSessionContext() {
         return serverCache;
     }
@@ -236,7 +244,7 @@ public abstract class SSLContextImpl extends SSLContextSpi {
     abstract SSLParameters getDefaultClientSSLParams();
     abstract SSLParameters getSupportedSSLParams();
 
-    // Get suported ProtoclList.
+    // Get supported ProtocolList.
     ProtocolList getSuportedProtocolList() {
         if (supportedProtocolList == null) {
             supportedProtocolList =
@@ -246,7 +254,7 @@ public abstract class SSLContextImpl extends SSLContextSpi {
         return supportedProtocolList;
     }
 
-    // Get default ProtoclList.
+    // Get default ProtocolList.
     ProtocolList getDefaultProtocolList(boolean roleIsServer) {
         if (roleIsServer) {
             if (defaultServerProtocolList == null) {
@@ -265,38 +273,44 @@ public abstract class SSLContextImpl extends SSLContextSpi {
         }
     }
 
-    // Get suported CipherSuiteList.
-    CipherSuiteList getSuportedCipherSuiteList() {
-        // Clear cache of available ciphersuites.
-        clearAvailableCache();
+    // Get supported CipherSuiteList.
+    CipherSuiteList getSupportedCipherSuiteList() {
+        // The maintenance of cipher suites needs to be synchronized.
+        synchronized (this) {
+            // Clear cache of available ciphersuites.
+            clearAvailableCache();
 
-        if (supportedCipherSuiteList == null) {
-            supportedCipherSuiteList =
-                getApplicableCipherSuiteList(getSuportedProtocolList(), false);
+            if (supportedCipherSuiteList == null) {
+                supportedCipherSuiteList = getApplicableCipherSuiteList(
+                        getSuportedProtocolList(), false);
+            }
+
+            return supportedCipherSuiteList;
         }
-
-        return supportedCipherSuiteList;
     }
 
     // Get default CipherSuiteList.
     CipherSuiteList getDefaultCipherSuiteList(boolean roleIsServer) {
-        // Clear cache of available ciphersuites.
-        clearAvailableCache();
+        // The maintenance of cipher suites needs to be synchronized.
+        synchronized (this) {
+            // Clear cache of available ciphersuites.
+            clearAvailableCache();
 
-        if (roleIsServer) {
-            if (defaultServerCipherSuiteList == null) {
-                defaultServerCipherSuiteList = getApplicableCipherSuiteList(
+            if (roleIsServer) {
+                if (defaultServerCipherSuiteList == null) {
+                    defaultServerCipherSuiteList = getApplicableCipherSuiteList(
                         getDefaultProtocolList(true), true);
-            }
+                }
 
-            return defaultServerCipherSuiteList;
-        } else {
-            if (defaultClientCipherSuiteList == null) {
-                defaultClientCipherSuiteList = getApplicableCipherSuiteList(
+                return defaultServerCipherSuiteList;
+            } else {
+                if (defaultClientCipherSuiteList == null) {
+                    defaultClientCipherSuiteList = getApplicableCipherSuiteList(
                         getDefaultProtocolList(false), true);
-            }
+                }
 
-            return defaultClientCipherSuiteList;
+                return defaultClientCipherSuiteList;
+            }
         }
     }
 
@@ -325,11 +339,11 @@ public abstract class SSLContextImpl extends SSLContextSpi {
         Collection<CipherSuite> allowedCipherSuites =
                                     CipherSuite.allowedCipherSuites();
 
-        ArrayList<CipherSuite> suites = new ArrayList<>();
+        TreeSet<CipherSuite> suites = new TreeSet<>();
         if (!(protocols.collection().isEmpty()) &&
                 protocols.min.v != ProtocolVersion.NONE.v) {
             for (CipherSuite suite : allowedCipherSuites) {
-                if (suite.allowed == false || suite.priority < minPriority) {
+                if (!suite.allowed || suite.priority < minPriority) {
                     continue;
                 }
 
@@ -364,8 +378,11 @@ public abstract class SSLContextImpl extends SSLContextSpi {
      * Clear cache of available ciphersuites. If we support all ciphers
      * internally, there is no need to clear the cache and calling this
      * method has no effect.
+     *
+     * Note that every call to clearAvailableCache() and the maintenance of
+     * cipher suites need to be synchronized with this instance.
      */
-    synchronized void clearAvailableCache() {
+    private void clearAvailableCache() {
         if (CipherSuite.DYNAMIC_AVAILABILITY) {
             supportedCipherSuiteList = null;
             defaultServerCipherSuiteList = null;
@@ -405,22 +422,21 @@ public abstract class SSLContextImpl extends SSLContextSpi {
      */
 
     /*
-     * The conservative SSLContext implementation for TLS, SSL, SSLv3 and
-     * TLS10 algorithm.
+     * The base abstract SSLContext implementation.
      *
-     * This is a super class of DefaultSSLContext and TLS10Context.
+     * This abstract class encapsulates supported and the default server
+     * SSL parameters.
      *
      * @see SSLContext
      */
-    private static class ConservativeSSLContext extends SSLContextImpl {
+    private abstract static class AbstractSSLContext extends SSLContextImpl {
         // parameters
-        private static SSLParameters defaultServerSSLParams;
-        private static SSLParameters defaultClientSSLParams;
-        private static SSLParameters supportedSSLParams;
+        private final static SSLParameters defaultServerSSLParams;
+        private final static SSLParameters supportedSSLParams;
 
         static {
+            supportedSSLParams = new SSLParameters();
             if (SunJSSE.isFIPS()) {
-                supportedSSLParams = new SSLParameters();
                 supportedSSLParams.setProtocols(new String[] {
                     ProtocolVersion.TLS10.name,
                     ProtocolVersion.TLS11.name,
@@ -428,14 +444,7 @@ public abstract class SSLContextImpl extends SSLContextSpi {
                 });
 
                 defaultServerSSLParams = supportedSSLParams;
-
-                defaultClientSSLParams = new SSLParameters();
-                defaultClientSSLParams.setProtocols(new String[] {
-                    ProtocolVersion.TLS10.name
-                });
-
             } else {
-                supportedSSLParams = new SSLParameters();
                 supportedSSLParams.setProtocols(new String[] {
                     ProtocolVersion.SSL20Hello.name,
                     ProtocolVersion.SSL30.name,
@@ -445,8 +454,36 @@ public abstract class SSLContextImpl extends SSLContextSpi {
                 });
 
                 defaultServerSSLParams = supportedSSLParams;
+            }
+        }
 
-                defaultClientSSLParams = new SSLParameters();
+        @Override
+        SSLParameters getDefaultServerSSLParams() {
+            return defaultServerSSLParams;
+        }
+
+        @Override
+        SSLParameters getSupportedSSLParams() {
+            return supportedSSLParams;
+        }
+    }
+
+    /*
+     * The SSLContext implementation for SSLv3 and TLS10 algorithm
+     *
+     * @see SSLContext
+     */
+    public static final class TLS10Context extends AbstractSSLContext {
+        private final static SSLParameters defaultClientSSLParams;
+
+        static {
+            defaultClientSSLParams = new SSLParameters();
+            if (SunJSSE.isFIPS()) {
+                defaultClientSSLParams.setProtocols(new String[] {
+                    ProtocolVersion.TLS10.name
+                });
+
+            } else {
                 defaultClientSSLParams.setProtocols(new String[] {
                     ProtocolVersion.SSL30.name,
                     ProtocolVersion.TLS10.name
@@ -454,25 +491,177 @@ public abstract class SSLContextImpl extends SSLContextSpi {
             }
         }
 
-        SSLParameters getDefaultServerSSLParams() {
-            return defaultServerSSLParams;
-        }
-
+        @Override
         SSLParameters getDefaultClientSSLParams() {
             return defaultClientSSLParams;
-        }
-
-        SSLParameters getSupportedSSLParams() {
-            return supportedSSLParams;
         }
     }
 
     /*
-     * The SSLContext implementation for default algorithm
+     * The SSLContext implementation for TLS11 algorithm
      *
      * @see SSLContext
      */
-    public static final class DefaultSSLContext extends ConservativeSSLContext {
+    public static final class TLS11Context extends AbstractSSLContext {
+        private final static SSLParameters defaultClientSSLParams;
+
+        static {
+            defaultClientSSLParams = new SSLParameters();
+            if (SunJSSE.isFIPS()) {
+                defaultClientSSLParams.setProtocols(new String[] {
+                    ProtocolVersion.TLS10.name,
+                    ProtocolVersion.TLS11.name
+                });
+
+            } else {
+                defaultClientSSLParams.setProtocols(new String[] {
+                    ProtocolVersion.SSL30.name,
+                    ProtocolVersion.TLS10.name,
+                    ProtocolVersion.TLS11.name
+                });
+            }
+        }
+
+        @Override
+        SSLParameters getDefaultClientSSLParams() {
+            return defaultClientSSLParams;
+        }
+    }
+
+    /*
+     * The SSLContext implementation for TLS12 algorithm
+     *
+     * @see SSLContext
+     */
+    public static final class TLS12Context extends AbstractSSLContext {
+        private final static SSLParameters defaultClientSSLParams;
+
+        static {
+            defaultClientSSLParams = new SSLParameters();
+            if (SunJSSE.isFIPS()) {
+                defaultClientSSLParams.setProtocols(new String[] {
+                    ProtocolVersion.TLS10.name,
+                    ProtocolVersion.TLS11.name,
+                    ProtocolVersion.TLS12.name
+                });
+
+            } else {
+                defaultClientSSLParams.setProtocols(new String[] {
+                    ProtocolVersion.SSL30.name,
+                    ProtocolVersion.TLS10.name,
+                    ProtocolVersion.TLS11.name,
+                    ProtocolVersion.TLS12.name
+                });
+            }
+        }
+
+        @Override
+        SSLParameters getDefaultClientSSLParams() {
+            return defaultClientSSLParams;
+        }
+    }
+
+    /*
+     * The SSLContext implementation for customized TLS protocols
+     *
+     * @see SSLContext
+     */
+    private static class CustomizedSSLContext extends AbstractSSLContext {
+        private final static String PROPERTY_NAME = "jdk.tls.client.protocols";
+        private final static SSLParameters defaultClientSSLParams;
+        private static IllegalArgumentException reservedException = null;
+
+        // Don't want a java.lang.LinkageError for illegal system property.
+        //
+        // Please don't throw exception in this static block.  Otherwise,
+        // java.lang.LinkageError may be thrown during the instantiation of
+        // the provider service. Instead, let's handle the initialization
+        // exception in constructor.
+        static {
+            String property = AccessController.doPrivileged(
+                    new GetPropertyAction(PROPERTY_NAME));
+            defaultClientSSLParams = new SSLParameters();
+            if (property == null || property.length() == 0) {
+                // the default enabled client TLS protocols
+                if (SunJSSE.isFIPS()) {
+                    defaultClientSSLParams.setProtocols(new String[] {
+                        ProtocolVersion.TLS10.name,
+                        ProtocolVersion.TLS11.name,
+                        ProtocolVersion.TLS12.name
+                    });
+
+                } else {
+                    defaultClientSSLParams.setProtocols(new String[] {
+                        ProtocolVersion.SSL30.name,
+                        ProtocolVersion.TLS10.name,
+                        ProtocolVersion.TLS11.name,
+                        ProtocolVersion.TLS12.name
+                    });
+                }
+            } else {
+                // remove double quote marks from beginning/end of the property
+                if (property.charAt(0) == '"' &&
+                        property.charAt(property.length() - 1) == '"') {
+                    property = property.substring(1, property.length() - 1);
+                }
+
+                String[] protocols = property.split(",");
+                for (int i = 0; i < protocols.length; i++) {
+                    protocols[i] = protocols[i].trim();
+                    // Is it a supported protocol name?
+                    try {
+                        ProtocolVersion.valueOf(protocols[i]);
+                    } catch (IllegalArgumentException iae) {
+                        reservedException = new IllegalArgumentException(
+                                PROPERTY_NAME + ": " + protocols[i] +
+                                " is not a standard SSL protocol name", iae);
+                    }
+                }
+
+                if ((reservedException == null) && SunJSSE.isFIPS()) {
+                    for (String protocol : protocols) {
+                        if (ProtocolVersion.SSL20Hello.name.equals(protocol) ||
+                                ProtocolVersion.SSL30.name.equals(protocol)) {
+                            reservedException = new IllegalArgumentException(
+                                    PROPERTY_NAME + ": " + protocol +
+                                    " is not FIPS compliant");
+                        }
+                    }
+                }
+
+                if (reservedException == null) {
+                    defaultClientSSLParams.setProtocols(protocols);
+               }
+            }
+        }
+
+        protected CustomizedSSLContext() {
+            if (reservedException != null) {
+                throw reservedException;
+            }
+        }
+
+        @Override
+        SSLParameters getDefaultClientSSLParams() {
+            return defaultClientSSLParams;
+        }
+    }
+
+    /*
+     * The SSLContext implementation for default "TLS" algorithm
+     *
+     * @see SSLContext
+     */
+    public static final class TLSContext extends CustomizedSSLContext {
+        // use the default constructor and methods
+    }
+
+    /*
+     * The SSLContext implementation for default "Default" algorithm
+     *
+     * @see SSLContext
+     */
+    public static final class DefaultSSLContext extends CustomizedSSLContext {
         private static final String NONE = "NONE";
         private static final String P11KEYSTORE = "PKCS11";
 
@@ -497,6 +686,7 @@ public abstract class SSLContextImpl extends SSLContextSpi {
             }
         }
 
+        @Override
         protected void engineInit(KeyManager[] km, TrustManager[] tm,
             SecureRandom sr) throws KeyManagementException {
             throw new KeyManagementException
@@ -535,6 +725,7 @@ public abstract class SSLContextImpl extends SSLContextSpi {
             final Map<String,String> props = new HashMap<>();
             AccessController.doPrivileged(
                         new PrivilegedExceptionAction<Object>() {
+                @Override
                 public Object run() throws Exception {
                     props.put("keyStore",  System.getProperty(
                                 "javax.net.ssl.keyStore", ""));
@@ -567,42 +758,47 @@ public abstract class SSLContextImpl extends SSLContextSpi {
             }
 
             FileInputStream fs = null;
-            if (defaultKeyStore.length() != 0 && !NONE.equals(defaultKeyStore)) {
-                fs = AccessController.doPrivileged(
-                        new PrivilegedExceptionAction<FileInputStream>() {
-                    public FileInputStream run() throws Exception {
-                        return new FileInputStream(defaultKeyStore);
-                    }
-                });
-            }
-
-            String defaultKeyStorePassword = props.get("keyStorePasswd");
-            char[] passwd = null;
-            if (defaultKeyStorePassword.length() != 0) {
-                passwd = defaultKeyStorePassword.toCharArray();
-            }
-
-            /**
-             * Try to initialize key store.
-             */
             KeyStore ks = null;
-            if ((defaultKeyStoreType.length()) != 0) {
-                if (debug != null && Debug.isOn("defaultctx")) {
-                    System.out.println("init keystore");
-                }
-                if (defaultKeyStoreProvider.length() == 0) {
-                    ks = KeyStore.getInstance(defaultKeyStoreType);
-                } else {
-                    ks = KeyStore.getInstance(defaultKeyStoreType,
-                                        defaultKeyStoreProvider);
+            char[] passwd = null;
+            try {
+                if (defaultKeyStore.length() != 0 &&
+                        !NONE.equals(defaultKeyStore)) {
+                    fs = AccessController.doPrivileged(
+                            new PrivilegedExceptionAction<FileInputStream>() {
+                        @Override
+                        public FileInputStream run() throws Exception {
+                            return new FileInputStream(defaultKeyStore);
+                        }
+                    });
                 }
 
-                // if defaultKeyStore is NONE, fs will be null
-                ks.load(fs, passwd);
-            }
-            if (fs != null) {
-                fs.close();
-                fs = null;
+                String defaultKeyStorePassword = props.get("keyStorePasswd");
+                if (defaultKeyStorePassword.length() != 0) {
+                    passwd = defaultKeyStorePassword.toCharArray();
+                }
+
+                /**
+                 * Try to initialize key store.
+                 */
+                if ((defaultKeyStoreType.length()) != 0) {
+                    if (debug != null && Debug.isOn("defaultctx")) {
+                        System.out.println("init keystore");
+                    }
+                    if (defaultKeyStoreProvider.length() == 0) {
+                        ks = KeyStore.getInstance(defaultKeyStoreType);
+                    } else {
+                        ks = KeyStore.getInstance(defaultKeyStoreType,
+                                            defaultKeyStoreProvider);
+                    }
+
+                    // if defaultKeyStore is NONE, fs will be null
+                    ks.load(fs, passwd);
+                }
+            } finally {
+                if (fs != null) {
+                    fs.close();
+                    fs = null;
+                }
             }
 
             /*
@@ -626,147 +822,13 @@ public abstract class SSLContextImpl extends SSLContextSpi {
         }
     }
 
-    /*
-     * The SSLContext implementation for TLS, SSL, SSLv3 and TLS10 algorithm
-     *
-     * @see SSLContext
-     */
-    public static final class TLS10Context extends ConservativeSSLContext {
-        // use the default constructor and methods
-    }
-
-    /*
-     * The SSLContext implementation for TLS11 algorithm
-     *
-     * @see SSLContext
-     */
-    public static final class TLS11Context extends SSLContextImpl {
-        // parameters
-        private static SSLParameters defaultServerSSLParams;
-        private static SSLParameters defaultClientSSLParams;
-        private static SSLParameters supportedSSLParams;
-
-        static {
-            if (SunJSSE.isFIPS()) {
-                supportedSSLParams = new SSLParameters();
-                supportedSSLParams.setProtocols(new String[] {
-                    ProtocolVersion.TLS10.name,
-                    ProtocolVersion.TLS11.name,
-                    ProtocolVersion.TLS12.name
-                });
-
-                defaultServerSSLParams = supportedSSLParams;
-
-                defaultClientSSLParams = new SSLParameters();
-                defaultClientSSLParams.setProtocols(new String[] {
-                    ProtocolVersion.TLS10.name,
-                    ProtocolVersion.TLS11.name
-                });
-
-            } else {
-                supportedSSLParams = new SSLParameters();
-                supportedSSLParams.setProtocols(new String[] {
-                    ProtocolVersion.SSL20Hello.name,
-                    ProtocolVersion.SSL30.name,
-                    ProtocolVersion.TLS10.name,
-                    ProtocolVersion.TLS11.name,
-                    ProtocolVersion.TLS12.name
-                });
-
-                defaultServerSSLParams = supportedSSLParams;
-
-                defaultClientSSLParams = new SSLParameters();
-                defaultClientSSLParams.setProtocols(new String[] {
-                    ProtocolVersion.SSL30.name,
-                    ProtocolVersion.TLS10.name,
-                    ProtocolVersion.TLS11.name
-                });
-            }
-        }
-
-        SSLParameters getDefaultServerSSLParams() {
-            return defaultServerSSLParams;
-        }
-
-        SSLParameters getDefaultClientSSLParams() {
-            return defaultClientSSLParams;
-        }
-
-        SSLParameters getSupportedSSLParams() {
-            return supportedSSLParams;
-        }
-    }
-
-    /*
-     * The SSLContext implementation for TLS12 algorithm
-     *
-     * @see SSLContext
-     */
-    public static final class TLS12Context extends SSLContextImpl {
-        // parameters
-        private static SSLParameters defaultServerSSLParams;
-        private static SSLParameters defaultClientSSLParams;
-        private static SSLParameters supportedSSLParams;
-
-        static {
-            if (SunJSSE.isFIPS()) {
-                supportedSSLParams = new SSLParameters();
-                supportedSSLParams.setProtocols(new String[] {
-                    ProtocolVersion.TLS10.name,
-                    ProtocolVersion.TLS11.name,
-                    ProtocolVersion.TLS12.name
-                });
-
-                defaultServerSSLParams = supportedSSLParams;
-
-                defaultClientSSLParams = new SSLParameters();
-                defaultClientSSLParams.setProtocols(new String[] {
-                    ProtocolVersion.TLS10.name,
-                    ProtocolVersion.TLS11.name,
-                    ProtocolVersion.TLS12.name
-                });
-
-            } else {
-                supportedSSLParams = new SSLParameters();
-                supportedSSLParams.setProtocols(new String[] {
-                    ProtocolVersion.SSL20Hello.name,
-                    ProtocolVersion.SSL30.name,
-                    ProtocolVersion.TLS10.name,
-                    ProtocolVersion.TLS11.name,
-                    ProtocolVersion.TLS12.name
-                });
-
-                defaultServerSSLParams = supportedSSLParams;
-
-                defaultClientSSLParams = new SSLParameters();
-                defaultClientSSLParams.setProtocols(new String[] {
-                    ProtocolVersion.SSL30.name,
-                    ProtocolVersion.TLS10.name,
-                    ProtocolVersion.TLS11.name,
-                    ProtocolVersion.TLS12.name
-                });
-            }
-        }
-
-        SSLParameters getDefaultServerSSLParams() {
-            return defaultServerSSLParams;
-        }
-
-        SSLParameters getDefaultClientSSLParams() {
-            return defaultClientSSLParams;
-        }
-
-        SSLParameters getSupportedSSLParams() {
-            return supportedSSLParams;
-        }
-    }
-
 }
 
 
 final class AbstractTrustManagerWrapper extends X509ExtendedTrustManager
             implements X509TrustManager {
 
+    // the delegated trust manager
     private final X509TrustManager tm;
 
     AbstractTrustManagerWrapper(X509TrustManager tm) {
@@ -859,20 +921,7 @@ final class AbstractTrustManagerWrapper extends X509ExtendedTrustManager
                 constraints = new SSLAlgorithmConstraints(sslSocket, true);
             }
 
-            AlgorithmChecker checker = new AlgorithmChecker(constraints);
-            try {
-                checker.init(false);
-
-                // a forward checker, need to check from trust to target
-                for (int i = chain.length - 1; i >= 0; i--) {
-                    Certificate cert = chain[i];
-                    // We don't care about the unresolved critical extensions.
-                    checker.check(cert, Collections.<String>emptySet());
-                }
-            } catch (CertPathValidatorException cpve) {
-                throw new CertificateException(
-                    "Certificates does not conform to algorithm constraints");
-            }
+            checkAlgorithmConstraints(chain, constraints);
         }
     }
 
@@ -914,20 +963,40 @@ final class AbstractTrustManagerWrapper extends X509ExtendedTrustManager
                 constraints = new SSLAlgorithmConstraints(engine, true);
             }
 
-            AlgorithmChecker checker = new AlgorithmChecker(constraints);
-            try {
-                checker.init(false);
+            checkAlgorithmConstraints(chain, constraints);
+        }
+    }
 
-                // A forward checker, need to check from trust to target
-                for (int i = chain.length - 1; i >= 0; i--) {
+    private void checkAlgorithmConstraints(X509Certificate[] chain,
+            AlgorithmConstraints constraints) throws CertificateException {
+
+        try {
+            // Does the certificate chain end with a trusted certificate?
+            int checkedLength = chain.length - 1;
+
+            Collection<X509Certificate> trustedCerts = new HashSet<>();
+            X509Certificate[] certs = tm.getAcceptedIssuers();
+            if ((certs != null) && (certs.length > 0)){
+                Collections.addAll(trustedCerts, certs);
+            }
+
+            if (trustedCerts.contains(chain[checkedLength])) {
+                    checkedLength--;
+            }
+
+            // A forward checker, need to check from trust to target
+            if (checkedLength >= 0) {
+                AlgorithmChecker checker = new AlgorithmChecker(constraints);
+                checker.init(false);
+                for (int i = checkedLength; i >= 0; i--) {
                     Certificate cert = chain[i];
                     // We don't care about the unresolved critical extensions.
                     checker.check(cert, Collections.<String>emptySet());
                 }
-            } catch (CertPathValidatorException cpve) {
-                throw new CertificateException(
-                    "Certificates does not conform to algorithm constraints");
             }
+        } catch (CertPathValidatorException cpve) {
+            throw new CertificateException(
+                "Certificates does not conform to algorithm constraints");
         }
     }
 }
@@ -1020,28 +1089,34 @@ final class AbstractKeyManagerWrapper extends X509ExtendedKeyManager {
         this.km = km;
     }
 
+    @Override
     public String[] getClientAliases(String keyType, Principal[] issuers) {
         return km.getClientAliases(keyType, issuers);
     }
 
+    @Override
     public String chooseClientAlias(String[] keyType, Principal[] issuers,
             Socket socket) {
         return km.chooseClientAlias(keyType, issuers, socket);
     }
 
+    @Override
     public String[] getServerAliases(String keyType, Principal[] issuers) {
         return km.getServerAliases(keyType, issuers);
     }
 
+    @Override
     public String chooseServerAlias(String keyType, Principal[] issuers,
             Socket socket) {
         return km.chooseServerAlias(keyType, issuers, socket);
     }
 
+    @Override
     public X509Certificate[] getCertificateChain(String alias) {
         return km.getCertificateChain(alias);
     }
 
+    @Override
     public PrivateKey getPrivateKey(String alias) {
         return km.getPrivateKey(alias);
     }
@@ -1066,6 +1141,7 @@ final class DummyX509KeyManager extends X509ExtendedKeyManager {
      * socket given the public key type and the list of
      * certificate issuer authorities recognized by the peer (if any).
      */
+    @Override
     public String[] getClientAliases(String keyType, Principal[] issuers) {
         return null;
     }
@@ -1075,6 +1151,7 @@ final class DummyX509KeyManager extends X509ExtendedKeyManager {
      * socket given the public key type and the list of
      * certificate issuer authorities recognized by the peer (if any).
      */
+    @Override
     public String chooseClientAlias(String[] keyTypes, Principal[] issuers,
             Socket socket) {
         return null;
@@ -1085,6 +1162,7 @@ final class DummyX509KeyManager extends X509ExtendedKeyManager {
      * engine given the public key type and the list of
      * certificate issuer authorities recognized by the peer (if any).
      */
+    @Override
     public String chooseEngineClientAlias(
             String[] keyTypes, Principal[] issuers, SSLEngine engine) {
         return null;
@@ -1095,6 +1173,7 @@ final class DummyX509KeyManager extends X509ExtendedKeyManager {
      * socket given the public key type and the list of
      * certificate issuer authorities recognized by the peer (if any).
      */
+    @Override
     public String[] getServerAliases(String keyType, Principal[] issuers) {
         return null;
     }
@@ -1104,6 +1183,7 @@ final class DummyX509KeyManager extends X509ExtendedKeyManager {
      * socket given the public key type and the list of
      * certificate issuer authorities recognized by the peer (if any).
      */
+    @Override
     public String chooseServerAlias(String keyType, Principal[] issuers,
             Socket socket) {
         return null;
@@ -1114,6 +1194,7 @@ final class DummyX509KeyManager extends X509ExtendedKeyManager {
      * given the public key type and the list of
      * certificate issuer authorities recognized by the peer (if any).
      */
+    @Override
     public String chooseEngineServerAlias(
             String keyType, Principal[] issuers, SSLEngine engine) {
         return null;
@@ -1127,6 +1208,7 @@ final class DummyX509KeyManager extends X509ExtendedKeyManager {
      * @return the certificate chain (ordered with the user's certificate first
      * and the root certificate authority last)
      */
+    @Override
     public X509Certificate[] getCertificateChain(String alias) {
         return null;
     }
@@ -1139,6 +1221,7 @@ final class DummyX509KeyManager extends X509ExtendedKeyManager {
      *
      * @return the requested key
      */
+    @Override
     public PrivateKey getPrivateKey(String alias) {
         return null;
     }

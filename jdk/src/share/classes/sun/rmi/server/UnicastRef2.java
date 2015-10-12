@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,7 @@ import sun.rmi.transport.LiveRef;
  * implementation of javax.management.remote.rmi.RMIConnector.
  **/
 public class UnicastRef2 extends UnicastRef {
+    private static final long serialVersionUID = 1829537514995881838L;
 
     /**
      * Create a new (empty) Unicast remote reference.

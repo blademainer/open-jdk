@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,8 +29,7 @@
  * renewing that lease at all after the first failure.
  * @author Peter Jones (inspired by Adrian Colley's test case in 4268258)
  *
- * @build RetryDirtyCalls
- * @build RetryDirtyCalls_Stub
+ * @build RetryDirtyCalls RetryDirtyCalls_Stub
  * @run main/othervm RetryDirtyCalls
  */
 

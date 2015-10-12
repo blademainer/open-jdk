@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -80,8 +80,8 @@ public final class ProtocolVersion implements Comparable<ProtocolVersion> {
     // maximum version we implement (TLS 1.2)
     final static ProtocolVersion MAX = TLS12;
 
-    // ProtocolVersion to use by default (TLS 1.0)
-    final static ProtocolVersion DEFAULT = TLS10;
+    // ProtocolVersion to use by default (TLS 1.2)
+    final static ProtocolVersion DEFAULT = TLS12;
 
     // Default version for hello messages (SSLv2Hello)
     final static ProtocolVersion DEFAULT_HELLO = FIPS ? TLS10 : SSL30;
@@ -165,6 +165,7 @@ public final class ProtocolVersion implements Comparable<ProtocolVersion> {
         }
     }
 
+    @Override
     public String toString() {
         return name;
     }
@@ -172,6 +173,7 @@ public final class ProtocolVersion implements Comparable<ProtocolVersion> {
     /**
      * Compares this object with the specified object for order.
      */
+    @Override
     public int compareTo(ProtocolVersion protocolVersion) {
         return this.v - protocolVersion.v;
     }

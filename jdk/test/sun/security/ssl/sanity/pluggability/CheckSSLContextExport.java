@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -64,8 +64,8 @@ public class CheckSSLContextExport extends Provider {
             default:
                 throw new Exception("Internal Test Error!");
             }
-            System.out.println("Testing with " + (standardCiphers ? "standard" : "custom") +
-                               " cipher suites");
+            System.out.println("Testing with " +
+                (standardCiphers ? "standard" : "custom") + " cipher suites");
             for (int j = 0; j < 4; j++) {
                 String clsName = null;
                 try {
@@ -107,11 +107,16 @@ public class CheckSSLContextExport extends Provider {
 
     public static void main(String[] argv) throws Exception {
         String protocols[] = { "SSL", "TLS" };
-        Security.insertProviderAt(new CheckSSLContextExport(protocols), 1);
-        for (int i = 0; i < protocols.length; i++) {
-            System.out.println("Testing " + protocols[i] + "'s SSLContext");
-            test(protocols[i]);
+        Provider extraProvider = new CheckSSLContextExport(protocols);
+        Security.insertProviderAt(extraProvider, 1);
+        try {
+            for (int i = 0; i < protocols.length; i++) {
+                System.out.println("Testing " + protocols[i] + "'s SSLContext");
+                test(protocols[i]);
+            }
+            System.out.println("Test Passed");
+        } finally {
+            Security.removeProvider(extraProvider.getName());
         }
-        System.out.println("Test Passed");
     }
 }

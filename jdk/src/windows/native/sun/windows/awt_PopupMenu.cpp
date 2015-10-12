@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,6 @@
 #include "awt_Event.h"
 #include "awt_Window.h"
 
-#include <java_awt_PopupMenu.h>
 #include <sun_awt_windows_WPopupMenuPeer.h>
 #include <java_awt_Event.h>
 

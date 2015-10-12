@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -69,14 +69,16 @@ public final class Client extends NTLM {
      * This method does not make any modification to this parameter, it neither
      * needs to access the content of this parameter after this method call,
      * so you are free to modify or nullify this parameter after this call.
-     * @throws NullPointerException if {@code username} or {@code password} is null.
-     * @throws NTLMException if {@code version} is illegal
+     * @throws NTLMException if {@code username} or {@code password} is null,
+     * or {@code version} is illegal.
+     *
      */
     public Client(String version, String hostname, String username,
             String domain, char[] password) throws NTLMException {
         super(version);
         if ((username == null || password == null)) {
-            throw new NullPointerException("username/password cannot be null");
+            throw new NTLMException(NTLMException.PROTOCOL,
+                    "username/password cannot be null");
         }
         this.hostname = hostname;
         this.username = username;
@@ -117,13 +119,13 @@ public final class Client extends NTLM {
      * @param nonce random 8-byte array to be used in message generation,
      * must not be null except for original NTLM v1
      * @return the message generated
-     * @throws NullPointerException if {@code type2} or {@code nonce} is null
-     * for NTLM v1.
-     * @throws NTLMException if the incoming message is invalid
+     * @throws NTLMException if the incoming message is invalid, or
+     * {@code nonce} is null for NTLM v1.
      */
     public byte[] type3(byte[] type2, byte[] nonce) throws NTLMException {
         if (type2 == null || (v != Version.NTLM && nonce == null)) {
-            throw new NullPointerException("type2 and nonce cannot be null");
+            throw new NTLMException(NTLMException.PROTOCOL,
+                    "type2 and nonce cannot be null");
         }
         debug("NTLM Client: Type 2 received\n");
         debug(type2);
@@ -136,8 +138,7 @@ public final class Client extends NTLM {
             domain = domainFromServer;
         }
         if (domain == null) {
-            throw new NTLMException(NTLMException.NO_DOMAIN_INFO,
-                    "No domain info");
+            domain = "";
         }
 
         int flags = 0x88200 | (inputFlags & 3);

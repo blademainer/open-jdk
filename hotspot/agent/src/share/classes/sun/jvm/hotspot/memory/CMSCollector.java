@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -61,15 +61,13 @@ public class CMSCollector extends VMObject {
     CMSBitMap markBitMap = markBitMap();
     long addressSize = VM.getVM().getAddressSize();
     if ( markBitMap.isMarked(addr) &&  markBitMap.isMarked(addr.addOffsetTo(1*addressSize)) ) {
-       System.err.println("Printezis bits are set...");
       Address nextOneAddr = markBitMap.getNextMarkedWordAddress(addr.addOffsetTo(2*addressSize));
       //return size in bytes
       long size =  (nextOneAddr.addOffsetTo(1*addressSize)).minus(addr);
       return size;
     } else {
-     //missing Printezis marks
-     System.err.println("Missing Printszis marks...");
-     return -1;
+      //missing Printezis marks
+      return -1;
     }
 
   }

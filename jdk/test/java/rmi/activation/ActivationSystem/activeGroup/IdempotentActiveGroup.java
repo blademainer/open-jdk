@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,15 +23,13 @@
 
 /* @test
  * @bug 4720528
- *
  * @summary synopsis: (spec) ActivationSystem.activeGroup spec should be
  * relaxed (duplicate call to activeGroup with same instantiator and
  * incarnation should not throw ActivationException; it should succeed)
  * @author Ann Wollrath
  *
  * @library ../../../testlibrary
- * @build TestLibrary RMID
- * @build IdempotentActiveGroup
+ * @build TestLibrary RMID ActivationLibrary
  * @run main/othervm/policy=security.policy/timeout=480 IdempotentActiveGroup
  */
 

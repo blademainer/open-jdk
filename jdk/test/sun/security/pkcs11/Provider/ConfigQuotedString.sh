@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2004, 2005, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -41,9 +41,13 @@ fi
 if [ "${TESTJAVA}" = "" ] ; then
     TESTJAVA="/net/radiant/export1/charlie/mustang/build/solaris-sparc"
 fi
+if [ "${COMPILEJAVA}" = "" ]; then
+    COMPILEJAVA="${TESTJAVA}"
+fi
 echo TESTSRC=${TESTSRC}
 echo TESTCLASSES=${TESTCLASSES}
 echo TESTJAVA=${TESTJAVA}
+echo COMPILEJAVA=${COMPILEJAVA}
 echo ""
 
 # let java test exit if platform unsupported
@@ -57,6 +61,12 @@ case "$OS" in
     CHMOD="${FS}bin${FS}chmod"
     ;;
   Linux )
+    FS="/"
+    PS=":"
+    CP="${FS}bin${FS}cp"
+    CHMOD="${FS}bin${FS}chmod"
+    ;;
+  Darwin )
     FS="/"
     PS=":"
     CP="${FS}bin${FS}cp"
@@ -86,19 +96,20 @@ esac
 
 # compile test
 
-${TESTJAVA}${FS}bin${FS}javac \
-	-classpath ${TESTSRC}${FS}.. \
-	-d ${TESTCLASSES} \
-	${TESTSRC}${FS}ConfigQuotedString.java
+${COMPILEJAVA}${FS}bin${FS}javac ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} \
+        -classpath ${TESTSRC}${FS}.. \
+        -d ${TESTCLASSES} \
+        ${TESTSRC}${FS}ConfigQuotedString.java \
+        ${TESTSRC}${FS}..${FS}PKCS11Test.java
 
 # run test
 
-${TESTJAVA}${FS}bin${FS}java \
-	-classpath ${TESTCLASSES} \
-	-DCUSTOM_P11_CONFIG=${TESTSRC}${FS}ConfigQuotedString-nss.txt \
-	-Dtest.src=${TESTSRC} \
-	-Dtest.classes=${TESTCLASSES} \
-	ConfigQuotedString
+${TESTJAVA}${FS}bin${FS}java ${TESTVMOPTS} \
+        -classpath ${TESTCLASSES} \
+        -DCUSTOM_P11_CONFIG=${TESTSRC}${FS}ConfigQuotedString-nss.txt \
+        -Dtest.src=${TESTSRC} \
+        -Dtest.classes=${TESTCLASSES} \
+        ConfigQuotedString
 
 # save error status
 status=$?

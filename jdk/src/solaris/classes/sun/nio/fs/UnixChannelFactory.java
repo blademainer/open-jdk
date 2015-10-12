@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,8 +35,6 @@ import sun.nio.ch.ThreadPool;
 import sun.nio.ch.SimpleAsynchronousFileChannelImpl;
 import sun.misc.SharedSecrets;
 import sun.misc.JavaIOFileDescriptorAccess;
-
-import com.sun.nio.file.ExtendedOpenOption;
 
 import static sun.nio.fs.UnixNativeDispatcher.*;
 import static sun.nio.fs.UnixConstants.*;
@@ -86,13 +84,13 @@ class UnixChannelFactory {
                     }
                     continue;
                 }
-                if (option == LinkOption.NOFOLLOW_LINKS) {
+                if (option == LinkOption.NOFOLLOW_LINKS && O_NOFOLLOW != 0) {
                     flags.noFollowLinks = true;
                     continue;
                 }
                 if (option == null)
                     throw new NullPointerException();
-               throw new UnsupportedOperationException();
+               throw new UnsupportedOperationException(option + " not supported");
             }
             return flags;
         }
@@ -220,6 +218,15 @@ class UnixChannelFactory {
         // follow links by default
         boolean followLinks = true;
         if (!flags.createNew && (flags.noFollowLinks || flags.deleteOnClose)) {
+            if (flags.deleteOnClose && O_NOFOLLOW == 0) {
+                try {
+                    if (UnixFileAttributes.get(path, false).isSymbolicLink())
+                        throw new UnixException("DELETE_ON_CLOSE specified and file is a symbolic link");
+                } catch (UnixException x) {
+                    if (!flags.create || x.errno() != ENOENT)
+                        throw x;
+                }
+            }
             followLinks = false;
             oflags |= O_NOFOLLOW;
         }

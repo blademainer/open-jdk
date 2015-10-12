@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,18 +48,17 @@
 //   - OneContigSpaceCardGeneration - abstract class holding a single
 //                                    contiguous space with card marking
 //     - TenuredGeneration         - tenured (old object) space (markSweepCompact)
-//     - CompactingPermGenGen      - reflective object area (klasses, methods, symbols, ...)
 //   - ConcurrentMarkSweepGeneration - Mostly Concurrent Mark Sweep Generation
 //                                       (Detlefs-Printezis refinement of
 //                                       Boehm-Demers-Schenker)
 //
 // The system configurations currently allowed are:
 //
-//   DefNewGeneration + TenuredGeneration + PermGeneration
-//   DefNewGeneration + ConcurrentMarkSweepGeneration + ConcurrentMarkSweepPermGen
+//   DefNewGeneration + TenuredGeneration
+//   DefNewGeneration + ConcurrentMarkSweepGeneration
 //
-//   ParNewGeneration + TenuredGeneration + PermGeneration
-//   ParNewGeneration + ConcurrentMarkSweepGeneration + ConcurrentMarkSweepPermGen
+//   ParNewGeneration + TenuredGeneration
+//   ParNewGeneration + ConcurrentMarkSweepGeneration
 //
 
 class DefNewGeneration;
@@ -86,7 +85,7 @@ struct ScratchBlock {
 };
 
 
-class Generation: public CHeapObj {
+class Generation: public CHeapObj<mtGC> {
   friend class VMStructs;
  private:
   jlong _time_of_last_gc; // time when last gc on this generation happened (ms)
@@ -220,7 +219,7 @@ class Generation: public CHeapObj {
   MemRegion prev_used_region() const { return _prev_used_region; }
   virtual void  save_used_region()   { _prev_used_region = used_region(); }
 
-  // Returns "TRUE" iff "p" points into an allocated object in the generation.
+  // Returns "TRUE" iff "p" points into the committed areas in the generation.
   // For some kinds of generations, this may be an expensive operation.
   // To avoid performance problems stemming from its inadvertent use in
   // product jvm's, we restrict its use to assertion checking or
@@ -413,10 +412,13 @@ class Generation: public CHeapObj {
   // Time (in ms) when we were last collected or now if a collection is
   // in progress.
   virtual jlong time_of_last_gc(jlong now) {
-    // XXX See note in genCollectedHeap::millis_since_last_gc()
+    // Both _time_of_last_gc and now are set using a time source
+    // that guarantees monotonically non-decreasing values provided
+    // the underlying platform provides such a source. So we still
+    // have to guard against non-monotonicity.
     NOT_PRODUCT(
       if (now < _time_of_last_gc) {
-        warning("time warp: %d to %d", _time_of_last_gc, now);
+        warning("time warp: "INT64_FORMAT" to "INT64_FORMAT, _time_of_last_gc, now);
       }
     )
     return _time_of_last_gc;
@@ -439,7 +441,6 @@ class Generation: public CHeapObj {
   // Mark sweep support phase2
   virtual void prepare_for_compaction(CompactPoint* cp);
   // Mark sweep support phase3
-  virtual void pre_adjust_pointers() {ShouldNotReachHere();}
   virtual void adjust_pointers();
   // Mark sweep support phase4
   virtual void compact();
@@ -454,6 +455,7 @@ class Generation: public CHeapObj {
   // expected to be GC worker thread-local, with the worker index
   // indicated by "thr_num".
   virtual void* get_data_recorder(int thr_num) { return NULL; }
+  virtual void sample_eden_chunk() {}
 
   // Some generations may require some cleanup actions before allowing
   // a verification.
@@ -535,11 +537,11 @@ class Generation: public CHeapObj {
 
   // Iterate over all the ref-containing fields of all objects in the
   // generation, calling "cl.do_oop" on each.
-  virtual void oop_iterate(OopClosure* cl);
+  virtual void oop_iterate(ExtendedOopClosure* cl);
 
   // Same as above, restricted to the intersection of a memory region and
   // the generation.
-  virtual void oop_iterate(MemRegion mr, OopClosure* cl);
+  virtual void oop_iterate(MemRegion mr, ExtendedOopClosure* cl);
 
   // Iterate over all objects in the generation, calling "cl.do_object" on
   // each.
@@ -549,12 +551,6 @@ class Generation: public CHeapObj {
   // each.  An object is safe if its references point to other objects in
   // the heap.  This defaults to object_iterate() unless overridden.
   virtual void safe_object_iterate(ObjectClosure* cl);
-
-  // Iterate over all objects allocated in the generation since the last
-  // collection, calling "cl.do_object" on each.  The generation must have
-  // been initialized properly to support this function, or else this call
-  // will fail.
-  virtual void object_iterate_since_last_GC(ObjectClosure* cl) = 0;
 
   // Apply "cl->do_oop" to (the address of) all and only all the ref fields
   // in the current generation that contain pointers to objects in younger
@@ -596,7 +592,7 @@ class Generation: public CHeapObj {
   virtual void print() const;
   virtual void print_on(outputStream* st) const;
 
-  virtual void verify(bool allow_dirty) = 0;
+  virtual void verify() = 0;
 
   struct StatRecord {
     int invocations;
@@ -633,6 +629,17 @@ class CardGeneration: public Generation {
   // This is local to this generation.
   BlockOffsetSharedArray* _bts;
 
+  // current shrinking effect: this damps shrinking when the heap gets empty.
+  size_t _shrink_factor;
+
+  size_t _min_heap_delta_bytes;   // Minimum amount to expand.
+
+  // Some statistics from before gc started.
+  // These are gathered in the gc_prologue (and should_collect)
+  // to control growing/shrinking policy in spite of promotions.
+  size_t _capacity_at_prologue;
+  size_t _used_at_prologue;
+
   CardGeneration(ReservedSpace rs, size_t initial_byte_size, int level,
                  GenRemSet* remset);
 
@@ -642,6 +649,11 @@ class CardGeneration: public Generation {
   // minimum "expand_bytes".  Return true if some amount (not
   // necessarily the full "bytes") was done.
   virtual bool expand(size_t bytes, size_t expand_bytes);
+
+  // Shrink generation with specified size (returns false if unable to shrink)
+  virtual void shrink(size_t bytes) = 0;
+
+  virtual void compute_new_size();
 
   virtual void clear_remembered_set();
 
@@ -663,11 +675,9 @@ class CardGeneration: public Generation {
 class OneContigSpaceCardGeneration: public CardGeneration {
   friend class VMStructs;
   // Abstractly, this is a subtype that gets access to protected fields.
-  friend class CompactingPermGen;
   friend class VM_PopulateDumpSharedSpace;
 
  protected:
-  size_t     _min_heap_delta_bytes;   // Minimum amount to expand.
   ContiguousSpace*  _the_space;       // actual space holding objects
   WaterMark  _last_gc;                // watermark between objects allocated before
                                       // and after last GC.
@@ -688,11 +698,10 @@ class OneContigSpaceCardGeneration: public CardGeneration {
 
  public:
   OneContigSpaceCardGeneration(ReservedSpace rs, size_t initial_byte_size,
-                               size_t min_heap_delta_bytes,
                                int level, GenRemSet* remset,
                                ContiguousSpace* space) :
     CardGeneration(rs, initial_byte_size, level, remset),
-    _the_space(space), _min_heap_delta_bytes(min_heap_delta_bytes)
+    _the_space(space)
   {}
 
   inline bool is_in(const void* p) const;
@@ -710,7 +719,6 @@ class OneContigSpaceCardGeneration: public CardGeneration {
   // Iteration
   void object_iterate(ObjectClosure* blk);
   void space_iterate(SpaceClosure* blk, bool usedOnly = false);
-  void object_iterate_since_last_GC(ObjectClosure* cl);
 
   void younger_refs_iterate(OopsInGenClosure* blk);
 
@@ -750,7 +758,7 @@ class OneContigSpaceCardGeneration: public CardGeneration {
 
   virtual void record_spaces_top();
 
-  virtual void verify(bool allow_dirty);
+  virtual void verify();
   virtual void print_on(outputStream* st) const;
 };
 

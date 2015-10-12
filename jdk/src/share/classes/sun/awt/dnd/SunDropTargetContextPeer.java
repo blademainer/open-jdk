@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -226,7 +226,7 @@ public abstract class SunDropTargetContextPeer implements DropTargetContextPeer,
         SecurityManager sm = System.getSecurityManager();
         try {
             if (!dropInProcess && sm != null) {
-                sm.checkSystemClipboardAccess();
+                sm.checkPermission(SecurityConstants.AWT.ACCESS_CLIPBOARD_PERMISSION);
             }
         } catch (Exception e) {
             Thread currentThread = Thread.currentThread();
@@ -260,6 +260,7 @@ public abstract class SunDropTargetContextPeer implements DropTargetContextPeer,
         }
 
         final long format = lFormat.longValue();
+
         Object ret = getNativeData(format);
 
         if (ret instanceof byte[]) {
@@ -866,7 +867,7 @@ public abstract class SunDropTargetContextPeer implements DropTargetContextPeer,
 
         void registerEvent(SunDropTargetEvent e) {
             handler.lock();
-            if (!eventSet.add(e) && dndLog.isLoggable(PlatformLogger.FINE)) {
+            if (!eventSet.add(e) && dndLog.isLoggable(PlatformLogger.Level.FINE)) {
                 dndLog.fine("Event is already registered: " + e);
             }
             handler.unlock();

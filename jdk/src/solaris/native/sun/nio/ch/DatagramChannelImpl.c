@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,7 +35,7 @@
 #include <string.h>
 #include <errno.h>
 
-#if __linux__
+#if defined(__linux__) || defined(_ALLBSD_SOURCE)
 #include <netinet/in.h>
 #endif
 
@@ -46,8 +46,6 @@
 
 #include "sun_nio_ch_DatagramChannelImpl.h"
 
-static jfieldID isa_addrID;     /* address in java.net.InetSocketAddress */
-static jfieldID isa_portID;     /* port in java.net.InetSocketAddress */
 static jfieldID dci_senderID;   /* sender in sun.nio.ch.DatagramChannelImpl */
 static jfieldID dci_senderAddrID; /* sender InetAddress in sun.nio.ch.DatagramChannelImpl */
 static jfieldID dci_senderPortID; /* sender port in sun.nio.ch.DatagramChannelImpl */
@@ -61,9 +59,6 @@ Java_sun_nio_ch_DatagramChannelImpl_initIDs(JNIEnv *env, jclass clazz)
     isa_class = (*env)->NewGlobalRef(env, clazz);
     isa_ctorID = (*env)->GetMethodID(env, clazz, "<init>",
                                      "(Ljava/net/InetAddress;I)V");
-    isa_addrID = (*env)->GetFieldID(env, clazz, "addr",
-                                    "Ljava/net/InetAddress;");
-    isa_portID = (*env)->GetFieldID(env, clazz, "port", "I");
 
     clazz = (*env)->FindClass(env, "sun/nio/ch/DatagramChannelImpl");
     dci_senderID = (*env)->GetFieldID(env, clazz, "sender",
@@ -77,7 +72,7 @@ Java_sun_nio_ch_DatagramChannelImpl_initIDs(JNIEnv *env, jclass clazz)
 
 JNIEXPORT void JNICALL
 Java_sun_nio_ch_DatagramChannelImpl_disconnect0(JNIEnv *env, jobject this,
-                                                jobject fdo)
+                                                jobject fdo, jboolean isIPv6)
 {
     jint fd = fdval(env, fdo);
     int rv;
@@ -86,7 +81,7 @@ Java_sun_nio_ch_DatagramChannelImpl_disconnect0(JNIEnv *env, jobject this,
     rv = connect(fd, 0, 0);
 #endif
 
-#ifdef __linux__
+#if defined(__linux__) || defined(_ALLBSD_SOURCE)
     {
         int len;
         SOCKADDR sa;
@@ -94,19 +89,32 @@ Java_sun_nio_ch_DatagramChannelImpl_disconnect0(JNIEnv *env, jobject this,
         memset(&sa, 0, sizeof(sa));
 
 #ifdef AF_INET6
-        if (ipv6_available()) {
+        if (isIPv6) {
             struct sockaddr_in6 *him6 = (struct sockaddr_in6 *)&sa;
+#if defined(_ALLBSD_SOURCE)
+            him6->sin6_family = AF_INET6;
+#else
             him6->sin6_family = AF_UNSPEC;
+#endif
             len = sizeof(struct sockaddr_in6);
         } else
 #endif
         {
             struct sockaddr_in *him4 = (struct sockaddr_in*)&sa;
+#if defined(_ALLBSD_SOURCE)
+            him4->sin_family = AF_INET;
+#else
             him4->sin_family = AF_UNSPEC;
+#endif
             len = sizeof(struct sockaddr_in);
         }
 
         rv = connect(fd, (struct sockaddr *)&sa, len);
+
+#if defined(_ALLBSD_SOURCE)
+        if (rv < 0 && errno == EADDRNOTAVAIL)
+                rv = errno = 0;
+#endif
     }
 #endif
 
@@ -199,15 +207,13 @@ Java_sun_nio_ch_DatagramChannelImpl_receive0(JNIEnv *env, jobject this,
 JNIEXPORT jint JNICALL
 Java_sun_nio_ch_DatagramChannelImpl_send0(JNIEnv *env, jobject this,
                                           jboolean preferIPv6, jobject fdo, jlong address,
-                                            jint len, jobject dest)
+                                          jint len, jobject destAddress, jint destPort)
 {
     jint fd = fdval(env, fdo);
     void *buf = (void *)jlong_to_ptr(address);
     SOCKADDR sa;
     int sa_len = SOCKADDR_LEN;
     jint n = 0;
-    jobject destAddress = (*env)->GetObjectField(env, dest, isa_addrID);
-    jint destPort = (*env)->GetIntField(env, dest, isa_portID);
 
     if (len > MAX_PACKET_LEN) {
         len = MAX_PACKET_LEN;

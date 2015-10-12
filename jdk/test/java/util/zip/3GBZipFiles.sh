@@ -1,5 +1,4 @@
-#
-# Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -83,7 +82,7 @@ buildFile ()
     huge-*) filesize_="$hugeSize" ;;
     tiny-*) filesize_="$tinySize" ;;
   esac
-  sys "$JAVA" "-cp" "$TESTCLASSES" "FileBuilder" \
+  sys "$JAVA" ${TESTVMOPTS} "-cp" "$TESTCLASSES" "FileBuilder" \
    "$filetype_" "$filename_" "$filesize_"
 }
 

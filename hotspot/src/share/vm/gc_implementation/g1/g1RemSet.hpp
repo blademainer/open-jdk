@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,8 @@
 #ifndef SHARE_VM_GC_IMPLEMENTATION_G1_G1REMSET_HPP
 #define SHARE_VM_GC_IMPLEMENTATION_G1_G1REMSET_HPP
 
+#include "gc_implementation/g1/g1RemSetSummary.hpp"
+
 // A G1RemSet provides ways of iterating over pointers into a selected
 // collection set.
 
@@ -36,11 +38,13 @@ class ConcurrentG1Refine;
 // external heap references into it.  Uses a mod ref bs to track updates,
 // so that they can be used to update the individual region remsets.
 
-class G1RemSet: public CHeapObj {
+class G1RemSet: public CHeapObj<mtGC> {
+private:
+  G1RemSetSummary _prev_period_summary;
 protected:
   G1CollectedHeap* _g1;
-  unsigned _conc_refine_cards;
-  size_t n_workers();
+  size_t _conc_refine_cards;
+  uint n_workers();
 
 protected:
   enum SomePrivateConstants {
@@ -53,27 +57,21 @@ protected:
     NumSeqTasks          = 1
   };
 
-  CardTableModRefBS*             _ct_bs;
-  SubTasksDone*                  _seq_task;
-  G1CollectorPolicy* _g1p;
+  CardTableModRefBS*     _ct_bs;
+  SubTasksDone*          _seq_task;
+  G1CollectorPolicy*     _g1p;
 
-  ConcurrentG1Refine* _cg1r;
+  ConcurrentG1Refine*    _cg1r;
 
-  size_t*             _cards_scanned;
-  size_t              _total_cards_scanned;
+  size_t*                _cards_scanned;
+  size_t                 _total_cards_scanned;
 
   // Used for caching the closure that is responsible for scanning
   // references into the collection set.
   OopsInHeapRegionClosure** _cset_rs_update_cl;
 
-  // The routine that performs the actual work of refining a dirty
-  // card.
-  // If check_for_refs_into_refs is true then a true result is returned
-  // if the card contains oops that have references into the current
-  // collection set.
-  bool concurrentRefineOneCard_impl(jbyte* card_ptr, int worker_i,
-                                    bool check_for_refs_into_cset);
-
+  // Print the given summary info
+  virtual void print_summary_info(G1RemSetSummary * summary, const char * header = NULL);
 public:
   // This is called to reset dual hash tables after the gc pause
   // is finished and the initial hash table is no longer being
@@ -83,14 +81,22 @@ public:
   G1RemSet(G1CollectedHeap* g1, CardTableModRefBS* ct_bs);
   ~G1RemSet();
 
-  // Invoke "blk->do_oop" on all pointers into the CS in objects in regions
-  // outside the CS (having invoked "blk->set_region" to set the "from"
-  // region correctly beforehand.) The "worker_i" param is for the
-  // parallel case where the number of the worker thread calling this
-  // function can be helpful in partitioning the work to be done. It
-  // should be the same as the "i" passed to the calling thread's
-  // work(i) function. In the sequential case this param will be ingored.
+  // Invoke "blk->do_oop" on all pointers into the collection set
+  // from objects in regions outside the collection set (having
+  // invoked "blk->set_region" to set the "from" region correctly
+  // beforehand.)
+  //
+  // Invoke code_root_cl->do_code_blob on the unmarked nmethods
+  // on the strong code roots list for each region in the
+  // collection set.
+  //
+  // The "worker_i" param is for the parallel case where the id
+  // of the worker thread calling this function can be helpful in
+  // partitioning the work to be done. It should be the same as
+  // the "i" passed to the calling thread's work(i) function.
+  // In the sequential case this param will be ignored.
   void oops_into_collection_set_do(OopsInHeapRegionClosure* blk,
+                                   CodeBlobToOopClosure* code_root_cl,
                                    int worker_i);
 
   // Prepare for and cleanup after an oops_into_collection_set_do
@@ -101,10 +107,11 @@ public:
   void prepare_for_oops_into_collection_set_do();
   void cleanup_after_oops_into_collection_set_do();
 
-  void scanRS(OopsInHeapRegionClosure* oc, int worker_i);
-  void updateRS(DirtyCardQueue* into_cset_dcq, int worker_i);
+  void scanRS(OopsInHeapRegionClosure* oc,
+              CodeBlobToOopClosure* code_root_cl,
+              int worker_i);
 
-  HeapRegion* calculateStartRegion(int i);
+  void updateRS(DirtyCardQueue* into_cset_dcq, int worker_i);
 
   CardTableModRefBS* ct_bs() { return _ct_bs; }
   size_t cardsScanned() { return _total_cards_scanned; }
@@ -124,25 +131,29 @@ public:
   // parallel thread id of the current thread, and "claim_val" is the
   // value that should be used to claim heap regions.
   void scrub_par(BitMap* region_bm, BitMap* card_bm,
-                 int worker_num, int claim_val);
+                 uint worker_num, int claim_val);
 
-  // Refine the card corresponding to "card_ptr".  If "sts" is non-NULL,
-  // join and leave around parts that must be atomic wrt GC.  (NULL means
-  // being done at a safepoint.)
+  // Refine the card corresponding to "card_ptr".
   // If check_for_refs_into_cset is true, a true result is returned
   // if the given card contains oops that have references into the
   // current collection set.
-  virtual bool concurrentRefineOneCard(jbyte* card_ptr, int worker_i,
-                                       bool check_for_refs_into_cset);
+  virtual bool refine_card(jbyte* card_ptr,
+                           int worker_i,
+                           bool check_for_refs_into_cset);
 
-  // Print any relevant summary info.
+  // Print accumulated summary info from the start of the VM.
   virtual void print_summary_info();
+
+  // Print accumulated summary info from the last time called.
+  virtual void print_periodic_summary_info(const char* header);
 
   // Prepare remembered set for verification.
   virtual void prepare_for_verify();
-};
 
-#define G1_REM_SET_LOGGING 0
+  size_t conc_refine_cards() const {
+    return _conc_refine_cards;
+  }
+};
 
 class CountNonCleanMemRegionClosure: public MemRegionClosure {
   G1CollectedHeap* _g1;
@@ -157,7 +168,7 @@ public:
   HeapWord* start_first() { return _start_first; }
 };
 
-class UpdateRSOopClosure: public OopClosure {
+class UpdateRSOopClosure: public ExtendedOopClosure {
   HeapRegion* _from;
   G1RemSet* _rs;
   int _worker_i;
@@ -193,45 +204,6 @@ public:
 
   virtual void do_oop(narrowOop* p) { do_oop_work(p); }
   virtual void do_oop(      oop* p) { do_oop_work(p); }
-};
-
-class UpdateRSOrPushRefOopClosure: public OopClosure {
-  G1CollectedHeap* _g1;
-  G1RemSet* _g1_rem_set;
-  HeapRegion* _from;
-  OopsInHeapRegionClosure* _push_ref_cl;
-  bool _record_refs_into_cset;
-  int _worker_i;
-
-  template <class T> void do_oop_work(T* p);
-
-public:
-  UpdateRSOrPushRefOopClosure(G1CollectedHeap* g1h,
-                              G1RemSet* rs,
-                              OopsInHeapRegionClosure* push_ref_cl,
-                              bool record_refs_into_cset,
-                              int worker_i = 0) :
-    _g1(g1h),
-    _g1_rem_set(rs),
-    _from(NULL),
-    _record_refs_into_cset(record_refs_into_cset),
-    _push_ref_cl(push_ref_cl),
-    _worker_i(worker_i) { }
-
-  void set_from(HeapRegion* from) {
-    assert(from != NULL, "from region must be non-NULL");
-    _from = from;
-  }
-
-  bool self_forwarded(oop obj) {
-    bool result = (obj->is_forwarded() && (obj->forwardee()== obj));
-    return result;
-  }
-
-  virtual void do_oop(narrowOop* p) { do_oop_work(p); }
-  virtual void do_oop(oop* p)       { do_oop_work(p); }
-
-  bool apply_to_weak_ref_discovered_field() { return true; }
 };
 
 

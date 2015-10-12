@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -95,7 +95,7 @@ JvmtiFramePops::clear_to(JvmtiFramePop& fp) {
 //
 
 JvmtiFramePops::JvmtiFramePops() {
-  _pops = new (ResourceObj::C_HEAP) GrowableArray<int> (2, true);
+  _pops = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<int> (2, true);
 }
 
 JvmtiFramePops::~JvmtiFramePops() {
@@ -150,7 +150,7 @@ JvmtiEnvThreadState::~JvmtiEnvThreadState()   {
 // - instruction rewrites
 // - breakpoint followed by single step
 // - single step at a breakpoint
-void JvmtiEnvThreadState::compare_and_set_current_location(methodOop new_method,
+void JvmtiEnvThreadState::compare_and_set_current_location(Method* new_method,
                                                            address new_location, jvmtiEvent event) {
 
   int new_bci = new_location - new_method->code_base();
@@ -269,11 +269,20 @@ class VM_GetCurrentLocation : public VM_Operation {
   void doit() {
     ResourceMark rmark; // _thread != Thread::current()
     RegisterMap rm(_thread, false);
-    javaVFrame* vf = _thread->last_java_vframe(&rm);
-    assert(vf != NULL, "must have last java frame");
-    methodOop method = vf->method();
-    _method_id = method->jmethod_id();
-    _bci = vf->bci();
+    // There can be a race condition between a VM_Operation reaching a safepoint
+    // and the target thread exiting from Java execution.
+    // We must recheck the last Java frame still exists.
+    if (_thread->has_last_Java_frame()) {
+      javaVFrame* vf = _thread->last_java_vframe(&rm);
+      assert(vf != NULL, "must have last java frame");
+      Method* method = vf->method();
+      _method_id = method->jmethod_id();
+      _bci = vf->bci();
+    } else {
+      // Clear current location as the target thread has no Java frames anymore.
+      _method_id = (jmethodID)NULL;
+      _bci = 0;
+    }
   }
   void get_current_location(jmethodID *method_id, int *bci) {
     *method_id = _method_id;

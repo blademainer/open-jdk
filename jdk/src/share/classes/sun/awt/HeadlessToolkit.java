@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,21 +30,24 @@ import java.awt.dnd.*;
 import java.awt.dnd.peer.DragSourceContextPeer;
 import java.awt.event.*;
 import java.awt.im.InputMethodHighlight;
-import java.awt.im.spi.InputMethodDescriptor;
 import java.awt.image.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.peer.*;
 import java.beans.PropertyChangeListener;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.util.Map;
 import java.util.Properties;
-import sun.awt.im.InputContext;
-import sun.awt.image.ImageRepresentation;
 
 public class HeadlessToolkit extends Toolkit
     implements ComponentFactory, KeyboardFocusManagerPeerProvider {
+
+    private static final KeyboardFocusManagerPeer kfmPeer = new KeyboardFocusManagerPeer() {
+        public void setCurrentFocusedWindow(Window win) {}
+        public Window getCurrentFocusedWindow() { return null; }
+        public void setCurrentFocusOwner(Component comp) {}
+        public Component getCurrentFocusOwner() { return null; }
+        public void clearGlobalFocusOwner(Window activeWindow) {}
+    };
 
     private Toolkit tk;
     private ComponentFactory componentFactory;
@@ -179,15 +182,9 @@ public class HeadlessToolkit extends Toolkit
         throw new HeadlessException();
     }
 
-    public KeyboardFocusManagerPeer createKeyboardFocusManagerPeer(KeyboardFocusManager manager) {
+    public KeyboardFocusManagerPeer getKeyboardFocusManagerPeer() {
         // See 6833019.
-        return
-            new KeyboardFocusManagerPeer() {
-                public Window getCurrentFocusedWindow() { return null; }
-                public void setCurrentFocusOwner(Component comp) {}
-                public Component getCurrentFocusOwner() { return null; }
-                public void clearGlobalFocusOwner(Window activeWindow) {}
-            };
+        return kfmPeer;
     }
 
     public TrayIconPeer createTrayIcon(TrayIcon target)
@@ -396,6 +393,7 @@ public class HeadlessToolkit extends Toolkit
     /*
      * Fonts
      */
+    @SuppressWarnings("deprecation")
     public FontPeer getFontPeer(String name, int style) {
         if (componentFactory != null) {
             return componentFactory.getFontPeer(name, style);
@@ -403,10 +401,12 @@ public class HeadlessToolkit extends Toolkit
         return null;
     }
 
+    @SuppressWarnings("deprecation")
     public FontMetrics getFontMetrics(Font font) {
         return tk.getFontMetrics(font);
     }
 
+    @SuppressWarnings("deprecation")
     public String[] getFontList() {
         return tk.getFontList();
     }

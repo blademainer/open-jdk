@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -117,6 +117,7 @@ Java_java_util_zip_ZipFile_open(JNIEnv *env, jclass cls, jstring name,
             result = ptr_to_jlong(zip);
         } else if (msg != 0) {
             ThrowZipException(env, msg);
+            free(msg);
         } else if (errno == ENOMEM) {
             JNU_ThrowOutOfMemoryError(env, 0);
         } else {
@@ -134,6 +135,14 @@ Java_java_util_zip_ZipFile_getTotal(JNIEnv *env, jclass cls, jlong zfile)
     jzfile *zip = jlong_to_ptr(zfile);
 
     return zip->total;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_java_util_zip_ZipFile_startsWithLOC(JNIEnv *env, jclass cls, jlong zfile)
+{
+    jzfile *zip = jlong_to_ptr(zfile);
+
+    return zip->locsig;
 }
 
 JNIEXPORT void JNICALL

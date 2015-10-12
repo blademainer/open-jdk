@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,10 +44,9 @@ package java.io;
  */
 public abstract class InputStream implements Closeable {
 
-    // SKIP_BUFFER_SIZE is used to determine the size of skipBuffer
-    private static final int SKIP_BUFFER_SIZE = 2048;
-    // skipBuffer is initialized in skip(long), if needed.
-    private static byte[] skipBuffer;
+    // MAX_SKIP_BUFFER_SIZE is used to determine the maximum buffer size to
+    // use when skipping.
+    private static final int MAX_SKIP_BUFFER_SIZE = 2048;
 
     /**
      * Reads the next byte of data from the input stream. The value byte is
@@ -194,8 +193,10 @@ public abstract class InputStream implements Closeable {
      * up skipping over some smaller number of bytes, possibly <code>0</code>.
      * This may result from any of a number of conditions; reaching end of file
      * before <code>n</code> bytes have been skipped is only one possibility.
-     * The actual number of bytes skipped is returned.  If <code>n</code> is
-     * negative, no bytes are skipped.
+     * The actual number of bytes skipped is returned. If {@code n} is
+     * negative, the {@code skip} method for class {@code InputStream} always
+     * returns 0, and no bytes are skipped. Subclasses may handle the negative
+     * value differently.
      *
      * <p> The <code>skip</code> method of this class creates a
      * byte array and then repeatedly reads into it until <code>n</code> bytes
@@ -212,18 +213,15 @@ public abstract class InputStream implements Closeable {
 
         long remaining = n;
         int nr;
-        if (skipBuffer == null)
-            skipBuffer = new byte[SKIP_BUFFER_SIZE];
-
-        byte[] localSkipBuffer = skipBuffer;
 
         if (n <= 0) {
             return 0;
         }
 
+        int size = (int)Math.min(MAX_SKIP_BUFFER_SIZE, remaining);
+        byte[] skipBuffer = new byte[size];
         while (remaining > 0) {
-            nr = read(localSkipBuffer, 0,
-                      (int) Math.min(SKIP_BUFFER_SIZE, remaining));
+            nr = read(skipBuffer, 0, (int)Math.min(size, remaining));
             if (nr < 0) {
                 break;
             }
@@ -308,8 +306,7 @@ public abstract class InputStream implements Closeable {
      *
      * <p> The general contract of <code>reset</code> is:
      *
-     * <p><ul>
-     *
+     * <ul>
      * <li> If the method <code>markSupported</code> returns
      * <code>true</code>, then:
      *

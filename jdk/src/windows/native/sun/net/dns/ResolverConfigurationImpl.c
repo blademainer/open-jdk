@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -122,9 +122,18 @@ static int loadConfig(char *sl, char *ns) {
      */
     size = sizeof(IP_ADAPTER_INFO);
     adapterP = (IP_ADAPTER_INFO *)malloc(size);
+    if (adapterP == NULL) {
+        return -1;
+    }
     ret = GetAdaptersInfo(adapterP, &size);
     if (ret == ERROR_BUFFER_OVERFLOW) {
-        adapterP = (IP_ADAPTER_INFO *)realloc(adapterP, size);
+        IP_ADAPTER_INFO *newAdapterP = (IP_ADAPTER_INFO *)realloc(adapterP, size);
+        if (newAdapterP == NULL) {
+            free(adapterP);
+            return -1;
+        }
+        adapterP = newAdapterP;
+
         ret = GetAdaptersInfo(adapterP, &size);
     }
 

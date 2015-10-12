@@ -1,12 +1,10 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -25,11 +23,12 @@
 
 /**
  * @test
- * @bug 4485755 6361370 6448717 5080051 6939417
+ * @bug 4485755 6361370 6448717 5080051 6939417 8016343
  * @summary dialog doesn't have way to specify margins
  *          for 6361370, verify exception for offline printer in Windows
  *          for 6448717, faster display of print dialog
  *          for 6500903, verify status of printer if accepting jobs or not
+ *          for 8016343, verify printing to non-default printer
  * @author prr
  * @run main/manual DialogMargins
  */

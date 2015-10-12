@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,14 +23,11 @@
 
 /* @test
  * @bug 4128620
- *
  * @summary synopsis: NoSuchMethodError should be elucidated
- *
  * @author Laird Dornin
  *
  * @library ../../../testlibrary
- * @build TestLibrary RMID
- * @build ActivateMe ElucidateNoSuchMethod ElucidateNoSuchMethod_Stub
+ * @build TestLibrary RMID ActivateMe ElucidateNoSuchMethod_Stub
  * @run main/othervm/policy=security.policy/timeout=240 ElucidateNoSuchMethod
  */
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,9 +24,10 @@
 
 /*
  * @test
- * @bug 4387136 4947349
+ * @bug 4387136 4947349 7197662
  * @summary Due to a bug in XMLSupport.putPreferencesInXml(...),
  *          node's keys would not get exported.
+ * @run main/othervm -Djava.util.prefs.userRoot=. ExportNode
  * @author Konstantin Kladko
  */
 import java.util.prefs.*;

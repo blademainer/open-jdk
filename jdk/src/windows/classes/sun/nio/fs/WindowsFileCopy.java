@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -224,7 +224,7 @@ class WindowsFileCopy {
                 String linkTarget = WindowsLinkSupport.readLink(source);
                 int flags = SYMBOLIC_LINK_FLAG_DIRECTORY;
                 CreateSymbolicLink(targetPath,
-                                   addPrefixIfNeeded(linkTarget),
+                                   WindowsPath.addPrefixIfNeeded(linkTarget),
                                    flags);
             }
         } catch (WindowsException x) {
@@ -414,7 +414,7 @@ class WindowsFileCopy {
             } else {
                 String linkTarget = WindowsLinkSupport.readLink(source);
                 CreateSymbolicLink(targetPath,
-                                   addPrefixIfNeeded(linkTarget),
+                                   WindowsPath.addPrefixIfNeeded(linkTarget),
                                    SYMBOLIC_LINK_FLAG_DIRECTORY);
             }
         } catch (WindowsException x) {
@@ -501,19 +501,5 @@ class WindowsFileCopy {
         } finally {
             priv.drop();
         }
-    }
-
-    /**
-     * Add long path prefix to path if required
-     */
-    private static String addPrefixIfNeeded(String path) {
-        if (path.length() > 248) {
-            if (path.startsWith("\\\\")) {
-                path = "\\\\?\\UNC" + path.substring(1, path.length());
-            } else {
-                path = "\\\\?\\" + path;
-            }
-        }
-        return path;
     }
 }

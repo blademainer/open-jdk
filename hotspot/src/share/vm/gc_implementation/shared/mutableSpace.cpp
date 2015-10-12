@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,13 +23,14 @@
  */
 
 #include "precompiled.hpp"
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/shared/mutableSpace.hpp"
 #include "gc_implementation/shared/spaceDecorator.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/safepoint.hpp"
 #include "runtime/thread.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
 MutableSpace::MutableSpace(size_t alignment): ImmutableSpace(), _top(NULL), _alignment(alignment) {
   assert(MutableSpace::alignment() >= 0 &&
@@ -51,7 +52,7 @@ void MutableSpace::numa_setup_pages(MemRegion mr, bool clear_space) {
       size_t size = pointer_delta(end, start, sizeof(char));
       if (clear_space) {
         // Prefer page reallocation to migration.
-        os::free_memory((char*)start, size);
+        os::free_memory((char*)start, size, page_size);
       }
       os::numa_make_global((char*)start, size);
     }
@@ -216,12 +217,21 @@ bool MutableSpace::cas_deallocate(HeapWord *obj, size_t size) {
   return (HeapWord*)Atomic::cmpxchg_ptr(obj, top_addr(), expected_top) == expected_top;
 }
 
-void MutableSpace::oop_iterate(OopClosure* cl) {
+void MutableSpace::oop_iterate(ExtendedOopClosure* cl) {
   HeapWord* obj_addr = bottom();
   HeapWord* t = top();
   // Could call objects iterate, but this is easier.
   while (obj_addr < t) {
     obj_addr += oop(obj_addr)->oop_iterate(cl);
+  }
+}
+
+void MutableSpace::oop_iterate_no_header(OopClosure* cl) {
+  HeapWord* obj_addr = bottom();
+  HeapWord* t = top();
+  // Could call objects iterate, but this is easier.
+  while (obj_addr < t) {
+    obj_addr += oop(obj_addr)->oop_iterate_no_header(cl);
   }
 }
 
@@ -246,7 +256,7 @@ void MutableSpace::print_on(outputStream* st) const {
                  bottom(), top(), end());
 }
 
-void MutableSpace::verify(bool allow_dirty) {
+void MutableSpace::verify() {
   HeapWord* p = bottom();
   HeapWord* t = top();
   HeapWord* prev_p = NULL;

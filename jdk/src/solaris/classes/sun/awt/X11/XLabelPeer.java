@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -85,7 +85,8 @@ class XLabelPeer extends XComponentPeer implements LabelPeer {
      */
     // NOTE: This method is called by privileged threads.
     //       DO NOT INVOKE CLIENT CODE ON THIS THREAD!
-    public void paint(Graphics g) {
+    @Override
+    void paintPeer(final Graphics g) {
         int textX = 0;
         int textY = 0;
         g.setColor(getPeerBackground());
@@ -131,20 +132,22 @@ class XLabelPeer extends XComponentPeer implements LabelPeer {
         }
     }
 
-    public void setText(String text) {
-        label = text;
+    @Override
+    public void setText(String label) {
         if (label == null) {
             label = "";
         }
-        repaint();
-    }
-    public void setFont(Font f) {
-        super.setFont(f);
-        target.repaint();
+        if (!label.equals(this.label)) {
+            this.label = label;
+            repaint();
+        }
     }
 
-    public void setAlignment(int align) {
-        alignment = align;
-        repaint();
+    @Override
+    public void setAlignment(final int alignment) {
+        if (this.alignment != alignment) {
+            this.alignment = alignment;
+            repaint();
+        }
     }
 }

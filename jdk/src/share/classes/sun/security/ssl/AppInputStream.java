@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,6 +55,7 @@ class AppInputStream extends InputStream {
      * Return the minimum number of bytes that can be read without blocking.
      * Currently not synchronized.
      */
+    @Override
     public int available() throws IOException {
         if (c.checkEOF() || (r.isAppDataValid() == false)) {
             return 0;
@@ -65,6 +66,7 @@ class AppInputStream extends InputStream {
     /**
      * Read a single byte, returning -1 on non-fault EOF status.
      */
+    @Override
     public synchronized int read() throws IOException {
         int n = read(oneByte, 0, 1);
         if (n <= 0) { // EOF
@@ -79,6 +81,7 @@ class AppInputStream extends InputStream {
      * are responsible only for blocking to fill at most one buffer,
      * and returning "-1" on non-fault EOF status.
      */
+    @Override
     public synchronized int read(byte b[], int off, int len)
             throws IOException {
         if (b == null) {
@@ -124,6 +127,7 @@ class AppInputStream extends InputStream {
      * is static and may garbled by concurrent use, but we are not interested
      * in the data anyway.
      */
+    @Override
     public synchronized long skip(long n) throws IOException {
         long skipped = 0;
         while (n > 0) {
@@ -141,6 +145,7 @@ class AppInputStream extends InputStream {
     /*
      * Socket close is already synchronized, no need to block here.
      */
+    @Override
     public void close() throws IOException {
         c.close();
     }

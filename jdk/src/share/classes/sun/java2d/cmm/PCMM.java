@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,13 +32,13 @@ import java.awt.color.ICC_Profile;
 public interface PCMM {
 
     /* methods invoked from ICC_Profile */
-    public long loadProfile(byte[] data);
-    public void freeProfile(long profileID);
-    public int  getProfileSize(long profileID);
-    public void getProfileData(long profileID, byte[] data);
-    public void getTagData(long profileID, int tagSignature, byte[] data);
-    public int getTagSize(long profileID, int tagSignature);
-    public void setTagData(long profileID, int tagSignature, byte[] data);
+    public Profile loadProfile(byte[] data);
+    public void freeProfile(Profile p);
+    public int  getProfileSize(Profile p);
+    public void getProfileData(Profile p, byte[] data);
+    public void getTagData(Profile p, int tagSignature, byte[] data);
+    public int getTagSize(Profile p, int tagSignature);
+    public void setTagData(Profile p, int tagSignature, byte[] data);
 
     /* methods for creating ColorTransforms */
     public ColorTransform createTransform(ICC_Profile profile, int renderType,

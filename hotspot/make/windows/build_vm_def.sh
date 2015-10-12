@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -42,8 +42,6 @@ else
  MKS_HOME=`dirname "$SH"`
 fi
 
-echo "EXPORTS" > vm1.def
-
 AWK="$MKS_HOME/awk.exe"
 if [ ! -e $AWK ]; then
     AWK="$MKS_HOME/gawk.exe"
@@ -55,12 +53,28 @@ CAT="$MKS_HOME/cat.exe"
 RM="$MKS_HOME/rm.exe"
 DUMPBIN="link.exe /dump"
 
-# When called from IDE the first param should contain the link version, otherwise may be nill
-if [ "x$1" != "x" ]; then
-LINK_VER="$1"
+if [ "$1" = "-nosa" ]; then
+    echo EXPORTS > vm.def
+    echo ""
+    echo "***"
+    echo "*** Not building SA: BUILD_WIN_SA != 1"
+    echo "*** C++ Vtables NOT included in vm.def"
+    echo "*** This jvm.dll will NOT work properly with SA."
+    echo "***"
+    echo "*** When in doubt, set BUILD_WIN_SA=1, clean and rebuild."
+    echo "***"
+    echo ""
+    exit
 fi
 
-if [ "x$LINK_VER" != "x800" -a  "x$LINK_VER" != "x900" -a "x$LINK_VER" != "x1000" ]; then
+echo "EXPORTS" > vm1.def
+
+# When called from IDE the first param should contain the link version, otherwise may be nill
+if [ "x$1" != "x" ]; then
+LD_VER="$1"
+fi
+
+if [ "x$LD_VER" != "x800" -a  "x$LD_VER" != "x900" -a "x$LD_VER" != "x1000" ]; then
 $DUMPBIN /symbols *.obj | "$GREP" "??_7.*@@6B@" | "$GREP" -v "type_info" | "$AWK" '{print $7}' | "$SORT" | "$UNIQ" > vm2.def
 else
 # Can't use pipes when calling cl.exe or link.exe from IDE. Using transit file vm3.def

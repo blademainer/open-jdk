@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -128,7 +128,7 @@ public class ExtendedCharsets
                     "gb2312-1980",
                     "euc-cn",
                     "euccn",
-                    "x-EUC-CN", // 1.4 compatability
+                    "x-EUC-CN", // 1.4 compatibility
                     "EUC_CN" //JDK historical
                 });
 
@@ -1031,6 +1031,24 @@ public class ExtendedCharsets
                     "ebcdic-s-871+euro"
                 });
 
+        charset("IBM290", "IBM290",
+                new String[] {
+                    "cp290",
+                    "ibm290",
+                    "ibm-290",
+                    "csIBM290",
+                    "EBCDIC-JP-kana",
+                    "290"
+                });
+
+        charset("x-IBM300", "IBM300",
+                new String[] {
+                    "cp300",
+                    "ibm300",
+                    "ibm-300",
+                    "300"
+                });
+
         // Macintosh MacOS/Apple char encodingd
 
 
@@ -1279,7 +1297,8 @@ public class ExtendedCharsets
         }
         String osName = AccessController.doPrivileged(
             new GetPropertyAction("os.name"));
-        if ("SunOS".equals(osName) || "Linux".equals(osName)) {
+        if ("SunOS".equals(osName) || "Linux".equals(osName)
+               || osName.contains("OS X")) {
             charset("x-COMPOUND_TEXT", "COMPOUND_TEXT",
                     new String[] {
                         "COMPOUND_TEXT",        // JDK historical

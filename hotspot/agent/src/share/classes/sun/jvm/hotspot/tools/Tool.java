@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,23 +25,31 @@
 package sun.jvm.hotspot.tools;
 
 import java.io.PrintStream;
-import java.util.Hashtable;
-import sun.jvm.hotspot.*;
-import sun.jvm.hotspot.bugspot.*;
-import sun.jvm.hotspot.runtime.*;
-import sun.jvm.hotspot.debugger.*;
+
+import sun.jvm.hotspot.HotSpotAgent;
+import sun.jvm.hotspot.debugger.DebuggerException;
+import sun.jvm.hotspot.debugger.JVMDebugger;
+import sun.jvm.hotspot.runtime.VM;
 
 // generic command line or GUI tool.
 // override run & code main as shown below.
 
 public abstract class Tool implements Runnable {
-   private BugSpotAgent agent;
+   private HotSpotAgent agent;
+   private JVMDebugger jvmDebugger;
    private int debugeeType;
 
    // debugeeType is one of constants below
    protected static final int DEBUGEE_PID    = 0;
    protected static final int DEBUGEE_CORE   = 1;
    protected static final int DEBUGEE_REMOTE = 2;
+
+   public Tool() {
+   }
+
+   public Tool(JVMDebugger d) {
+      jvmDebugger = d;
+   }
 
    public String getName() {
       return getClass().getName();
@@ -51,12 +59,7 @@ public abstract class Tool implements Runnable {
       return true;
    }
 
-   // whether this tool requires debuggee to be java process or core?
-   protected boolean requiresVM() {
-      return true;
-   }
-
-   protected void setAgent(BugSpotAgent a) {
+   protected void setAgent(HotSpotAgent a) {
       agent = a;
    }
 
@@ -64,7 +67,7 @@ public abstract class Tool implements Runnable {
       debugeeType = dt;
    }
 
-   protected BugSpotAgent getAgent() {
+   protected HotSpotAgent getAgent() {
       return agent;
    }
 
@@ -96,7 +99,6 @@ public abstract class Tool implements Runnable {
 
    protected void usage() {
       printUsage();
-      System.exit(1);
    }
 
    /*
@@ -104,29 +106,48 @@ public abstract class Tool implements Runnable {
 
       public static void main(String[] args) {
          <derived class> obj = new <derived class>;
-         obj.start(args);
+         obj.execute(args);
       }
 
    */
 
-   protected void stop() {
+   protected void execute(String[] args) {
+       int returnStatus = 1;
+
+       try {
+           returnStatus = start(args);
+       } finally {
+           stop();
+       }
+
+       // Exit with 0 or 1
+       System.exit(returnStatus);
+   }
+
+   public void stop() {
       if (agent != null) {
          agent.detach();
-         System.exit(0);
       }
    }
 
-   protected void start(String[] args) {
+   private int start(String[] args) {
+
       if ((args.length < 1) || (args.length > 2)) {
          usage();
+         return 1;
       }
 
       // Attempt to handle -h or -help or some invalid flag
-      if (args[0].startsWith("-")) {
+      if (args[0].startsWith("-h")) {
           usage();
+          return 0;
+      } else if (args[0].startsWith("-")) {
+          usage();
+          return 1;
       }
 
       PrintStream err = System.err;
+      PrintStream out = System.out;
 
       int pid = 0;
       String coreFileName   = null;
@@ -153,24 +174,25 @@ public abstract class Tool implements Runnable {
 
         default:
            usage();
+           return 1;
       }
 
-      agent = new BugSpotAgent();
+      agent = new HotSpotAgent();
       try {
         switch (debugeeType) {
           case DEBUGEE_PID:
-             err.println("Attaching to process ID " + pid + ", please wait...");
+             out.println("Attaching to process ID " + pid + ", please wait...");
              agent.attach(pid);
              break;
 
           case DEBUGEE_CORE:
-             err.println("Attaching to core " + coreFileName +
+             out.println("Attaching to core " + coreFileName +
                          " from executable " + executableName + ", please wait...");
              agent.attach(executableName, coreFileName);
              break;
 
           case DEBUGEE_REMOTE:
-             err.println("Attaching to remote server " + remoteServer + ", please wait...");
+             out.println("Attaching to remote server " + remoteServer + ", please wait...");
              agent.attach(remoteServer);
              break;
         }
@@ -190,41 +212,51 @@ public abstract class Tool implements Runnable {
              break;
         }
         if (e.getMessage() != null) {
-          err.print(e.getMessage());
+          err.println(e.getMessage());
+          e.printStackTrace();
         }
         err.println();
-        System.exit(1);
+        return 1;
       }
 
-      err.println("Debugger attached successfully.");
+      out.println("Debugger attached successfully.");
+      startInternal();
+      return 0;
+   }
 
-      boolean isJava = agent.isJavaMode();
-      if (isJava) {
-         VM vm = VM.getVM();
-         if (vm.isCore()) {
-           err.println("Core build detected.");
-         } else if (vm.isClientCompiler()) {
-           err.println("Client compiler detected.");
-         } else if (vm.isServerCompiler()) {
-           err.println("Server compiler detected.");
-         } else {
-           throw new RuntimeException("Fatal error: " +
-                                 "should have been able to detect core/C1/C2 build");
-         }
+   // When using an existing JVMDebugger.
+   public void start() {
 
-         String version = vm.getVMRelease();
-         if (version != null) {
-            err.print("JVM version is ");
-            err.println(version);
-         }
-
-         run();
-      } else { // not a java process or core
-         if (requiresVM()) {
-            err.println(getName() + " requires a java VM process/core!");
-         } else {
-            run();
-         }
+      if (jvmDebugger == null) {
+         throw new RuntimeException("Tool.start() called with no JVMDebugger set.");
       }
+      agent = new HotSpotAgent();
+      agent.attach(jvmDebugger);
+      startInternal();
+   }
+
+   // Remains of the start mechanism, common to both start methods.
+   private void startInternal() {
+
+      PrintStream out = System.out;
+      VM vm = VM.getVM();
+      if (vm.isCore()) {
+        out.println("Core build detected.");
+      } else if (vm.isClientCompiler()) {
+        out.println("Client compiler detected.");
+      } else if (vm.isServerCompiler()) {
+        out.println("Server compiler detected.");
+      } else {
+        throw new RuntimeException("Fatal error: "
+            + "should have been able to detect core/C1/C2 build");
+      }
+
+      String version = vm.getVMRelease();
+      if (version != null) {
+        out.print("JVM version is ");
+        out.println(version);
+      }
+
+      run();
    }
 }

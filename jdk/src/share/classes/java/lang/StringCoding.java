@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -250,6 +250,7 @@ class StringCoding {
     static char[] decode(byte[] ba, int off, int len) {
         String csn = Charset.defaultCharset().name();
         try {
+            // use charset name decode() variant which provides caching.
             return decode(csn, ba, off, len);
         } catch (UnsupportedEncodingException x) {
             warnUnsupportedCharset(csn);
@@ -382,6 +383,7 @@ class StringCoding {
     static byte[] encode(char[] ca, int off, int len) {
         String csn = Charset.defaultCharset().name();
         try {
+            // use charset name encode() variant which provides caching.
             return encode(csn, ca, off, len);
         } catch (UnsupportedEncodingException x) {
             warnUnsupportedCharset(csn);

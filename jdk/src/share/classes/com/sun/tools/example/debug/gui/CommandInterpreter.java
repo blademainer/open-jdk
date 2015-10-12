@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,6 +22,15 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+
+/*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
 
 package com.sun.tools.example.debug.gui;
 
@@ -368,7 +377,7 @@ public class CommandInterpreter {
                     env.failure("Attempt to launch main class \"" + clname + "\" failed.");
                 }
             } else {
-                env.failure("No main class specifed and no current default defined.");
+                env.failure("No main class specified and no current default defined.");
             }
         } else {
             clname = t.nextToken();
@@ -419,7 +428,7 @@ public class CommandInterpreter {
                     env.failure("Attempt to attach to port \"" + portName + "\" failed.");
                 }
             } else {
-                env.failure("No port specifed and no current default defined.");
+                env.failure("No port specified and no current default defined.");
             }
         } else {
             portName = t.nextToken();

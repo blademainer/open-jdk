@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,7 @@ import java.lang.reflect.InvocationHandler ;
 
 import com.sun.corba.se.spi.logging.CORBALogDomains ;
 import com.sun.corba.se.impl.logging.ORBUtilSystemException ;
+import com.sun.corba.se.impl.presentation.rmi.DynamicAccessPermission;
 
 public class CompositeInvocationHandlerImpl implements
     CompositeInvocationHandler
@@ -46,11 +47,13 @@ public class CompositeInvocationHandlerImpl implements
     public void addInvocationHandler( Class interf,
         InvocationHandler handler )
     {
+        checkAccess();
         classToInvocationHandler.put( interf, handler ) ;
     }
 
     public void setDefaultHandler( InvocationHandler handler )
     {
+        checkAccess();
         defaultHandler = handler ;
     }
 
@@ -78,4 +81,14 @@ public class CompositeInvocationHandlerImpl implements
 
         return handler.invoke( proxy, method, args ) ;
     }
+
+    private static final DynamicAccessPermission perm = new DynamicAccessPermission("access");
+    private void checkAccess() {
+        final SecurityManager sm = System.getSecurityManager();
+        if (sm != null) {
+            sm.checkPermission(perm);
+}
+    }
+
+    private static final long serialVersionUID = 4571178305984833743L;
 }

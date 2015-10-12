@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -50,6 +50,8 @@ import sun.net.www.HeaderParser;
 //      uncache foo.com!
 
 public abstract class AuthenticationInfo extends AuthCacheValue implements Cloneable {
+
+    static final long serialVersionUID = -2588378268010453259L;
 
     // Constants saying what kind of authroization this is.  This determines
     // the namespace in the hash table lookup.

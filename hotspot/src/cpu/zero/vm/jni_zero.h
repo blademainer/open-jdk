@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2009 Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -25,7 +25,13 @@
  */
 
 
-#if defined(__GNUC__) && (__GNUC__ >= 4)
+
+// Note: please do not change these without also changing jni_md.h in the JDK
+// repository
+#ifndef __has_attribute
+  #define __has_attribute(x) 0
+#endif
+#if (defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4) && (__GNUC_MINOR__ > 2))) || __has_attribute(visibility)
   #define JNIEXPORT     __attribute__((visibility("default")))
   #define JNIIMPORT     __attribute__((visibility("default")))
 #else

@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -250,6 +250,7 @@ setup()
     isCygwin=
     case "$osname" in
        Windows* | CYGWIN*)	   
+         devnull=NUL
 	 if [ "$osname" = Windows_98 -o "$osname" = Windows_ME ]; then
              isWin98=1
              debuggeeKeyword='we_cant_kill_debuggees_on_win98'
@@ -259,6 +260,7 @@ setup()
          case "$osname" in
            CYGWIN*)
              isCygwin=1
+             devnull=/dev/null
              ;;
          esac
 
@@ -269,7 +271,6 @@ setup()
             transport=dt_socket
             address=
          fi
-         devnull=NUL
          baseArgs="$baseArgs -XX:-ShowMessageBoxOnError"
          # jtreg puts \\s in TESTCLASSES and some uses, eg. echo
          # treat them as control chars on mks (eg \t is tab)
@@ -292,7 +293,7 @@ EOF
          psCmd=ps
          jstack=jstack.exe
          ;;
-       SunOS | Linux)
+       SunOS | Linux | Darwin)
          transport=dt_socket
          address=
          devnull=/dev/null
@@ -1003,6 +1004,50 @@ grepForString()
     return $stat
 }
 
+# $1 is the filename, $2 is the regexp to match and return,
+# $3 is the number of lines to search (from the end)
+matchRegexp()
+{
+    if [ -z "$3" ] ; then
+        theCmd=cat
+    else
+        theCmd="tail -$3"
+    fi
+
+    case "$2" in 
+    *\>*)
+        # Target string contains a '>' so we better not ignore it
+        res=`$theCmd $1 | sed -e "$2"`
+        ;;
+    *)
+        # Target string does not contain a '>'.
+        # NOTE:  if $1 does not end with a new line, piping it to sed
+        # doesn't include the chars on the last line.  Detect this
+        # case, and add a new line.
+        theFile="$1"
+        if [ `tail -1 "$theFile" | wc -l | sed -e 's@ @@g'` = 0 ] ; then
+            # The target file doesn't end with a new line so we have
+            # add one to a copy of the target file so the sed command
+            # below can filter that last line.
+            cp "$theFile" "$theFile.tmp"
+            theFile="$theFile.tmp"
+            echo >> "$theFile"
+        fi
+
+        # See bug 6220903. Sometimes the jdb prompt chars ('> ') can
+        # get interleaved in the target file which can keep us from
+        # matching the target string.
+        res=`$theCmd "$theFile" | sed -e 's@> @@g' -e 's@>@@g' \
+            | sed -e "$2"`
+        if [ "$theFile" != "$1" ]; then
+            # remove the copy of the target file
+            rm -f "$theFile"
+        fi
+        unset theFile
+    esac
+    return $res
+}
+
 # $1 is the filename, $2 is the string to look for,
 # $3 is the number of lines to search (from the end)
 failIfPresent()
@@ -1056,6 +1101,14 @@ debuggeeFailIfPresent()
 {
     failIfPresent $debuggeeOutFile "$1" $2
 }
+
+# match and return the output from the regexp $1 in the debuggee output
+# $2 is the number of lines to search (from the end)
+debuggeeMatchRegexp()
+{
+    matchRegexp $debuggeeOutFile "$1" $2
+}
+
 
 # This should really be named 'done' instead of pass.
 pass()

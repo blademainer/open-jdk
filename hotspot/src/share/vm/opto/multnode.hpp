@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -60,6 +60,7 @@ protected:
   virtual uint cmp( const Node &n ) const;
   virtual uint size_of() const;
   void check_con() const;       // Called from constructor.
+  const Type* proj_type(const Type* t) const;
 
 public:
   ProjNode( Node *src, uint con, bool io_use = false )
@@ -83,9 +84,18 @@ public:
   virtual const Type *Value( PhaseTransform *phase ) const;
   virtual uint ideal_reg() const;
   virtual const RegMask &out_RegMask() const;
+
 #ifndef PRODUCT
   virtual void dump_spec(outputStream *st) const;
 #endif
+
+  // Return true if proj is for "proj->[region->..]call_uct"
+  bool is_uncommon_trap_proj(Deoptimization::DeoptReason reason);
+  // Return true for    "if(test)-> proj -> ...
+  //                          |
+  //                          V
+  //                      other_proj->[region->..]call_uct"
+  bool is_uncommon_trap_if_pattern(Deoptimization::DeoptReason reason);
 };
 
 #endif // SHARE_VM_OPTO_MULTNODE_HPP

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -360,7 +360,7 @@ public class SpNegoContext implements GSSContextSpi {
                 if (internal_mech == null) {
                     // return wth failure
                     throw new GSSException(errorCode, -1,
-                                "supported mechansim from server is null");
+                                "supported mechanism from server is null");
                 }
 
                 // get the negotiated result
@@ -525,6 +525,10 @@ public class SpNegoContext implements GSSContextSpi {
 
                 // get the mechanism token
                 byte[] mechToken = initToken.getMechToken();
+                if (mechToken == null) {
+                    throw new GSSException(GSSException.FAILURE, -1,
+                            "mechToken is missing");
+                }
 
                 /*
                  * Select the best match between the list of mechs
@@ -537,7 +541,7 @@ public class SpNegoContext implements GSSContextSpi {
                 if (mech_wanted == null) {
                     valid = false;
                 }
-                // save the desired mechansim
+                // save the desired mechanism
                 internal_mech = mech_wanted;
 
                 // get the token for mechanism
@@ -737,7 +741,7 @@ public class SpNegoContext implements GSSContextSpi {
             return null;
         }
 
-        // check if mechansim supports integrity
+        // check if mechanism supports integrity
         if (!mechContext.getIntegState()) {
             if (DEBUG) {
                 System.out.println("SpNegoContext: no MIC token included" +
@@ -779,7 +783,7 @@ public class SpNegoContext implements GSSContextSpi {
             return true;
         }
 
-        // check if mechansim supports integrity
+        // check if mechanism supports integrity
         if (!mechContext.getIntegState()) {
             if (DEBUG) {
                 System.out.println("SpNegoContext: no MIC token validation" +
@@ -907,7 +911,7 @@ public class SpNegoContext implements GSSContextSpi {
             return mechContext.isEstablished();
         } else {
             if (DEBUG) {
-                System.out.println("The underlying mechansim context has " +
+                System.out.println("The underlying mechanism context has " +
                                         "not been initialized");
             }
             return false;
@@ -1016,11 +1020,11 @@ public class SpNegoContext implements GSSContextSpi {
         // get the peer name for the mechanism
         if (mechContext != null) {
             GSSNameImpl targName = (GSSNameImpl)mechContext.getTargName();
-            peerName = (GSSNameSpi) targName.getElement(internal_mech);
+            peerName = targName.getElement(internal_mech);
             return peerName;
         } else {
             if (DEBUG) {
-                System.out.println("The underlying mechansim context has " +
+                System.out.println("The underlying mechanism context has " +
                                         "not been initialized");
             }
             return null;
@@ -1032,11 +1036,11 @@ public class SpNegoContext implements GSSContextSpi {
         // get the src name for the mechanism
         if (mechContext != null) {
             GSSNameImpl srcName = (GSSNameImpl)mechContext.getSrcName();
-            myName = (GSSNameSpi) srcName.getElement(internal_mech);
+            myName = srcName.getElement(internal_mech);
             return myName;
         } else {
             if (DEBUG) {
-                System.out.println("The underlying mechansim context has " +
+                System.out.println("The underlying mechanism context has " +
                                         "not been initialized");
             }
             return null;
@@ -1059,13 +1063,16 @@ public class SpNegoContext implements GSSContextSpi {
         if (mechContext != null) {
             GSSCredentialImpl delegCred =
                         (GSSCredentialImpl)mechContext.getDelegCred();
+            if (delegCred == null) {
+                return null;
+            }
             // determine delegated cred element usage
             boolean initiate = false;
             if (delegCred.getUsage() == GSSCredential.INITIATE_ONLY) {
                 initiate = true;
             }
-            GSSCredentialSpi mechCred = (GSSCredentialSpi)
-                                delegCred.getElement(internal_mech, initiate);
+            GSSCredentialSpi mechCred =
+                    delegCred.getElement(internal_mech, initiate);
             SpNegoCredElement cred = new SpNegoCredElement(mechCred);
             return cred.getInternalCred();
         } else {

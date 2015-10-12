@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,6 @@
 
 package com.sun.crypto.provider;
 
-import java.math.BigInteger;
 import java.security.*;
 import java.security.spec.*;
 import javax.crypto.spec.DHParameterSpec;
@@ -59,6 +58,16 @@ extends AlgorithmParameterGeneratorSpi {
     // The source of randomness
     private SecureRandom random = null;
 
+    private static void checkKeySize(int keysize)
+        throws InvalidAlgorithmParameterException {
+        if ((keysize != 2048) &&
+            ((keysize < 512) || (keysize > 1024) || (keysize % 64 != 0))) {
+            throw new InvalidAlgorithmParameterException(
+                "Keysize must be multiple of 64 ranging from "
+                + "512 to 1024 (inclusive), or 2048");
+        }
+    }
+
     /**
      * Initializes this parameter generator for a certain keysize
      * and source of randomness.
@@ -68,11 +77,11 @@ extends AlgorithmParameterGeneratorSpi {
      * @param random the source of randomness
      */
     protected void engineInit(int keysize, SecureRandom random) {
-        if ((keysize < 512) || (keysize > 1024) || (keysize % 64 != 0)) {
-            throw new InvalidParameterException("Keysize must be multiple "
-                                                + "of 64, and can only range "
-                                                + "from 512 to 1024 "
-                                                + "(inclusive)");
+        // Re-uses DSA parameters and thus have the same range
+        try {
+            checkKeySize(keysize);
+        } catch (InvalidAlgorithmParameterException ex) {
+            throw new InvalidParameterException(ex.getMessage());
         }
         this.primeSize = keysize;
         this.random = random;
@@ -92,31 +101,29 @@ extends AlgorithmParameterGeneratorSpi {
     protected void engineInit(AlgorithmParameterSpec genParamSpec,
                               SecureRandom random)
         throws InvalidAlgorithmParameterException {
-            if (!(genParamSpec instanceof DHGenParameterSpec)) {
-                throw new InvalidAlgorithmParameterException
-                    ("Inappropriate parameter type");
-            }
+        if (!(genParamSpec instanceof DHGenParameterSpec)) {
+            throw new InvalidAlgorithmParameterException
+                ("Inappropriate parameter type");
+        }
 
-            DHGenParameterSpec dhParamSpec = (DHGenParameterSpec)genParamSpec;
+        DHGenParameterSpec dhParamSpec = (DHGenParameterSpec)genParamSpec;
 
-            primeSize = dhParamSpec.getPrimeSize();
-            if ((primeSize<512) || (primeSize>1024) || (primeSize%64 != 0)) {
-                throw new InvalidAlgorithmParameterException
-                    ("Modulus size must be multiple of 64, and can only range "
-                     + "from 512 to 1024 (inclusive)");
-            }
+        primeSize = dhParamSpec.getPrimeSize();
 
-            exponentSize = dhParamSpec.getExponentSize();
-            if (exponentSize <= 0) {
-                throw new InvalidAlgorithmParameterException
-                    ("Exponent size must be greater than zero");
-            }
+        // Re-uses DSA parameters and thus have the same range
+        checkKeySize(primeSize);
 
-            // Require exponentSize < primeSize
-            if (exponentSize >= primeSize) {
-                throw new InvalidAlgorithmParameterException
-                    ("Exponent size must be less than modulus size");
-            }
+        exponentSize = dhParamSpec.getExponentSize();
+        if (exponentSize <= 0) {
+            throw new InvalidAlgorithmParameterException
+                ("Exponent size must be greater than zero");
+        }
+
+        // Require exponentSize < primeSize
+        if (exponentSize >= primeSize) {
+            throw new InvalidAlgorithmParameterException
+                ("Exponent size must be less than modulus size");
+        }
     }
 
     /**
@@ -132,7 +139,7 @@ extends AlgorithmParameterGeneratorSpi {
         }
 
         if (this.random == null)
-            this.random = SunJCE.RANDOM;
+            this.random = SunJCE.getRandom();
 
         try {
             AlgorithmParameterGenerator paramGen;
@@ -141,8 +148,7 @@ extends AlgorithmParameterGeneratorSpi {
             paramGen = AlgorithmParameterGenerator.getInstance("DSA");
             paramGen.init(this.primeSize, random);
             algParams = paramGen.generateParameters();
-            dsaParamSpec = (DSAParameterSpec)
-                algParams.getParameterSpec(DSAParameterSpec.class);
+            dsaParamSpec = algParams.getParameterSpec(DSAParameterSpec.class);
 
             DHParameterSpec dhParamSpec;
             if (this.exponentSize > 0) {
@@ -153,7 +159,8 @@ extends AlgorithmParameterGeneratorSpi {
                 dhParamSpec = new DHParameterSpec(dsaParamSpec.getP(),
                                                   dsaParamSpec.getG());
             }
-            algParams = AlgorithmParameters.getInstance("DH", "SunJCE");
+            algParams = AlgorithmParameters.getInstance("DH",
+                    SunJCE.getInstance());
             algParams.init(dhParamSpec);
         } catch (InvalidParameterSpecException e) {
             // this should never happen
@@ -161,11 +168,7 @@ extends AlgorithmParameterGeneratorSpi {
         } catch (NoSuchAlgorithmException e) {
             // this should never happen, because we provide it
             throw new RuntimeException(e.getMessage());
-        } catch (NoSuchProviderException e) {
-            // this should never happen, because we provide it
-            throw new RuntimeException(e.getMessage());
         }
-
         return algParams;
     }
 }

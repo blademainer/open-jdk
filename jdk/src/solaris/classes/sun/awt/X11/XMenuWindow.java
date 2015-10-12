@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -399,7 +399,7 @@ public class XMenuWindow extends XBaseMenuWindow {
         if (!isCreated()) {
             return;
         }
-        if (log.isLoggable(PlatformLogger.FINER)) {
+        if (log.isLoggable(PlatformLogger.Level.FINER)) {
             log.finer("showing menu window + " + getWindow() + " at " + bounds);
         }
         XToolkit.awtLock();
@@ -432,9 +432,9 @@ public class XMenuWindow extends XBaseMenuWindow {
     /**
      * Paints menu window
      */
-    public void paint(Graphics g) {
+    @Override
+    public void paintPeer(Graphics g) {
         resetColors();
-
         int width = getWidth();
         int height = getHeight();
 

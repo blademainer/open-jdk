@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,12 @@
 
 #include <stdlib.h>
 #include <string.h>
+#ifdef MACOSX
+#include <unistd.h>
+#include <sys/param.h>
+#else
+#include <malloc.h>
+#endif
 #include <mlib_types.h>
 #include <mlib_sys_proto.h>
 #include "mlib_SysMath.h"
@@ -86,7 +92,9 @@ void *__mlib_malloc(mlib_u32 size)
    * alignment. -- from stdlib.h of MS VC++5.0.
    */
   return (void *) malloc(size);
-#else /* _MSC_VER */
+#elif defined(MACOSX)
+  return valloc(size);
+#else
   return (void *) memalign(8, size);
 #endif /* _MSC_VER */
 }

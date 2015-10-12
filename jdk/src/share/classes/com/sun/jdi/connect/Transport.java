@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,6 +42,7 @@ import com.sun.jdi.connect.spi.TransportService;        // for javadoc
  * @author Gordon Hirsch
  * @since  1.3
  */
+@jdk.Exported
 public interface Transport {
     /**
      * Returns a short identifier for the transport.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,7 @@
  * been used for the RMI class loader instance.
  * @author Peter Jones
  *
- * @build NoSecurityManager Dummy LocalDummy
+ * @build Dummy LocalDummy
  * @run main/othervm/timeout=120 NoSecurityManager
  */
 

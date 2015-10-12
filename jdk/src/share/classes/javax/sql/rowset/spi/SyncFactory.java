@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,6 +35,8 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.FileNotFoundException;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 
 import javax.naming.*;
 
@@ -53,7 +55,7 @@ import javax.naming.*;
  * per Java VM at any one time. This ensures that there is a single source from which a
  * <code>RowSet</code> implementation can obtain its <code>SyncProvider</code>
  * implementation.
- * <p>
+ *
  * <h3>1.0 Overview</h3>
  * The <code>SyncFactory</code> class provides an internal registry of available
  * synchronization provider implementations (<code>SyncProvider</code> objects).
@@ -71,7 +73,7 @@ import javax.naming.*;
  *       <code>WebRowSet</code> objects
  * </UL>
  * Note that the JDBC RowSet Implementations include the <code>SyncProvider</code>
- * implemtations <code>RIOptimisticProvider</code> and <code>RIXmlProvider</code>,
+ * implementations <code>RIOptimisticProvider</code> and <code>RIXmlProvider</code>,
  * which satisfy this requirement.
  * <P>
  * The <code>SyncFactory</code> class provides accessor methods to assist
@@ -92,12 +94,12 @@ import javax.naming.*;
  * the <code>SyncFactory</code> does not contain a reference to this provider,
  * a <code>SyncFactoryException</code> is thrown stating that the synchronization
  * provider could not be found.
- * <p>
+ *
  * <li>If a <code>RowSet</code> implementation is instantiated with a specified
  * provider and the specified provider has been properly registered, the
  * requested provider is supplied. Otherwise a <code>SyncFactoryException</code>
  * is thrown.
- * <p>
+ *
  * <li>If a <code>RowSet</code> object does not specify a
  * <code>SyncProvider</code> implementation and no additional
  * <code>SyncProvider</code> implementations are available, the reference
@@ -143,7 +145,7 @@ import javax.naming.*;
  *     rowset.provider.vendor.2=Fred, Inc.
  *     rowset.provider.version.2=1.0
  * </PRE>
- * <p>
+ *
  * <li><b>Using a JNDI Context</b><BR>
  * Available providers can be registered on a JNDI
  * context, and the <code>SyncFactory</code> will attempt to load
@@ -229,11 +231,7 @@ public class SyncFactory {
      * The standard resource file name.
      */
     private static String ROWSET_PROPERTIES = "rowset.properties";
-    /**
-     * The RI Optimistic Provider.
-     */
-    private static String default_provider =
-            "com.sun.rowset.providers.RIOptimisticProvider";
+
     /**
      *  Permission required to invoke setJNDIContext and setLogger
      */
@@ -248,24 +246,13 @@ public class SyncFactory {
      * The <code>Logger</code> object to be used by the <code>SyncFactory</code>.
      */
     private static volatile Logger rsLogger;
-    /**
-     *
-     */
-    private static Level rsLevel;
+
     /**
      * The registry of available <code>SyncProvider</code> implementations.
      * See section 2.0 of the class comment for <code>SyncFactory</code> for an
      * explanation of how a provider can be added to this registry.
      */
-    private static Hashtable implementations;
-    /**
-     * Internal sync object used to maintain the SPI as a singleton
-     */
-    private static Object logSync = new Object();
-    /**
-     * Internal PrintWriter field for logging facility
-     */
-    private static java.io.PrintWriter logWriter = null;
+    private static Hashtable<String, SyncProvider> implementations;
 
     /**
      * Adds the the given synchronization provider to the factory register. Guidelines
@@ -275,13 +262,14 @@ public class SyncFactory {
      * <p>
      * Synchronization providers bound to a JNDI context can be
      * registered by binding a SyncProvider instance to a JNDI namespace.
-     * <ul>
+     *
      * <pre>
+     * {@code
      * SyncProvider p = new MySyncProvider();
      * InitialContext ic = new InitialContext();
      * ic.bind ("jdbc/rowset/MySyncProvider", p);
-     * </pre>
-     * </ul>
+     * } </pre>
+     *
      * Furthermore, an initial JNDI context should be set with the
      * <code>SyncFactory</code> using the <code>setJNDIContext</code> method.
      * The <code>SyncFactory</code> leverages this context to search for
@@ -344,7 +332,7 @@ public class SyncFactory {
         Properties properties = new Properties();
 
         if (implementations == null) {
-            implementations = new Hashtable();
+            implementations = new Hashtable<>();
 
             try {
 
@@ -362,7 +350,17 @@ public class SyncFactory {
                 /*
                  * Dependent on application
                  */
-                String strRowsetProperties = System.getProperty("rowset.properties");
+                String strRowsetProperties;
+                try {
+                    strRowsetProperties = AccessController.doPrivileged(new PrivilegedAction<String>() {
+                        public String run() {
+                            return System.getProperty("rowset.properties");
+                        }
+                    }, null, new PropertyPermission("rowset.properties","read"));
+                } catch (Exception ex) {
+                    strRowsetProperties = null;
+                }
+
                 if (strRowsetProperties != null) {
                     // Load user's implementation of SyncProvider
                     // here. -Drowset.properties=/abc/def/pqr.txt
@@ -407,7 +405,16 @@ public class SyncFactory {
              * load additional properties from -D command line
              */
             properties.clear();
-            String providerImpls = System.getProperty(ROWSET_SYNC_PROVIDER);
+            String providerImpls;
+            try {
+                providerImpls = AccessController.doPrivileged(new PrivilegedAction<String>() {
+                    public String run() {
+                        return System.getProperty(ROWSET_SYNC_PROVIDER);
+                    }
+                }, null, new PropertyPermission(ROWSET_SYNC_PROVIDER,"read"));
+            } catch (Exception ex) {
+                providerImpls = null;
+            }
 
             if (providerImpls != null) {
                 int i = 0;
@@ -445,7 +452,7 @@ public class SyncFactory {
         String key = null;
         String[] propertyNames = null;
 
-        for (Enumeration e = p.propertyNames(); e.hasMoreElements();) {
+        for (Enumeration<?> e = p.propertyNames(); e.hasMoreElements();) {
 
             String str = (String) e.nextElement();
 
@@ -541,7 +548,7 @@ public class SyncFactory {
         }
 
         // Attempt to invoke classname from registered SyncProvider list
-        Class c = null;
+        Class<?> c = null;
         try {
             ClassLoader cl = Thread.currentThread().getContextClassLoader();
 
@@ -579,6 +586,8 @@ public class SyncFactory {
      *
      * @return Enumeration  A enumeration of available synchronization
      * providers that are registered with this Factory
+     * @throws SyncFactoryException If an error occurs obtaining the registered
+     * providers
      */
     public static Enumeration<SyncProvider> getRegisteredProviders()
             throws SyncFactoryException {
@@ -642,8 +651,6 @@ public class SyncFactory {
      * required
      * @throws java.lang.SecurityException if a security manager exists and its
      *   {@code checkPermission} method denies calling {@code setLogger}
-     * @throws java.util.logging.LoggingPermission if a security manager exists and its
-     *   {@code checkPermission} method denies calling {@code setLevel}
      * @throws NullPointerException if the logger is null
      * @see SecurityManager#checkPermission
      * @see LoggingPermission
@@ -665,7 +672,8 @@ public class SyncFactory {
     /**
      * Returns the logging object for applications to retrieve
      * synchronization events posted by SyncProvider implementations.
-     *
+     * @return The {@code Logger} that has been specified for use by
+     * {@code SyncProvider} implementations
      * @throws SyncFactoryException if no logging object has been set.
      */
     public static Logger getLogger() throws SyncFactoryException {
@@ -740,7 +748,7 @@ public class SyncFactory {
      */
     private static Properties parseJNDIContext() throws NamingException {
 
-        NamingEnumeration bindings = ic.listBindings("");
+        NamingEnumeration<?> bindings = ic.listBindings("");
         Properties properties = new Properties();
 
         // Hunt one level below context for available SyncProvider objects
@@ -755,7 +763,7 @@ public class SyncFactory {
      * scan the current context using a re-entrant call to this method until all
      * bindings have been enumerated.
      */
-    private static void enumerateBindings(NamingEnumeration bindings,
+    private static void enumerateBindings(NamingEnumeration<?> bindings,
             Properties properties) throws NamingException {
 
         boolean syncProviderObj = false; // move to parameters ?

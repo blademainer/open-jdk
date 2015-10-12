@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -199,7 +199,7 @@ final class XDropTargetContextPeer extends SunDropTargetContextPeer {
                    structure. */
                 long ctxt = getNativeDragContext();
 
-                if (logger.isLoggable(PlatformLogger.FINER)) {
+                if (logger.isLoggable(PlatformLogger.Level.FINER)) {
                     logger.finer("        processing " + event + " ctxt=" + ctxt +
                                  " consumed=" + event.isConsumed());
                 }

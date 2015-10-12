@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,6 @@ package sun.font;
 import java.awt.Font;
 
 import java.awt.font.FontRenderContext;
-import java.awt.font.LineMetrics;
 import java.text.Bidi;
 
   /**
@@ -70,7 +69,7 @@ public class TextLabelFactory {
                           Bidi bidi,
                           int flags) {
     this.frc = frc;
-    this.text = text;
+    this.text = text.clone();
     this.bidi = bidi;
     this.flags = flags;
     this.lineBidi = bidi;
@@ -82,28 +81,8 @@ public class TextLabelFactory {
     return frc;
   }
 
-  public char[] getText() {
-    return text;
-  }
-
-  public Bidi getParagraphBidi() {
-    return bidi;
-  }
-
   public Bidi getLineBidi() {
     return lineBidi;
-  }
-
-  public int getLayoutFlags() {
-    return flags;
-  }
-
-  public int getLineStart() {
-    return lineStart;
-  }
-
-  public int getLineLimit() {
-    return lineLimit;
   }
 
   /**

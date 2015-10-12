@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -112,12 +112,12 @@ class ClassQuery extends QueryHandler {
         out.println("<h2>Instances</h2>");
 
         printAnchorStart();
-        out.print("instances/" + encodeForURL(clazz));
+        print("instances/" + encodeForURL(clazz));
         out.print("\">");
         out.println("Exclude subclasses</a><br>");
 
         printAnchorStart();
-        out.print("allInstances/" + encodeForURL(clazz));
+        print("allInstances/" + encodeForURL(clazz));
         out.print("\">");
         out.println("Include subclasses</a><br>");
 
@@ -126,19 +126,19 @@ class ClassQuery extends QueryHandler {
             out.println("<h2>New Instances</h2>");
 
             printAnchorStart();
-            out.print("newInstances/" + encodeForURL(clazz));
+            print("newInstances/" + encodeForURL(clazz));
             out.print("\">");
             out.println("Exclude subclasses</a><br>");
 
             printAnchorStart();
-            out.print("allNewInstances/" + encodeForURL(clazz));
+            print("allNewInstances/" + encodeForURL(clazz));
             out.print("\">");
             out.println("Include subclasses</a><br>");
         }
 
         out.println("<h2>References summary by Type</h2>");
         printAnchorStart();
-        out.print("refsByType/" + encodeForURL(clazz));
+        print("refsByType/" + encodeForURL(clazz));
         out.print("\">");
         out.println("References summary by type</a>");
 

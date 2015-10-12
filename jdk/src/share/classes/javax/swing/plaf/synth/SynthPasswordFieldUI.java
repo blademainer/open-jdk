@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,7 +31,7 @@ import javax.swing.text.*;
 import javax.swing.plaf.ComponentUI;
 
 /**
- * Provides the Synth L&F UI delegate for
+ * Provides the Synth L&amp;F UI delegate for
  * {@link javax.swing.JPasswordField}.
  *
  * @author  Shannon Hickey
@@ -73,7 +73,7 @@ public class SynthPasswordFieldUI extends SynthTextFieldUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     void paintBackground(SynthContext context, Graphics g, JComponent c) {
@@ -82,7 +82,7 @@ public class SynthPasswordFieldUI extends SynthTextFieldUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public void paintBorder(SynthContext context, Graphics g, int x,
@@ -91,7 +91,7 @@ public class SynthPasswordFieldUI extends SynthTextFieldUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void installKeyboardActions() {

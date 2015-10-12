@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2000, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,7 +38,6 @@ JNIEXPORT mlib_status awt_getImagingLib(JNIEnv *env, mlibFnS_t *sMlibFns,
                                         mlibSysFnS_t *sMlibSysFns);
 JNIEXPORT mlib_start_timer awt_setMlibStartTimer();
 JNIEXPORT mlib_stop_timer awt_setMlibStopTimer();
-JNIEXPORT void awt_getBIColorOrder(int type, int *colorOrder);
 
 #ifdef __cplusplus
 }; /* end of extern "C" */

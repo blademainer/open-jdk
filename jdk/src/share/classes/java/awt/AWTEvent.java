@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,8 +35,6 @@ import sun.util.logging.PlatformLogger;
 
 import java.security.AccessControlContext;
 import java.security.AccessController;
-import java.io.ObjectInputStream;
-import java.io.IOException;
 
 /**
  * The root event class for all AWT events.
@@ -262,9 +260,11 @@ public abstract class AWTEvent extends EventObject {
                 public void setPosted(AWTEvent ev) {
                     ev.isPosted = true;
                 }
+
                 public void setSystemGenerated(AWTEvent ev) {
                     ev.isSystemGenerated = true;
                 }
+
                 public boolean isSystemGenerated(AWTEvent ev) {
                     return ev.isSystemGenerated;
                 }
@@ -272,15 +272,24 @@ public abstract class AWTEvent extends EventObject {
                 public AccessControlContext getAccessControlContext(AWTEvent ev) {
                     return ev.getAccessControlContext();
                 }
+
+                public byte[] getBData(AWTEvent ev) {
+                    return ev.bdata;
+                }
+
+                public void setBData(AWTEvent ev, byte[] bdata) {
+                    ev.bdata = bdata;
+                }
+
             });
     }
 
     private static synchronized Field get_InputEvent_CanAccessSystemClipboard() {
         if (inputEvent_CanAccessSystemClipboard_Field == null) {
             inputEvent_CanAccessSystemClipboard_Field =
-                (Field)java.security.AccessController.doPrivileged(
-                    new java.security.PrivilegedAction() {
-                            public Object run() {
+                java.security.AccessController.doPrivileged(
+                    new java.security.PrivilegedAction<Field>() {
+                            public Field run() {
                                 Field field = null;
                                 try {
                                     field = InputEvent.class.
@@ -288,11 +297,11 @@ public abstract class AWTEvent extends EventObject {
                                     field.setAccessible(true);
                                     return field;
                                 } catch (SecurityException e) {
-                                    if (log.isLoggable(PlatformLogger.FINE)) {
+                                    if (log.isLoggable(PlatformLogger.Level.FINE)) {
                                         log.fine("AWTEvent.get_InputEvent_CanAccessSystemClipboard() got SecurityException ", e);
                                     }
                                 } catch (NoSuchFieldException e) {
-                                    if (log.isLoggable(PlatformLogger.FINE)) {
+                                    if (log.isLoggable(PlatformLogger.Level.FINE)) {
                                         log.fine("AWTEvent.get_InputEvent_CanAccessSystemClipboard() got NoSuchFieldException ", e);
                                     }
                                 }
@@ -585,7 +594,7 @@ public abstract class AWTEvent extends EventObject {
                     boolean b = field.getBoolean(this);
                     field.setBoolean(that, b);
                 } catch(IllegalAccessException e) {
-                    if (log.isLoggable(PlatformLogger.FINE)) {
+                    if (log.isLoggable(PlatformLogger.Level.FINE)) {
                         log.fine("AWTEvent.copyPrivateDataInto() got IllegalAccessException ", e);
                     }
                 }
@@ -601,7 +610,7 @@ public abstract class AWTEvent extends EventObject {
                 try {
                     field.setBoolean(this, false);
                 } catch(IllegalAccessException e) {
-                    if (log.isLoggable(PlatformLogger.FINE)) {
+                    if (log.isLoggable(PlatformLogger.Level.FINE)) {
                         log.fine("AWTEvent.dispatched() got IllegalAccessException ", e);
                     }
                 }

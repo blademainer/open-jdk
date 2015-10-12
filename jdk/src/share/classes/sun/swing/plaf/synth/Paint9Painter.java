@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -83,7 +83,7 @@ public class Paint9Painter extends CachedPainter {
     public static final int PAINT_ALL = 512;
 
     /**
-     * Conveniance method for testing the validity of an image.
+     * Convenience method for testing the validity of an image.
      *
      * @param image Image to check.
      * @return true if <code>image</code> is non-null and has a positive

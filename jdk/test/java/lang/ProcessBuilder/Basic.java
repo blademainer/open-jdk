@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,9 +26,10 @@
  * @bug 4199068 4738465 4937983 4930681 4926230 4931433 4932663 4986689
  *      5026830 5023243 5070673 4052517 4811767 6192449 6397034 6413313
  *      6464154 6523983 6206031 4960438 6631352 6631966 6850957 6850958
- *      4947220 7018606 7034570
+ *      4947220 7018606 7034570 4244896 5049299
  * @summary Basic tests for Process and Environment Variable code
  * @run main/othervm/timeout=300 Basic
+ * @run main/othervm/timeout=300 -Djdk.lang.Process.launchMechanism=fork Basic
  * @author Martin Buchholz
  */
 
@@ -36,10 +37,14 @@ import java.lang.ProcessBuilder.Redirect;
 import static java.lang.ProcessBuilder.Redirect.*;
 
 import java.io.*;
+import java.lang.reflect.Field;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.security.*;
+import sun.misc.Unsafe;
 import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 import static java.lang.System.getenv;
 import static java.lang.System.out;
 import static java.lang.Boolean.TRUE;
@@ -49,6 +54,9 @@ public class Basic {
 
     /* used for Windows only */
     static final String systemRoot = System.getenv("SystemRoot");
+
+    /* used for Mac OS X only */
+    static final String cfUserTextEncoding = System.getenv("__CF_USER_TEXT_ENCODING");
 
     private static String commandOutput(Reader r) throws Throwable {
         StringBuilder sb = new StringBuilder();
@@ -244,6 +252,7 @@ public class Basic {
 
     private static String getenvAsString(Map<String,String> environment) {
         StringBuilder sb = new StringBuilder();
+        environment = new TreeMap<>(environment);
         for (Map.Entry<String,String> e : environment.entrySet())
             // Ignore magic environment variables added by the launcher
             if (! e.getKey().equals("NLSPATH") &&
@@ -289,11 +298,15 @@ public class Basic {
                     System.exit(5);
                 System.err.print("standard error");
                 System.out.print("standard output");
-            } else if (action.equals("testInheritIO")) {
+            } else if (action.equals("testInheritIO")
+                    || action.equals("testRedirectInherit")) {
                 List<String> childArgs = new ArrayList<String>(javaChildArgs);
                 childArgs.add("testIO");
                 ProcessBuilder pb = new ProcessBuilder(childArgs);
-                pb.inheritIO();
+                if (action.equals("testInheritIO"))
+                    pb.inheritIO();
+                else
+                    redirectIO(pb, INHERIT, INHERIT, INHERIT);
                 ProcessResults r = run(pb);
                 if (! r.out().equals(""))
                     System.exit(7);
@@ -548,9 +561,10 @@ public class Basic {
         System.getProperty("java.class.path");
 
     private static final List<String> javaChildArgs =
-        Arrays.asList(new String[]
-            { javaExe, "-classpath", absolutifyPath(classpath),
-              "Basic$JavaChild"});
+        Arrays.asList(javaExe,
+                      "-XX:+DisplayVMOutputToStderr",
+                      "-classpath", absolutifyPath(classpath),
+                      "Basic$JavaChild");
 
     private static void testEncoding(String encoding, String tested) {
         try {
@@ -590,6 +604,12 @@ public class Basic {
             ! osName.equals("Windows Me");
     }
 
+    static class MacOSX {
+        public static boolean is() { return is; }
+        private static final String osName = System.getProperty("os.name");
+        private static final boolean is = osName.contains("OS X");
+    }
+
     static class True {
         public static int exitValue() { return 0; }
     }
@@ -625,8 +645,72 @@ public class Basic {
         static boolean is() { return is; }
     }
 
+    static class DelegatingProcess extends Process {
+        final Process p;
+
+        DelegatingProcess(Process p) {
+            this.p = p;
+        }
+
+        @Override
+        public void destroy() {
+            p.destroy();
+        }
+
+        @Override
+        public int exitValue() {
+            return p.exitValue();
+        }
+
+        @Override
+        public int waitFor() throws InterruptedException {
+            return p.waitFor();
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return p.getOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return p.getInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return p.getErrorStream();
+        }
+    }
+
     private static boolean matches(String str, String regex) {
         return Pattern.compile(regex).matcher(str).find();
+    }
+
+    private static String matchAndExtract(String str, String regex) {
+        Matcher matcher = Pattern.compile(regex).matcher(str);
+        if (matcher.find()) {
+            return matcher.group();
+        } else {
+            return "";
+        }
+    }
+
+    /* Only used for Mac OS X --
+     * Mac OS X (may) add the variable __CF_USER_TEXT_ENCODING to an empty
+     * environment. The environment variable JAVA_MAIN_CLASS_<pid> may also
+     * be set in Mac OS X.
+     * Remove them both from the list of env variables
+     */
+    private static String removeMacExpectedVars(String vars) {
+        // Check for __CF_USER_TEXT_ENCODING
+        String cleanedVars = vars.replace("__CF_USER_TEXT_ENCODING="
+                                            +cfUserTextEncoding+",","");
+        // Check for JAVA_MAIN_CLASS_<pid>
+        String javaMainClassStr
+                = matchAndExtract(cleanedVars,
+                                    "JAVA_MAIN_CLASS_\\d+=Basic.JavaChild,");
+        return cleanedVars.replace(javaMainClassStr,"");
     }
 
     private static String sortByLinesWindowsly(String text) {
@@ -940,10 +1024,10 @@ public class Basic {
         // Note that this requires __FOUR__ nested JVMs involved in one test,
         // if you count the harness JVM.
         //----------------------------------------------------------------
-        {
+        for (String testName : new String[] { "testInheritIO", "testRedirectInherit" } ) {
             redirectIO(pb, PIPE, PIPE, PIPE);
             List<String> command = pb.command();
-            command.set(command.size() - 1, "testInheritIO");
+            command.set(command.size() - 1, testName);
             Process p = pb.start();
             new PrintStream(p.getOutputStream()).print("standard input");
             p.getOutputStream().close();
@@ -1080,7 +1164,11 @@ public class Basic {
             if (Windows.is()) {
                 pb.environment().put("SystemRoot", systemRoot);
             }
-            equal(getenvInChild(pb), expected);
+            String result = getenvInChild(pb);
+            if (MacOSX.is()) {
+                result = removeMacExpectedVars(result);
+            }
+            equal(result, expected);
         } catch (Throwable t) { unexpected(t); }
 
         //----------------------------------------------------------------
@@ -1540,8 +1628,8 @@ public class Basic {
                                       javaExe));
             list.add("ArrayOOME");
             ProcessResults r = run(new ProcessBuilder(list));
-            check(r.out().contains("java.lang.OutOfMemoryError:"));
-            check(r.out().contains(javaExe));
+            check(r.err().contains("java.lang.OutOfMemoryError:"));
+            check(r.err().contains(javaExe));
             check(r.err().contains(System.getProperty("java.version")));
             equal(r.exitValue(), 1);
         } catch (Throwable t) { unexpected(t); }
@@ -1585,7 +1673,7 @@ public class Basic {
             childArgs.add("System.getenv()");
             String[] cmdp = childArgs.toArray(new String[childArgs.size()]);
             String[] envp;
-            String[] envpWin = {"=ExitValue=3", "=C:=\\", "SystemRoot="+systemRoot};
+            String[] envpWin = {"=C:=\\", "=ExitValue=3", "SystemRoot="+systemRoot};
             String[] envpOth = {"=ExitValue=3", "=C:=\\"};
             if (Windows.is()) {
                 envp = envpWin;
@@ -1593,8 +1681,12 @@ public class Basic {
                 envp = envpOth;
             }
             Process p = Runtime.getRuntime().exec(cmdp, envp);
-            String expected = Windows.is() ? "=C:=\\,SystemRoot="+systemRoot+",=ExitValue=3," : "=C:=\\,";
-            equal(commandOutput(p), expected);
+            String expected = Windows.is() ? "=C:=\\,=ExitValue=3,SystemRoot="+systemRoot+"," : "=C:=\\,";
+            String commandOutput = commandOutput(p);
+            if (MacOSX.is()) {
+                commandOutput = removeMacExpectedVars(commandOutput);
+            }
+            equal(commandOutput, expected);
             if (Windows.is()) {
                 ProcessBuilder pb = new ProcessBuilder(childArgs);
                 pb.environment().clear();
@@ -1632,8 +1724,22 @@ public class Basic {
             } else {
                 envp = envpOth;
             }
+            System.out.println ("cmdp");
+            for (int i=0; i<cmdp.length; i++) {
+                System.out.printf ("cmdp %d: %s\n", i, cmdp[i]);
+            }
+            System.out.println ("envp");
+            for (int i=0; i<envp.length; i++) {
+                System.out.printf ("envp %d: %s\n", i, envp[i]);
+            }
             Process p = Runtime.getRuntime().exec(cmdp, envp);
-            check(commandOutput(p).equals(Windows.is() ? "SystemRoot="+systemRoot+",LC_ALL=C," : "LC_ALL=C,"),
+            String commandOutput = commandOutput(p);
+            if (MacOSX.is()) {
+                commandOutput = removeMacExpectedVars(commandOutput);
+            }
+            check(commandOutput.equals(Windows.is()
+                    ? "LC_ALL=C,SystemRoot="+systemRoot+","
+                    : "LC_ALL=C,"),
                   "Incorrect handling of envstrings containing NULs");
         } catch (Throwable t) { unexpected(t); }
 
@@ -1803,7 +1909,7 @@ public class Basic {
 
             p.getInputStream().close();
             p.getErrorStream().close();
-            p.getOutputStream().close();
+            try { p.getOutputStream().close(); } catch (IOException flushFailed) { }
 
             InputStream[] streams = { p.getInputStream(), p.getErrorStream() };
             for (final InputStream in : streams) {
@@ -1840,17 +1946,21 @@ public class Basic {
                 final byte[] bytes = new byte[10];
                 final Process p = new ProcessBuilder(childArgs).start();
                 final CountDownLatch latch = new CountDownLatch(1);
+                final InputStream s;
+                switch (action & 0x1) {
+                    case 0: s = p.getInputStream(); break;
+                    case 1: s = p.getErrorStream(); break;
+                    default: throw new Error();
+                }
                 final Thread thread = new Thread() {
                     public void run() {
                         try {
-                            latch.countDown();
                             int r;
-                            switch (action) {
-                            case 0: r = p.getInputStream().read(); break;
-                            case 1: r = p.getErrorStream().read(); break;
-                            case 2: r = p.getInputStream().read(bytes); break;
-                            case 3: r = p.getErrorStream().read(bytes); break;
-                            default: throw new Error();
+                            latch.countDown();
+                            switch (action & 0x2) {
+                                case 0: r = s.read(); break;
+                                case 2: r = s.read(bytes); break;
+                                default: throw new Error();
                             }
                             equal(-1, r);
                         } catch (Throwable t) { unexpected(t); }}};
@@ -1858,6 +1968,40 @@ public class Basic {
                 thread.start();
                 latch.await();
                 Thread.sleep(10);
+
+                String os = System.getProperty("os.name");
+                if (os.equalsIgnoreCase("Solaris") ||
+                    os.equalsIgnoreCase("SunOS"))
+                {
+                    final Object deferred;
+                    Class<?> c = s.getClass();
+                    if (c.getName().equals(
+                        "java.lang.UNIXProcess$DeferredCloseInputStream"))
+                    {
+                        deferred = s;
+                    } else {
+                        Field deferredField = p.getClass().
+                            getDeclaredField("stdout_inner_stream");
+                        deferredField.setAccessible(true);
+                        deferred = deferredField.get(p);
+                    }
+                    Field useCountField = deferred.getClass().
+                        getDeclaredField("useCount");
+                    useCountField.setAccessible(true);
+
+                    while (useCountField.getInt(deferred) <= 0) {
+                        Thread.yield();
+                    }
+                } else if (s instanceof BufferedInputStream) {
+                    Field f = Unsafe.class.getDeclaredField("theUnsafe");
+                    f.setAccessible(true);
+                    Unsafe unsafe = (Unsafe)f.get(null);
+
+                    while (unsafe.tryMonitorEnter(s)) {
+                        unsafe.monitorExit(s);
+                        Thread.sleep(1);
+                    }
+                }
                 p.destroy();
                 thread.join();
             }
@@ -1873,6 +2017,7 @@ public class Basic {
                 && new File("/bin/bash").exists()
                 && new File("/bin/sleep").exists()) {
                 final String[] cmd = { "/bin/bash", "-c", "(/bin/sleep 6666)" };
+                final String[] cmdkill = { "/bin/bash", "-c", "(/usr/bin/pkill -f \"sleep 6666\")" };
                 final ProcessBuilder pb = new ProcessBuilder(cmd);
                 final Process p = pb.start();
                 final InputStream stdout = p.getInputStream();
@@ -1900,6 +2045,7 @@ public class Basic {
                 stdout.close();
                 stderr.close();
                 stdin.close();
+                new ProcessBuilder(cmdkill).start();
                 //----------------------------------------------------------
                 // There remain unsolved issues with asynchronous close.
                 // Here's a highly non-portable experiment to demonstrate:
@@ -2031,6 +2177,119 @@ public class Basic {
         policy.setPermissions(new RuntimePermission("setSecurityManager"));
         System.setSecurityManager(null);
 
+        //----------------------------------------------------------------
+        // Check that Process.isAlive() &
+        // Process.waitFor(0, TimeUnit.MILLISECONDS) work as expected.
+        //----------------------------------------------------------------
+        try {
+            List<String> childArgs = new ArrayList<String>(javaChildArgs);
+            childArgs.add("sleep");
+            final Process p = new ProcessBuilder(childArgs).start();
+            long start = System.nanoTime();
+            if (!p.isAlive() || p.waitFor(0, TimeUnit.MILLISECONDS)) {
+                fail("Test failed: Process exited prematurely");
+            }
+            long end = System.nanoTime();
+            // give waitFor(timeout) a wide berth (100ms)
+            if ((end - start) > 100000000)
+                fail("Test failed: waitFor took too long");
+
+            p.destroy();
+            p.waitFor();
+
+            if (p.isAlive() ||
+                !p.waitFor(0, TimeUnit.MILLISECONDS))
+            {
+                fail("Test failed: Process still alive - please terminate " +
+                    p.toString() + " manually");
+            }
+        } catch (Throwable t) { unexpected(t); }
+
+        //----------------------------------------------------------------
+        // Check that Process.waitFor(timeout, TimeUnit.MILLISECONDS)
+        // works as expected.
+        //----------------------------------------------------------------
+        try {
+            List<String> childArgs = new ArrayList<String>(javaChildArgs);
+            childArgs.add("sleep");
+            final Process p = new ProcessBuilder(childArgs).start();
+            long start = System.nanoTime();
+
+            p.waitFor(1000, TimeUnit.MILLISECONDS);
+
+            long end = System.nanoTime();
+            if ((end - start) < 500000000)
+                fail("Test failed: waitFor didn't take long enough");
+
+            p.destroy();
+
+            start = System.nanoTime();
+            p.waitFor(1000, TimeUnit.MILLISECONDS);
+            end = System.nanoTime();
+            if ((end - start) > 900000000)
+                fail("Test failed: waitFor took too long on a dead process.");
+        } catch (Throwable t) { unexpected(t); }
+
+        //----------------------------------------------------------------
+        // Check that Process.waitFor(timeout, TimeUnit.MILLISECONDS)
+        // interrupt works as expected.
+        //----------------------------------------------------------------
+        try {
+            List<String> childArgs = new ArrayList<String>(javaChildArgs);
+            childArgs.add("sleep");
+            final Process p = new ProcessBuilder(childArgs).start();
+            final long start = System.nanoTime();
+            final CountDownLatch ready = new CountDownLatch(1);
+            final CountDownLatch done = new CountDownLatch(1);
+
+            final Thread thread = new Thread() {
+                public void run() {
+                    try {
+                        final boolean result;
+                        try {
+                            ready.countDown();
+                            result = p.waitFor(30000, TimeUnit.MILLISECONDS);
+                        } catch (InterruptedException e) {
+                            return;
+                        }
+                        fail("waitFor() wasn't interrupted, its return value was: " + result);
+                    } catch (Throwable t) {
+                        unexpected(t);
+                    } finally {
+                        done.countDown();
+                    }
+                }
+            };
+
+            thread.start();
+            ready.await();
+            Thread.sleep(1000);
+            thread.interrupt();
+            done.await();
+            p.destroy();
+        } catch (Throwable t) { unexpected(t); }
+
+        //----------------------------------------------------------------
+        // Check the default implementation for
+        // Process.waitFor(long, TimeUnit)
+        //----------------------------------------------------------------
+        try {
+            List<String> childArgs = new ArrayList<String>(javaChildArgs);
+            childArgs.add("sleep");
+            final Process proc = new ProcessBuilder(childArgs).start();
+            DelegatingProcess p = new DelegatingProcess(proc);
+            long start = System.nanoTime();
+
+            p.waitFor(1000, TimeUnit.MILLISECONDS);
+
+            long end = System.nanoTime();
+            if ((end - start) < 500000000)
+                fail("Test failed: waitFor didn't take long enough");
+
+            p.destroy();
+
+            p.waitFor(1000, TimeUnit.MILLISECONDS);
+        } catch (Throwable t) { unexpected(t); }
     }
 
     static void closeStreams(Process p) {

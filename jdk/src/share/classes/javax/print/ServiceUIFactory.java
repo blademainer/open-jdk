@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,8 +39,8 @@ package javax.print;
  * initialize services only when needed without any API dependencies
  * except in an environment in which they are used.
  * <p>
- * Swing UIs are preferred as they provide a more consistent L&F and
- * can support accessibility APIs.
+ * Swing UIs are preferred as they provide a more consistent {@literal L&F}
+ * and can support accessibility APIs.
  * <p>
  * Example usage:
  * <pre>

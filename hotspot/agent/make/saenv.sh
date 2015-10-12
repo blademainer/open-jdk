@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (c) 2003, 2009, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,7 @@
 # This file sets common environment variables for all SA scripts
 
 OS=`uname`
-STARTDIR=`dirname $0`
+STARTDIR=`(cd \`dirname $0 \`; pwd)`
 ARCH=`uname -m`
 
 if [ "x$SA_JAVA" = "x" ]; then
@@ -69,6 +69,14 @@ fi
 
 
 SA_CLASSPATH=$STARTDIR/../build/classes:$STARTDIR/../src/share/lib/js.jar:$STARTDIR/sa.jar:$STARTDIR/lib/js.jar
+
+if [ ! -z "$SA_TYPEDB" ]; then
+  if [ ! -f $SA_TYPEDB ]; then
+    echo "$SA_TYPEDB is unreadable"
+    exit 1
+  fi
+  OPTIONS="-Dsun.jvm.hotspot.typedb=$SA_TYPEDB ${OPTIONS}"
+fi
 
 OPTIONS="-Djava.system.class.loader=sun.jvm.hotspot.SALauncherLoader ${OPTIONS}"
 

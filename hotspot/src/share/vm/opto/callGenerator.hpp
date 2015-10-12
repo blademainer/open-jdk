@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,10 +25,13 @@
 #ifndef SHARE_VM_OPTO_CALLGENERATOR_HPP
 #define SHARE_VM_OPTO_CALLGENERATOR_HPP
 
+#include "compiler/compileBroker.hpp"
 #include "opto/callnode.hpp"
 #include "opto/compile.hpp"
 #include "opto/type.hpp"
 #include "runtime/deoptimization.hpp"
+
+class Parse;
 
 //---------------------------CallGenerator-------------------------------------
 // The subclasses of this class handle generation of ideal nodes for
@@ -44,7 +47,7 @@ class CallGenerator : public ResourceObj {
   ciMethod*             _method;                // The method being called.
 
  protected:
-  CallGenerator(ciMethod* method);
+  CallGenerator(ciMethod* method) : _method(method) {}
 
  public:
   // Accessors
@@ -64,9 +67,18 @@ class CallGenerator : public ResourceObj {
   virtual bool      is_predicted() const        { return false; }
   // is_trap: Does not return to the caller.  (E.g., uncommon trap.)
   virtual bool      is_trap() const             { return false; }
+  // does_virtual_dispatch: Should try inlining as normal method first.
+  virtual bool      does_virtual_dispatch() const     { return false; }
 
   // is_late_inline: supports conversion of call into an inline
   virtual bool      is_late_inline() const      { return false; }
+  // same but for method handle calls
+  virtual bool      is_mh_late_inline() const   { return false; }
+  virtual bool      is_string_late_inline() const{ return false; }
+
+  // for method handle calls: have we tried inlinining the call already?
+  virtual bool      already_attempted() const   { ShouldNotReachHere(); return false; }
+
   // Replace the call with an inline version of the code
   virtual void do_late_inline() { ShouldNotReachHere(); }
 
@@ -99,7 +111,7 @@ class CallGenerator : public ResourceObj {
   //
   // If the result is NULL, it means that this CallGenerator was unable
   // to handle the given call, and another CallGenerator should be consulted.
-  virtual JVMState* generate(JVMState* jvms) = 0;
+  virtual JVMState* generate(JVMState* jvms, Parse* parent_parser) = 0;
 
   // How to generate a call site that is inlined:
   static CallGenerator* for_inline(ciMethod* m, float expected_uses = -1);
@@ -108,13 +120,17 @@ class CallGenerator : public ResourceObj {
 
   // How to generate vanilla out-of-line call sites:
   static CallGenerator* for_direct_call(ciMethod* m, bool separate_io_projs = false);   // static, special
-  static CallGenerator* for_dynamic_call(ciMethod* m);   // invokedynamic
   static CallGenerator* for_virtual_call(ciMethod* m, int vtable_index);  // virtual, interface
+  static CallGenerator* for_dynamic_call(ciMethod* m);   // invokedynamic
 
-  static CallGenerator* for_method_handle_inline(Node* method_handle, JVMState* jvms, ciMethod* caller, ciMethod* callee, ciCallProfile profile);
+  static CallGenerator* for_method_handle_call(  JVMState* jvms, ciMethod* caller, ciMethod* callee, bool delayed_forbidden);
+  static CallGenerator* for_method_handle_inline(JVMState* jvms, ciMethod* caller, ciMethod* callee, bool& input_not_const);
 
   // How to generate a replace a direct call with an inline version
   static CallGenerator* for_late_inline(ciMethod* m, CallGenerator* inline_cg);
+  static CallGenerator* for_mh_late_inline(ciMethod* caller, ciMethod* callee, bool input_not_const);
+  static CallGenerator* for_string_late_inline(ciMethod* m, CallGenerator* inline_cg);
+  static CallGenerator* for_boxing_late_inline(ciMethod* m, CallGenerator* inline_cg);
 
   // How to make a call but defer the decision whether to inline or not.
   static CallGenerator* for_warm_call(WarmCallInfo* ci,
@@ -141,13 +157,27 @@ class CallGenerator : public ResourceObj {
   // Registry for intrinsics:
   static CallGenerator* for_intrinsic(ciMethod* m);
   static void register_intrinsic(ciMethod* m, CallGenerator* cg);
+  static CallGenerator* for_predicted_intrinsic(CallGenerator* intrinsic,
+                                                CallGenerator* cg);
+  virtual Node* generate_predicate(JVMState* jvms) { return NULL; };
+
+  virtual void print_inlining_late(const char* msg) { ShouldNotReachHere(); }
+
+  static void print_inlining(Compile* C, ciMethod* callee, int inline_level, int bci, const char* msg) {
+    if (C->print_inlining()) {
+      C->print_inlining(callee, inline_level, bci, msg);
+    }
+  }
 };
 
-class InlineCallGenerator : public CallGenerator {
-  virtual bool      is_inline() const           { return true; }
 
+//------------------------InlineCallGenerator----------------------------------
+class InlineCallGenerator : public CallGenerator {
  protected:
-  InlineCallGenerator(ciMethod* method) : CallGenerator(method) { }
+  InlineCallGenerator(ciMethod* method) : CallGenerator(method) {}
+
+ public:
+  virtual bool      is_inline() const           { return true; }
 };
 
 
@@ -236,7 +266,7 @@ class WarmCallInfo : public ResourceObj {
   // Because WarmInfo objects live over the entire lifetime of the
   // Compile object, they are allocated into the comp_arena, which
   // does not get resource marked or reset during the compile process
-  void *operator new( size_t x, Compile* C ) { return C->comp_arena()->Amalloc(x); }
+  void *operator new( size_t x, Compile* C ) throw() { return C->comp_arena()->Amalloc(x); }
   void operator delete( void * ) { } // fast deallocation
 
   static WarmCallInfo* always_hot();

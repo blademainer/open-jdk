@@ -1,10 +1,35 @@
 /*
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
+ */
+
+/*
   @test %I% %E%
   @bug 6315717
   @summary verifies that modifiers are correct for extra buttons
   @author Andrei Dmitriev : area=awt.mouse
   @run main MouseModifiersUnitTest_Extra
  */
+
+import sun.awt.OSInfo;
 
 import java.awt.*;
 import java.awt.event.*;
@@ -38,6 +63,17 @@ public class MouseModifiersUnitTest_Extra extends Frame {
     static int [] modifiersExStandardCTRL;
     static int [] modifiersExStandardALT;
 
+    private final static String SHIFT_MODIFIER = OSInfo.getOSType().equals(OSInfo.OSType.MACOSX) ?
+                                                "\u21e7" : "Shift";
+
+    private final static String ALT_MODIFIER = OSInfo.getOSType().equals(OSInfo.OSType.MACOSX) ?
+                                                "\u2325" : "Alt";
+
+
+    private final static String CTRL_MODIFIER = OSInfo.getOSType().equals(OSInfo.OSType.MACOSX) ?
+                                                "\u2303" : "Ctrl";
+
+
     // BUTTON1, 2, 3 press-release.
     final static int  modifiersStandard = 0; //InputEvent.BUTTON_DOWN_MASK;
 
@@ -54,7 +90,8 @@ public class MouseModifiersUnitTest_Extra extends Frame {
 
         if (modifiersEx != curStandardExModifiers[index]){
 //            System.out.println(">>>>>>>>>>>>>>> Pressed. modifiersEx "+modifiersEx +" : "+!= curStandardExModifiers");
-            MessageLogger.reportError("Test failed :  Pressed. modifiersEx != curStandardExModifiers. Got: " + modifiersEx + " , Expected: " + curStandardExModifiers[index]);
+            MessageLogger.reportError("Test failed :  Pressed. modifiersEx != curStandardExModifiers. Got: "
+                    + modifiersEx + " , Expected: " + curStandardExModifiers[index]);
         }
 
      //check event.paramString() output
@@ -65,51 +102,54 @@ public class MouseModifiersUnitTest_Extra extends Frame {
         checkExtModifiersOnPress(testModifier, paramStringElements, button);
     }
 
-    public static void checkExtModifiersOnReleaseClick(int testModifier, HashMap h, int button){
+    public static void checkExtModifiersOnReleaseClick(int testModifier, HashMap<String, String> h, int button){
         String ethalon = "";
         switch (testModifier){
             case SHIFT:{
-                ethalon = "Shift";
+                ethalon = SHIFT_MODIFIER;
                 break;
             }
             case ALT:{
-                ethalon = "Alt";
+                ethalon = ALT_MODIFIER;
                 break;
             }
             case CTRL:{
-                ethalon = "Ctrl";
+                ethalon = CTRL_MODIFIER;
                 break;
             }
         }
-        //
+
         if (h.get("extModifiers") == null){
             h.put("extModifiers", "");
         }
+
         if (!ethalon.equals(h.get("extModifiers"))) {
-            MessageLogger.reportError("Test failed :  Released/Clicked. extModifiers = " +h.get("extModifiers")+" instead of : "+ethalon);
+            MessageLogger.reportError("Test failed :  Released/Clicked. extModifiers = "
+                    + h.get("extModifiers") + " instead of : " + ethalon);
         }
     }
 
-    public static void checkExtModifiersOnPress(int testModifier, HashMap h, int button){
+    public static void checkExtModifiersOnPress(int testModifier, HashMap<String, String> h, int button){
         String ethalon = "";
         switch (testModifier){
             case SHIFT:{
-                ethalon = "Shift+";
+                ethalon = SHIFT_MODIFIER + "+";
                 break;
             }
             case ALT:{
-                ethalon = "Alt+";
+                ethalon = ALT_MODIFIER + "+";
                 break;
             }
             case CTRL:{
-                ethalon = "Ctrl+";
+                ethalon = CTRL_MODIFIER + "+";
                 break;
             }
         }
         ethalon = ethalon + "Button" +button;
 
         if (!h.get("extModifiers").equals(ethalon)) {
-            MessageLogger.reportError("Test failed :  Pressed. extModifiers = " +h.get("extModifiers")+" instead of : "+ethalon);
+            MessageLogger.reportError("Test failed :  Pressed. extModifiers = " +h.get("extModifiers")+" instead of : "
+                    + ethalon);
         }
     }
 
@@ -129,7 +169,7 @@ public class MouseModifiersUnitTest_Extra extends Frame {
         }
     }
     public static HashMap<String, String> tokenizeParamString(String param){
-        HashMap <String, String> params = new HashMap<String, String>();
+        HashMap <String, String> params = new HashMap<>();
         StringTokenizer st = new StringTokenizer(param, ",=");
         while (st.hasMoreTokens()){
             String tmp = st.nextToken();
@@ -144,7 +184,7 @@ public class MouseModifiersUnitTest_Extra extends Frame {
     }
 
     public static Vector<String> tokenizeModifiers(String modifierList){
-        Vector<String> modifiers = new Vector<String>();
+        Vector<String> modifiers = new Vector<>();
         StringTokenizer st = new StringTokenizer(modifierList, "+");
         while (st.hasMoreTokens()){
             String tmp = st.nextToken();
@@ -166,7 +206,8 @@ public class MouseModifiersUnitTest_Extra extends Frame {
         }
 
         if (modifiersEx != curStandardExModifiers[index]){
-            MessageLogger.reportError("Test failed :  Released. modifiersEx != curStandardExModifiers. Got: " + modifiersEx + " , Expected: " + curStandardExModifiers[index]);
+            MessageLogger.reportError("Test failed :  Released. modifiersEx != curStandardExModifiers. Got: "
+                    + modifiersEx + " , Expected: " + curStandardExModifiers[index]);
         }
 
      //check event.paramString() output
@@ -189,7 +230,8 @@ public class MouseModifiersUnitTest_Extra extends Frame {
         }
 
         if (modifiersEx != curStandardExModifiers[index]){
-            MessageLogger.reportError("Test failed :  Clicked. modifiersEx != curStandardExModifiers. Got: " + modifiersEx + " , Expected: " + curStandardExModifiers[index]);
+            MessageLogger.reportError("Test failed :  Clicked. modifiersEx != curStandardExModifiers. Got: "
+                    + modifiersEx + " , Expected: " + curStandardExModifiers[index]);
         }
 
      //check event.paramString() output
@@ -220,22 +262,10 @@ public class MouseModifiersUnitTest_Extra extends Frame {
     static Robot robot;
     public void init() {
         this.setLayout(new BorderLayout());
-
-        String[] instructions =
-        {
-            "This test should be used with the mouse having more then three buttons.",
-            "Currently, " + MouseInfo.getNumberOfButtons() +" buttons are available.",
-            "If there are less then three buttons, press PASS.",
-            "1. Press each extra mouse button.",
-            "2. For each mouse event its modifiers and ExModifiers will be printed.",
-            "3. Verify that they are correct.",
-            "4. Press Pass or Fail accordingly."
-        };
-//        Sysout.createDialogWithInstructions( instructions );
-
-//        addMouseListener(adapterTest1);
         try {
             robot  = new Robot();
+            robot.setAutoDelay(100);
+            robot.setAutoWaitForIdle(true);
         } catch (Exception e) {
             MessageLogger.reportError("Test failed. "+e);
         }
@@ -274,9 +304,8 @@ public class MouseModifiersUnitTest_Extra extends Frame {
         robot.delay(1000);
         robot.mouseMove(getLocationOnScreen().x + getWidth()/2, getLocationOnScreen().y + getHeight()/2);
         for (int i = 3; i< mouseButtonDownMasks.length; i++){
-            System.out.println("testNONE() => " +mouseButtonDownMasks[i] );
+            System.out.println("testNONE() => " + mouseButtonDownMasks[i]);
             robot.mousePress(mouseButtonDownMasks[i]);
-            robot.delay(100);
             robot.mouseRelease(mouseButtonDownMasks[i]);
         }
         robot.delay(1000);
@@ -289,9 +318,8 @@ public class MouseModifiersUnitTest_Extra extends Frame {
         robot.mouseMove(getLocationOnScreen().x + getWidth()/2, getLocationOnScreen().y + getHeight()/2);
         for (int i = 3; i< mouseButtonDownMasks.length; i++){
             robot.keyPress(KeyEvent.VK_SHIFT);
-            System.out.println("testSHIFT() => " +mouseButtonDownMasks[i] );
+            System.out.println("testSHIFT() => " + mouseButtonDownMasks[i]);
             robot.mousePress(mouseButtonDownMasks[i]);
-            robot.delay(100);
             robot.mouseRelease(mouseButtonDownMasks[i]);
             robot.keyRelease(KeyEvent.VK_SHIFT);
         }
@@ -305,9 +333,8 @@ public class MouseModifiersUnitTest_Extra extends Frame {
         robot.mouseMove(getLocationOnScreen().x + getWidth()/2, getLocationOnScreen().y + getHeight()/2);
         for (int i = 3; i< mouseButtonDownMasks.length; i++){
             robot.keyPress(KeyEvent.VK_CONTROL);
-            System.out.println("testCTRL() => " +mouseButtonDownMasks[i] );
+            System.out.println("testCTRL() => " + mouseButtonDownMasks[i]);
             robot.mousePress(mouseButtonDownMasks[i]);
-            robot.delay(100);
             robot.mouseRelease(mouseButtonDownMasks[i]);
             robot.keyRelease(KeyEvent.VK_CONTROL);
         }
@@ -321,9 +348,8 @@ public class MouseModifiersUnitTest_Extra extends Frame {
         robot.mouseMove(getLocationOnScreen().x + getWidth()/2, getLocationOnScreen().y + getHeight()/2);
         for (int i = 3; i< mouseButtonDownMasks.length; i++){
             robot.keyPress(KeyEvent.VK_ALT);
-            System.out.println("testALT() => " +mouseButtonDownMasks[i] );
+            System.out.println("testALT() => " + mouseButtonDownMasks[i]);
             robot.mousePress(mouseButtonDownMasks[i]);
-            robot.delay(100);
             robot.mouseRelease(mouseButtonDownMasks[i]);
             robot.keyRelease(KeyEvent.VK_ALT);
         }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -46,6 +46,7 @@ import sun.util.logging.PlatformLogger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The AppContext is a table referenced by ThreadGroup which stores
@@ -161,9 +162,13 @@ public final class AppContext {
     }
 
     /* The main "system" AppContext, used by everything not otherwise
-       contained in another AppContext.
+       contained in another AppContext. It is implicitly created for
+       standalone apps only (i.e. not applets)
      */
     private static volatile AppContext mainAppContext = null;
+
+    private static class GetAppContextLock {};
+    private final static Object getAppContextLock = new GetAppContextLock();
 
     /*
      * The hash map associated with this AppContext.  A private delegate
@@ -171,7 +176,7 @@ public final class AppContext {
      * HashMap's potentially risky methods, such as clear(), elements(),
      * putAll(), etc.
      */
-    private final HashMap table = new HashMap();
+    private final Map<Object, Object> table = new HashMap<>();
 
     private final ThreadGroup threadGroup;
 
@@ -188,31 +193,16 @@ public final class AppContext {
     public static final String DISPOSED_PROPERTY_NAME = "disposed";
     public static final String GUI_DISPOSED = "guidisposed";
 
-    private volatile boolean isDisposed = false; // true if AppContext is disposed
+    private enum State {
+        VALID,
+        BEING_DISPOSED,
+        DISPOSED
+    };
+
+    private volatile State state = State.VALID;
 
     public boolean isDisposed() {
-        return isDisposed;
-    }
-
-    static {
-        // On the main Thread, we get the ThreadGroup, make a corresponding
-        // AppContext, and instantiate the Java EventQueue.  This way, legacy
-        // code is unaffected by the move to multiple AppContext ability.
-        AccessController.doPrivileged(new PrivilegedAction() {
-            public Object run() {
-                ThreadGroup currentThreadGroup =
-                        Thread.currentThread().getThreadGroup();
-                ThreadGroup parentThreadGroup = currentThreadGroup.getParent();
-                while (parentThreadGroup != null) {
-                    // Find the root ThreadGroup to construct our main AppContext
-                    currentThreadGroup = parentThreadGroup;
-                    parentThreadGroup = currentThreadGroup.getParent();
-                }
-                mainAppContext = new AppContext(currentThreadGroup);
-                numAppContexts = 1;
-                return mainAppContext;
-            }
-        });
+        return state == State.DISPOSED;
     }
 
     /*
@@ -222,7 +212,8 @@ public final class AppContext {
      * number is 1.  If so, it returns the sole AppContext without
      * checking Thread.currentThread().
      */
-    private static volatile int numAppContexts;
+    private static final AtomicInteger numAppContexts = new AtomicInteger(0);
+
 
     /*
      * The context ClassLoader that was used to create this AppContext.
@@ -243,7 +234,7 @@ public final class AppContext {
      * @since   1.2
      */
     AppContext(ThreadGroup threadGroup) {
-        numAppContexts++;
+        numAppContexts.incrementAndGet();
 
         this.threadGroup = threadGroup;
         threadGroup2appContext.put(threadGroup, this);
@@ -266,6 +257,27 @@ public final class AppContext {
     private static final ThreadLocal<AppContext> threadAppContext =
             new ThreadLocal<AppContext>();
 
+    private final static void initMainAppContext() {
+        // On the main Thread, we get the ThreadGroup, make a corresponding
+        // AppContext, and instantiate the Java EventQueue.  This way, legacy
+        // code is unaffected by the move to multiple AppContext ability.
+        AccessController.doPrivileged(new PrivilegedAction<Void>() {
+            public Void run() {
+                ThreadGroup currentThreadGroup =
+                        Thread.currentThread().getThreadGroup();
+                ThreadGroup parentThreadGroup = currentThreadGroup.getParent();
+                while (parentThreadGroup != null) {
+                    // Find the root ThreadGroup to construct our main AppContext
+                    currentThreadGroup = parentThreadGroup;
+                    parentThreadGroup = currentThreadGroup.getParent();
+                }
+
+                mainAppContext = SunToolkit.createNewAppContext(currentThreadGroup);
+                return null;
+            }
+        });
+    }
+
     /**
      * Returns the appropriate AppContext for the caller,
      * as determined by its ThreadGroup.  If the main "system" AppContext
@@ -278,8 +290,10 @@ public final class AppContext {
      * @since   1.2
      */
     public final static AppContext getAppContext() {
-        if (numAppContexts == 1)   // If there's only one system-wide,
-            return mainAppContext; // return the main system AppContext.
+        // we are standalone app, return the main app context
+        if (numAppContexts.get() == 1 && mainAppContext != null) {
+            return mainAppContext;
+        }
 
         AppContext appContext = threadAppContext.get();
 
@@ -293,29 +307,41 @@ public final class AppContext {
                     // when new AppContext objects are created.
                     ThreadGroup currentThreadGroup = Thread.currentThread().getThreadGroup();
                     ThreadGroup threadGroup = currentThreadGroup;
+
+                    // Special case: we implicitly create the main app context
+                    // if no contexts have been created yet. This covers standalone apps
+                    // and excludes applets because by the time applet starts
+                    // a number of contexts have already been created by the plugin.
+                    synchronized (getAppContextLock) {
+                        if (numAppContexts.get() == 0) {
+                            if (System.getProperty("javaplugin.version") == null &&
+                                    System.getProperty("javawebstart.version") == null) {
+                                initMainAppContext();
+                            } else if (System.getProperty("javafx.version") != null &&
+                                    threadGroup.getParent() != null) {
+                                // Swing inside JavaFX case
+                                SunToolkit.createNewAppContext();
+                            }
+                        }
+                    }
+
                     AppContext context = threadGroup2appContext.get(threadGroup);
                     while (context == null) {
                         threadGroup = threadGroup.getParent();
                         if (threadGroup == null) {
-                            // If we get here, we're running under a ThreadGroup that
-                            // has no AppContext associated with it.  This should never
-                            // happen, because createNewContext() should be used by the
-                            // toolkit to create the ThreadGroup that everything runs
-                            // under.
-                            throw new RuntimeException("Invalid ThreadGroup");
+                            return null;
                         }
                         context = threadGroup2appContext.get(threadGroup);
                     }
+
                     // In case we did anything in the above while loop, we add
                     // all the intermediate ThreadGroups to threadGroup2appContext
                     // so we won't spin again.
                     for (ThreadGroup tg = currentThreadGroup; tg != threadGroup; tg = tg.getParent()) {
                         threadGroup2appContext.put(tg, context);
                     }
+
                     // Now we're done, so we cache the latest key/value pair.
-                    // (we do this before checking with any AWTSecurityManager, so if
-                    // this Thread equates with the main AppContext in the cache, it
-                    // still will)
                     threadAppContext.set(context);
 
                     return context;
@@ -323,23 +349,30 @@ public final class AppContext {
             });
         }
 
-        if (appContext == mainAppContext)  {
-            // Before we return the main "system" AppContext, check to
-            // see if there's an AWTSecurityManager installed.  If so,
-            // allow it to choose the AppContext to return.
-            SecurityManager securityManager = System.getSecurityManager();
-            if ((securityManager != null) &&
-                (securityManager instanceof AWTSecurityManager))
-            {
-                AWTSecurityManager awtSecMgr = (AWTSecurityManager)securityManager;
-                AppContext secAppContext = awtSecMgr.getAppContext();
-                if (secAppContext != null)  {
-                    appContext = secAppContext; // Return what we're told
-                }
-            }
-        }
-
         return appContext;
+    }
+
+    /**
+     * Returns true if the specified AppContext is the main AppContext.
+     *
+     * @param   ctx the context to compare with the main context
+     * @return  true if the specified AppContext is the main AppContext.
+     * @since   1.8
+     */
+    public final static boolean isMainContext(AppContext ctx) {
+        return (ctx != null && ctx == mainAppContext);
+    }
+
+    private final static AppContext getExecutionAppContext() {
+        SecurityManager securityManager = System.getSecurityManager();
+        if ((securityManager != null) &&
+            (securityManager instanceof AWTSecurityManager))
+        {
+            AWTSecurityManager awtSecMgr = (AWTSecurityManager) securityManager;
+            AppContext secAppContext = awtSecMgr.getAppContext();
+            return secAppContext; // Return what we're told
+        }
+        return null;
     }
 
     private long DISPOSAL_TIMEOUT = 5000;  // Default to 5-second timeout
@@ -373,10 +406,11 @@ public final class AppContext {
         }
 
         synchronized(this) {
-            if (this.isDisposed) {
-                return; // If already disposed, bail.
+            if (this.state != State.VALID) {
+                return; // If already disposed or being disposed, bail.
             }
-            this.isDisposed = true;
+
+            this.state = State.BEING_DISPOSED;
         }
 
         final PropertyChangeSupport changeSupport = this.changeSupport;
@@ -396,11 +430,11 @@ public final class AppContext {
                     try {
                         w.dispose();
                     } catch (Throwable t) {
-                        log.finer("exception occured while disposing app context", t);
+                        log.finer("exception occurred while disposing app context", t);
                     }
                 }
-                AccessController.doPrivileged(new PrivilegedAction() {
-                        public Object run() {
+                AccessController.doPrivileged(new PrivilegedAction<Void>() {
+                        public Void run() {
                             if (!GraphicsEnvironment.isHeadless() && SystemTray.isSupported())
                             {
                                 SystemTray systemTray = SystemTray.getSystemTray();
@@ -444,6 +478,11 @@ public final class AppContext {
             try {
                 notificationLock.wait(DISPOSAL_TIMEOUT);
             } catch (InterruptedException e) { }
+        }
+
+        // We are done with posting events, so change the state to disposed
+        synchronized(this) {
+            this.state = State.DISPOSED;
         }
 
         // Next, we interrupt all Threads in the ThreadGroup
@@ -503,7 +542,7 @@ public final class AppContext {
             this.table.clear(); // Clear out the Hashtable to ease garbage collection
         }
 
-        numAppContexts--;
+        numAppContexts.decrementAndGet();
 
         mostRecentKeyValue = null;
     }
@@ -523,7 +562,7 @@ public final class AppContext {
         }
     }
 
-    static final class CreateThreadAction implements PrivilegedAction {
+    static final class CreateThreadAction implements PrivilegedAction<Thread> {
         private final AppContext appContext;
         private final Runnable runnable;
 
@@ -532,7 +571,7 @@ public final class AppContext {
             runnable = r;
         }
 
-        public Object run() {
+        public Thread run() {
             Thread t = new Thread(appContext.getThreadGroup(), runnable);
             t.setContextClassLoader(appContext.getContextClassLoader());
             t.setPriority(Thread.NORM_PRIORITY + 1);
@@ -552,8 +591,8 @@ public final class AppContext {
             if (appContext != AppContext.getAppContext()) {
                 // Create a thread that belongs to the thread group associated
                 // with the AppContext and invokes EventQueue.postEvent.
-                PrivilegedAction action = new CreateThreadAction(appContext, r);
-                Thread thread = (Thread)AccessController.doPrivileged(action);
+                PrivilegedAction<Thread> action = new CreateThreadAction(appContext, r);
+                Thread thread = AccessController.doPrivileged(action);
                 thread.start();
             } else {
                 r.run();
@@ -776,6 +815,73 @@ public final class AppContext {
             return new PropertyChangeListener[0];
         }
         return changeSupport.getPropertyChangeListeners(propertyName);
+    }
+
+    // Set up JavaAWTAccess in SharedSecrets
+    static {
+        sun.misc.SharedSecrets.setJavaAWTAccess(new sun.misc.JavaAWTAccess() {
+            private boolean hasRootThreadGroup(final AppContext ecx) {
+                return AccessController.doPrivileged(new PrivilegedAction<Boolean>() {
+                    @Override
+                    public Boolean run() {
+                        return ecx.threadGroup.getParent() == null;
+                    }
+                });
+            }
+
+            /**
+             * Returns the AppContext used for applet logging isolation, or null if
+             * the default global context can be used.
+             * If there's no applet, or if the caller is a stand alone application,
+             * or running in the main app context, returns null.
+             * Otherwise, returns the AppContext of the calling applet.
+             * @return null if the global default context can be used,
+             *         an AppContext otherwise.
+             **/
+            public Object getAppletContext() {
+                // There's no AppContext: return null.
+                // No need to call getAppContext() if numAppContext == 0:
+                // it means that no AppContext has been created yet, and
+                // we don't want to trigger the creation of a main app
+                // context since we don't need it.
+                if (numAppContexts.get() == 0) return null;
+
+                // Get the context from the security manager
+                AppContext ecx = getExecutionAppContext();
+
+                // Not sure we really need to re-check numAppContexts here.
+                // If all applets have gone away then we could have a
+                // numAppContexts coming back to 0. So we recheck
+                // it here because we don't want to trigger the
+                // creation of a main AppContext in that case.
+                // This is probably not 100% MT-safe but should reduce
+                // the window of opportunity in which that issue could
+                // happen.
+                if (numAppContexts.get() > 0) {
+                   // Defaults to thread group caching.
+                   // This is probably not required as we only really need
+                   // isolation in a deployed applet environment, in which
+                   // case ecx will not be null when we reach here
+                   // However it helps emulate the deployed environment,
+                   // in tests for instance.
+                   ecx = ecx != null ? ecx : getAppContext();
+                }
+
+                // getAppletContext() may be called when initializing the main
+                // app context - in which case mainAppContext will still be
+                // null. To work around this issue we simply use
+                // AppContext.threadGroup.getParent() == null instead, since
+                // mainAppContext is the only AppContext which should have
+                // the root TG as its thread group.
+                // See: JDK-8023258
+                final boolean isMainAppContext = ecx == null
+                    || mainAppContext == ecx
+                    || mainAppContext == null && hasRootThreadGroup(ecx);
+
+                return isMainAppContext ? null : ecx;
+            }
+
+        });
     }
 }
 

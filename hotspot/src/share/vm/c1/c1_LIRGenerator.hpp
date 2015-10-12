@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -238,15 +238,16 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
   LIR_Opr getThreadPointer();
 
   void do_RegisterFinalizer(Intrinsic* x);
+  void do_isInstance(Intrinsic* x);
   void do_getClass(Intrinsic* x);
   void do_currentThread(Intrinsic* x);
   void do_MathIntrinsic(Intrinsic* x);
   void do_ArrayCopy(Intrinsic* x);
   void do_CompareAndSwap(Intrinsic* x, ValueType* type);
-  void do_AttemptUpdate(Intrinsic* x);
   void do_NIOCheckIndex(Intrinsic* x);
   void do_FPIntrinsics(Intrinsic* x);
   void do_Reference_get(Intrinsic* x);
+  void do_update_CRC32(Intrinsic* x);
 
   void do_UnsafePrefetch(UnsafePrefetch* x, bool is_store);
 
@@ -306,7 +307,7 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
 
   void store_stack_parameter (LIR_Opr opr, ByteSize offset_from_sp_in_bytes);
 
-  void jobject2reg_with_patching(LIR_Opr r, ciObject* obj, CodeEmitInfo* info);
+  void klass2reg_with_patching(LIR_Opr r, ciMetadata* obj, CodeEmitInfo* info);
 
   // this loads the length and compares against the index
   void array_range_check          (LIR_Opr array, LIR_Opr index, CodeEmitInfo* null_check_info, CodeEmitInfo* range_check_info);
@@ -412,6 +413,8 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
     case If::leq: l = lir_cond_lessEqual;    break;
     case If::geq: l = lir_cond_greaterEqual; break;
     case If::gtr: l = lir_cond_greater;      break;
+    case If::aeq: l = lir_cond_aboveEqual;   break;
+    case If::beq: l = lir_cond_belowEqual;   break;
     };
     return l;
   }
@@ -425,6 +428,18 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
   SwitchRangeArray* create_lookup_ranges(TableSwitch* x);
   SwitchRangeArray* create_lookup_ranges(LookupSwitch* x);
   void do_SwitchRanges(SwitchRangeArray* x, LIR_Opr value, BlockBegin* default_sux);
+
+  void do_RuntimeCall(address routine, int expected_arguments, Intrinsic* x);
+#ifdef TRACE_HAVE_INTRINSICS
+  void do_ThreadIDIntrinsic(Intrinsic* x);
+  void do_ClassIDIntrinsic(Intrinsic* x);
+#endif
+  ciKlass* profile_type(ciMethodData* md, int md_first_offset, int md_offset, intptr_t profiled_k,
+                        Value arg, LIR_Opr& mdp, bool not_null, ciKlass* signature_at_call_k,
+                        ciKlass* callee_signature_k);
+  void profile_arguments(ProfileCall* x);
+  void profile_parameters(Base* x);
+  void profile_parameters_at_call(ProfileCall* x);
 
  public:
   Compilation*  compilation() const              { return _compilation; }
@@ -494,6 +509,7 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
   virtual void do_IfOp           (IfOp*            x);
   virtual void do_Convert        (Convert*         x);
   virtual void do_NullCheck      (NullCheck*       x);
+  virtual void do_TypeCast       (TypeCast*        x);
   virtual void do_Invoke         (Invoke*          x);
   virtual void do_NewInstance    (NewInstance*     x);
   virtual void do_NewTypeArray   (NewTypeArray*    x);
@@ -520,11 +536,18 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
   virtual void do_UnsafePutRaw   (UnsafePutRaw*    x);
   virtual void do_UnsafeGetObject(UnsafeGetObject* x);
   virtual void do_UnsafePutObject(UnsafePutObject* x);
+  virtual void do_UnsafeGetAndSetObject(UnsafeGetAndSetObject* x);
   virtual void do_UnsafePrefetchRead (UnsafePrefetchRead*  x);
   virtual void do_UnsafePrefetchWrite(UnsafePrefetchWrite* x);
   virtual void do_ProfileCall    (ProfileCall*     x);
+  virtual void do_ProfileReturnType (ProfileReturnType* x);
   virtual void do_ProfileInvoke  (ProfileInvoke*   x);
   virtual void do_RuntimeCall    (RuntimeCall*     x);
+  virtual void do_MemBar         (MemBar*          x);
+  virtual void do_RangeCheckPredicate(RangeCheckPredicate* x);
+#ifdef ASSERT
+  virtual void do_Assert         (Assert*          x);
+#endif
 };
 
 

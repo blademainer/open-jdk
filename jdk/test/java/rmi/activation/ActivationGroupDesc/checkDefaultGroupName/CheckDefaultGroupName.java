@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,16 +21,15 @@
  * questions.
  */
 
-/**
+/*
  * @test
  * @bug 4252236
  * @summary ActivationGroupDesc should not do early binding of default classname
- * @library ../../../testlibrary
- *
- * @build CheckDefaultGroupName
- *
- * @run main CheckDefaultGroupName
  * @author Laird Dornin
+ *
+ * @library ../../../testlibrary
+ * @build TestLibrary
+ * @run main CheckDefaultGroupName
  */
 
 import java.rmi.activation.*;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,10 +31,19 @@ package sun.security.jgss;
  * different callers.
  */
 public class GSSCaller {
-    public static final GSSCaller CALLER_UNKNOWN = new GSSCaller();
-    public static final GSSCaller CALLER_INITIATE = new GSSCaller();
-    public static final GSSCaller CALLER_ACCEPT = new GSSCaller();
-    public static final GSSCaller CALLER_SSL_CLIENT = new GSSCaller();
-    public static final GSSCaller CALLER_SSL_SERVER = new GSSCaller();
+    public static final GSSCaller CALLER_UNKNOWN = new GSSCaller("UNKNOWN");
+    public static final GSSCaller CALLER_INITIATE = new GSSCaller("INITIATE");
+    public static final GSSCaller CALLER_ACCEPT = new GSSCaller("ACCEPT");
+    public static final GSSCaller CALLER_SSL_CLIENT = new GSSCaller("SSL_CLIENT");
+    public static final GSSCaller CALLER_SSL_SERVER = new GSSCaller("SSL_SERVER");
+
+    private String name;
+    GSSCaller(String s) {
+        name = s;
+    }
+    @Override
+    public String toString() {
+        return "GSSCaller{" + name + '}';
+    }
 }
 

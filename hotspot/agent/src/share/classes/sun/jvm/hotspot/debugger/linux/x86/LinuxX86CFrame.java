@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,7 @@ import sun.jvm.hotspot.debugger.*;
 import sun.jvm.hotspot.debugger.linux.*;
 import sun.jvm.hotspot.debugger.cdbg.*;
 import sun.jvm.hotspot.debugger.cdbg.basic.*;
+import sun.jvm.hotspot.debugger.x86.*;
 
 final public class LinuxX86CFrame extends BasicCFrame {
    // package/class internals only
@@ -52,13 +53,21 @@ final public class LinuxX86CFrame extends BasicCFrame {
       return ebp;
    }
 
-   public CFrame sender() {
-      if (ebp == null) {
+   public CFrame sender(ThreadProxy thread) {
+      X86ThreadContext context = (X86ThreadContext) thread.getContext();
+      Address esp = context.getRegisterAsAddress(X86ThreadContext.ESP);
+
+      if ( (ebp == null) || ebp.lessThan(esp) ) {
+        return null;
+      }
+
+      // Check alignment of ebp
+      if ( dbg.getAddressValue(ebp) % ADDRESS_SIZE != 0) {
         return null;
       }
 
       Address nextEBP = ebp.getAddressAt( 0 * ADDRESS_SIZE);
-      if (nextEBP == null) {
+      if (nextEBP == null || nextEBP.lessThanOrEqual(ebp)) {
         return null;
       }
       Address nextPC  = ebp.getAddressAt( 1 * ADDRESS_SIZE);

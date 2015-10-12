@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -158,6 +158,7 @@ public:
   CmpUNode( Node *in1, Node *in2 ) : CmpNode(in1,in2) {}
   virtual int Opcode() const;
   virtual const Type *sub( const Type *, const Type * ) const;
+  bool is_index_range_check() const;
 };
 
 //------------------------------CmpPNode---------------------------------------
@@ -262,16 +263,16 @@ public:
 // We pick the values as 3 bits; the low order 2 bits we compare against the
 // condition codes, the high bit flips the sense of the result.
 struct BoolTest VALUE_OBJ_CLASS_SPEC {
-  enum mask { eq = 0, ne = 4, le = 5, ge = 7, lt = 3, gt = 1, illegal = 8 };
+  enum mask { eq = 0, ne = 4, le = 5, ge = 7, lt = 3, gt = 1, overflow = 2, no_overflow = 6, illegal = 8 };
   mask _test;
   BoolTest( mask btm ) : _test(btm) {}
   const Type *cc2logical( const Type *CC ) const;
   // Commute the test.  I use a small table lookup.  The table is created as
   // a simple char array where each element is the ASCII version of a 'mask'
   // enum from above.
-  mask commute( ) const { return mask("038147858"[_test]-'0'); }
+  mask commute( ) const { return mask("032147658"[_test]-'0'); }
   mask negate( ) const { return mask(_test^4); }
-  bool is_canonical( ) const { return (_test == BoolTest::ne || _test == BoolTest::lt || _test == BoolTest::le); }
+  bool is_canonical( ) const { return (_test == BoolTest::ne || _test == BoolTest::lt || _test == BoolTest::le || _test == BoolTest::overflow); }
 #ifndef PRODUCT
   void dump_on(outputStream *st) const;
 #endif
@@ -398,7 +399,10 @@ public:
 // Cosinus of a double
 class CosDNode : public Node {
 public:
-  CosDNode( Node *in1  ) : Node(0, in1) {}
+  CosDNode(Compile* C, Node *c, Node *in1) : Node(c, in1) {
+    init_flags(Flag_is_expensive);
+    C->add_expensive_node(this);
+  }
   virtual int Opcode() const;
   const Type *bottom_type() const { return Type::DOUBLE; }
   virtual uint ideal_reg() const { return Op_RegD; }
@@ -409,7 +413,10 @@ public:
 // Sinus of a double
 class SinDNode : public Node {
 public:
-  SinDNode( Node *in1  ) : Node(0, in1) {}
+  SinDNode(Compile* C, Node *c, Node *in1) : Node(c, in1) {
+    init_flags(Flag_is_expensive);
+    C->add_expensive_node(this);
+  }
   virtual int Opcode() const;
   const Type *bottom_type() const { return Type::DOUBLE; }
   virtual uint ideal_reg() const { return Op_RegD; }
@@ -421,7 +428,10 @@ public:
 // tangens of a double
 class TanDNode : public Node {
 public:
-  TanDNode(Node *in1  ) : Node(0, in1) {}
+  TanDNode(Compile* C, Node *c,Node *in1) : Node(c, in1) {
+    init_flags(Flag_is_expensive);
+    C->add_expensive_node(this);
+  }
   virtual int Opcode() const;
   const Type *bottom_type() const { return Type::DOUBLE; }
   virtual uint ideal_reg() const { return Op_RegD; }
@@ -444,7 +454,10 @@ public:
 // square root a double
 class SqrtDNode : public Node {
 public:
-  SqrtDNode(Node *c, Node *in1  ) : Node(c, in1) {}
+  SqrtDNode(Compile* C, Node *c, Node *in1) : Node(c, in1) {
+    init_flags(Flag_is_expensive);
+    C->add_expensive_node(this);
+  }
   virtual int Opcode() const;
   const Type *bottom_type() const { return Type::DOUBLE; }
   virtual uint ideal_reg() const { return Op_RegD; }
@@ -455,7 +468,10 @@ public:
 //  Exponentiate a double
 class ExpDNode : public Node {
 public:
-  ExpDNode( Node *c, Node *in1 ) : Node(c, in1) {}
+  ExpDNode(Compile* C, Node *c, Node *in1) : Node(c, in1) {
+    init_flags(Flag_is_expensive);
+    C->add_expensive_node(this);
+  }
   virtual int Opcode() const;
   const Type *bottom_type() const { return Type::DOUBLE; }
   virtual uint ideal_reg() const { return Op_RegD; }
@@ -466,7 +482,10 @@ public:
 // Log_e of a double
 class LogDNode : public Node {
 public:
-  LogDNode( Node *in1 ) : Node(0, in1) {}
+  LogDNode(Compile* C, Node *c, Node *in1) : Node(c, in1) {
+    init_flags(Flag_is_expensive);
+    C->add_expensive_node(this);
+  }
   virtual int Opcode() const;
   const Type *bottom_type() const { return Type::DOUBLE; }
   virtual uint ideal_reg() const { return Op_RegD; }
@@ -477,7 +496,10 @@ public:
 // Log_10 of a double
 class Log10DNode : public Node {
 public:
-  Log10DNode( Node *in1 ) : Node(0, in1) {}
+  Log10DNode(Compile* C, Node *c, Node *in1) : Node(c, in1) {
+    init_flags(Flag_is_expensive);
+    C->add_expensive_node(this);
+  }
   virtual int Opcode() const;
   const Type *bottom_type() const { return Type::DOUBLE; }
   virtual uint ideal_reg() const { return Op_RegD; }
@@ -488,7 +510,10 @@ public:
 // Raise a double to a double power
 class PowDNode : public Node {
 public:
-  PowDNode(Node *c, Node *in1, Node *in2  ) : Node(c, in1, in2) {}
+  PowDNode(Compile* C, Node *c, Node *in1, Node *in2 ) : Node(c, in1, in2) {
+    init_flags(Flag_is_expensive);
+    C->add_expensive_node(this);
+  }
   virtual int Opcode() const;
   const Type *bottom_type() const { return Type::DOUBLE; }
   virtual uint ideal_reg() const { return Op_RegD; }

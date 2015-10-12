@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,6 +29,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#include <stddef.h>
 
 #include "java_awt_AlphaComposite.h"
 
@@ -141,9 +143,9 @@ typedef struct _SurfaceType {
  * structure from the information present in a given Java Composite
  * object.
  */
-typedef JNIEXPORT void (JNICALL CompInfoFunc)(JNIEnv *env,
-                                              CompositeInfo *pCompInfo,
-                                              jobject Composite);
+typedef void (JNICALL CompInfoFunc)(JNIEnv *env,
+                                    CompositeInfo *pCompInfo,
+                                    jobject Composite);
 
 /*
  * The additional information needed to implement a primitive that
@@ -484,7 +486,9 @@ extern struct _CompositeTypes {
 #define ArraySize(A)    (sizeof(A) / sizeof(A[0]))
 
 #define PtrAddBytes(p, b)               ((void *) (((intptr_t) (p)) + (b)))
-#define PtrCoord(p, x, xinc, y, yinc)   PtrAddBytes(p, (y)*(yinc) + (x)*(xinc))
+#define PtrCoord(p, x, xinc, y, yinc)   PtrAddBytes(p, \
+                                                    ((ptrdiff_t)(y))*(yinc) + \
+                                                    ((ptrdiff_t)(x))*(xinc))
 
 /*
  * The function to call with an array of NativePrimitive structures

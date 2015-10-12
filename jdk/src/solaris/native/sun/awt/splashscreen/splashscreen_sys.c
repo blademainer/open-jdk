@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,6 +41,7 @@
 #include <locale.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <sizecalc.h>
 
 static Bool shapeSupported;
 static int shapeEventBase, shapeErrorBase;
@@ -76,9 +77,12 @@ char* SplashConvertStringAlloc(const char* in, int* size) {
         goto done;
     }
     inSize = strlen(in);
+    buf = SAFE_SIZE_ARRAY_ALLOC(malloc, inSize, 2);
+    if (!buf) {
+        return NULL;
+    }
     bufSize = inSize*2; // need 2 bytes per char for UCS-2, this is
                         // 2 bytes per source byte max
-    buf = malloc(bufSize);
     out = buf; outSize = bufSize;
     /* linux iconv wants char** source and solaris wants const char**...
        cast to void* */
@@ -114,12 +118,20 @@ SplashInitFrameShape(Splash * splash, int imageIndex) {
     initRect(&maskRect, 0, 0, splash->width, splash->height, 1,
             splash->width * splash->imageFormat.depthBytes,
             splash->frames[imageIndex].bitmapBits, &splash->imageFormat);
-    rects =
-        malloc(sizeof(XRectangle) * (splash->width / 2 + 1) * splash->height);
+    if (!IS_SAFE_SIZE_MUL(splash->width / 2 + 1, splash->height)) {
+        return;
+    }
+    rects = SAFE_SIZE_ARRAY_ALLOC(malloc,
+            sizeof(XRectangle), (splash->width / 2 + 1) * splash->height);
+    if (!rects) {
+        return;
+    }
 
     frame->numRects = BitmapToYXBandedRectangles(&maskRect, rects);
-    frame->rects = malloc(frame->numRects * sizeof(XRectangle));
-    memcpy(frame->rects, rects, frame->numRects * sizeof(XRectangle));
+    frame->rects = SAFE_SIZE_ARRAY_ALLOC(malloc, frame->numRects, sizeof(XRectangle));
+    if (frame->rects) { // handle the error after the if(){}
+        memcpy(frame->rects, rects, frame->numRects * sizeof(XRectangle));
+    }
     free(rects);
 }
 
@@ -334,6 +346,7 @@ SplashRedrawWindow(Splash * splash) {
     XDestroyImage(ximage);
     SplashRemoveDecoration(splash);
     XMapWindow(splash->display, splash->window);
+    XFlush(splash->display);
 }
 
 void SplashReconfigureNow(Splash * splash) {
@@ -564,8 +577,8 @@ SplashEventLoop(Splash * splash) {
         SplashUnlock(splash);
         rc = poll(pfd, 2, timeout);
         SplashLock(splash);
-        if (splash->isVisible>0 && SplashTime() >= splash->time +
-                splash->frames[splash->currentFrame].delay) {
+        if (splash->isVisible > 0 && splash->currentFrame >= 0 &&
+                SplashTime() >= splash->time + splash->frames[splash->currentFrame].delay) {
             SplashNextFrame(splash);
             SplashUpdateShape(splash);
             SplashRedrawWindow(splash);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -101,6 +101,7 @@ class InstructionPrinter: public InstructionVisitor {
   virtual void do_IfOp           (IfOp*            x);
   virtual void do_Convert        (Convert*         x);
   virtual void do_NullCheck      (NullCheck*       x);
+  virtual void do_TypeCast       (TypeCast*        x);
   virtual void do_Invoke         (Invoke*          x);
   virtual void do_NewInstance    (NewInstance*     x);
   virtual void do_NewTypeArray   (NewTypeArray*    x);
@@ -127,11 +128,18 @@ class InstructionPrinter: public InstructionVisitor {
   virtual void do_UnsafePutRaw   (UnsafePutRaw*    x);
   virtual void do_UnsafeGetObject(UnsafeGetObject* x);
   virtual void do_UnsafePutObject(UnsafePutObject* x);
+  virtual void do_UnsafeGetAndSetObject(UnsafeGetAndSetObject* x);
   virtual void do_UnsafePrefetchRead (UnsafePrefetchRead*  x);
   virtual void do_UnsafePrefetchWrite(UnsafePrefetchWrite* x);
   virtual void do_ProfileCall    (ProfileCall*     x);
+  virtual void do_ProfileReturnType (ProfileReturnType*  x);
   virtual void do_ProfileInvoke  (ProfileInvoke*   x);
   virtual void do_RuntimeCall    (RuntimeCall*     x);
+  virtual void do_MemBar         (MemBar*          x);
+  virtual void do_RangeCheckPredicate(RangeCheckPredicate* x);
+#ifdef ASSERT
+  virtual void do_Assert         (Assert*          x);
+#endif
 };
 #endif // PRODUCT
 

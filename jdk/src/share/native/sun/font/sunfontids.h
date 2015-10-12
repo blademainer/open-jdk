@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -84,7 +84,7 @@ typedef struct FontManagerNativeIDs {
 /* Note: we share variable in the context of fontmanager lib
    but we need access method to use it from separate rasterizer lib */
 extern FontManagerNativeIDs sunFontIDs;
-JNIEXPORT FontManagerNativeIDs getSunFontIDs();
+JNIEXPORT FontManagerNativeIDs getSunFontIDs(JNIEnv* env);
 
 #ifdef  __cplusplus
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,10 +45,7 @@ public class XPlottingViewer extends PlotterPanel implements ActionListener {
         new HashMap<String, XPlottingViewer>();
      private static HashMap<String, Timer> timerCache =
          new HashMap<String, Timer>();
-    private JPanel bordered;
-    private Number value;
     private MBeansTab tab;
-    private XMBean mbean;
     private String attributeName;
     private String key;
     private JTable table;
@@ -62,7 +59,6 @@ public class XPlottingViewer extends PlotterPanel implements ActionListener {
 
         this.tab = tab;
         this.key = key;
-        this.mbean = mbean;
         this.table = table;
         this.attributeName = attributeName;
         Plotter plotter = createPlotter(mbean, attributeName, key, table);
@@ -70,9 +66,9 @@ public class XPlottingViewer extends PlotterPanel implements ActionListener {
     }
 
     static void dispose(MBeansTab tab) {
-        Iterator it = plotterCache.keySet().iterator();
+        Iterator<String> it = plotterCache.keySet().iterator();
         while(it.hasNext()) {
-            String key = (String) it.next();
+            String key = it.next();
             if(key.startsWith(String.valueOf(tab.hashCode()))) {
                 it.remove();
             }
@@ -187,7 +183,7 @@ public class XPlottingViewer extends PlotterPanel implements ActionListener {
         final GridBagLayout gbl = new GridBagLayout();
         buttonPanel.setLayout(gbl);
         setLayout(new BorderLayout());
-        plotButton = new JButton(Resources.getText("Discard chart"));
+        plotButton = new JButton(Messages.DISCARD_CHART);
         plotButton.addActionListener(this);
         plotButton.setEnabled(true);
 

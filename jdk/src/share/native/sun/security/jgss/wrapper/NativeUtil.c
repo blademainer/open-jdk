@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,10 @@
 
 #include "NativeUtil.h"
 #include "NativeFunc.h"
+#include "jlong.h"
+#include <jni.h>
+
+extern void throwOutOfMemoryError(JNIEnv *env, const char *message);
 
 const int JAVA_DUPLICATE_TOKEN_CODE = 19; /* DUPLICATE_TOKEN */
 const int JAVA_OLD_TOKEN_CODE = 20; /* OLD_TOKEN */
@@ -412,7 +416,7 @@ OM_uint32 getGSSTime(jint jtime) {
   OM_uint32 result;
 
   /* special handle values equal to JAVA_MAX */
-  if (jtime == JAVA_MAX) {
+  if (jtime == (jint)JAVA_MAX) {
     result = GSS_C_INDEFINITE;
   } else {
     result = jtime;
@@ -482,7 +486,7 @@ jstring getMinorMessage(JNIEnv *env, jobject jstub, OM_uint32 statusValue) {
 
   messageContext = 0;
   if (jstub != NULL) {
-    mech = (gss_OID) (*env)->GetLongField(env, jstub, FID_GSSLibStub_pMech);
+    mech = (gss_OID) jlong_to_ptr((*env)->GetLongField(env, jstub, FID_GSSLibStub_pMech));
   } else {
     mech = GSS_C_NO_OID;
   }
@@ -614,8 +618,17 @@ gss_OID newGSSOID(JNIEnv *env, jobject jOid) {
       (*env)->Throw(env, gssEx);
     }
     cOid = malloc(sizeof(struct gss_OID_desc_struct));
+    if (cOid == NULL) {
+      throwOutOfMemoryError(env,NULL);
+      return GSS_C_NO_OID;
+    }
     cOid->length = (*env)->GetArrayLength(env, jbytes) - 2;
     cOid->elements = malloc(cOid->length);
+    if (cOid->elements == NULL) {
+      throwOutOfMemoryError(env,NULL);
+      free(cOid);
+      return GSS_C_NO_OID;
+    }
     (*env)->GetByteArrayRegion(env, jbytes, 2, cOid->length,
                                cOid->elements);
     (*env)->DeleteLocalRef(env, jbytes);

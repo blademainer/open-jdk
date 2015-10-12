@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -78,8 +78,9 @@ package com.sun.jdi;
  *
  */
 
+@jdk.Exported
 public final class JDIPermission extends java.security.BasicPermission {
-
+    private static final long serialVersionUID = -6988461416938786271L;
     /**
      * The <code>JDIPermission</code> class represents access rights to the
      * <code>VirtualMachineManager</code>

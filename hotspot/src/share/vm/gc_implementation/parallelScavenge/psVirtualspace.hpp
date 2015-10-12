@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,7 @@
 // VirtualSpace is data structure for committing a previously reserved address
 // range in smaller chunks.
 
-class PSVirtualSpace : public CHeapObj {
+class PSVirtualSpace : public CHeapObj<mtGC> {
   friend class VMStructs;
  protected:
   // The space is committed/uncommited in chunks of size _alignment.  The

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -132,6 +132,7 @@ class TestKFM extends DefaultKeyboardFocusManager {
     }
     protected synchronized void enqueueKeyEvents(long after, Component untilFocused) {
         super.enqueueKeyEvents(after, untilFocused);
+        robot.delay(1);
         robot.keyPress(KeyEvent.VK_SPACE);
         robot.delay(50);
         robot.keyRelease(KeyEvent.VK_SPACE);

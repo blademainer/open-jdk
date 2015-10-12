@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -78,7 +78,7 @@ import java.util.concurrent.TimeUnit;
  * The {@link java.nio.channels.FileChannel FileChannel} class defines methods
  * to lock regions of a file against access by other programs.
  *
- * <h4>Platform dependencies</h4>
+ * <h2>Platform dependencies</h2>
  *
  * <p> The implementation that observes events from the file system is intended
  * to map directly on to the native file event notification facility where

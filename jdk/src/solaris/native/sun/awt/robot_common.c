@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,10 @@
 
 #ifdef HEADLESS
     #error This file should not be included in headless library
+#endif
+
+#ifdef MACOSX
+#include <stdlib.h>
 #endif
 
 #include "robot_common.h"

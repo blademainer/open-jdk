@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -63,10 +63,12 @@ public:
   size_t committed() const { return _committed; }
   size_t max_size()  const { return _maxSize; }
 
+  static size_t undefined_size() { return (size_t) -1; }
+
   inline static jlong convert_to_jlong(size_t val) {
     // In the 64-bit vm, a size_t can overflow a jlong (which is signed).
     jlong ret;
-    if (val == (size_t)-1) {
+    if (val == undefined_size()) {
       ret = -1L;
     } else {
       NOT_LP64(ret = val;)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -56,9 +56,9 @@ class WRobotPeer extends WObjectPeer implements RobotPeer
     public native void keyRelease( int keycode );
 
     public int getRGBPixel(int x, int y) {
-        return getRGBPixelImpl(x, y);
+         // See 7002846: that's ineffective, but works correctly with non-opaque windows
+        return getRGBPixels(new Rectangle(x, y, 1, 1))[0];
     }
-    public native int getRGBPixelImpl(int x, int y);
 
     public int [] getRGBPixels(Rectangle bounds) {
         int pixelArray[] = new int[bounds.width*bounds.height];

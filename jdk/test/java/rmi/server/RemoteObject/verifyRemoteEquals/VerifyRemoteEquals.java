@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,16 +21,16 @@
  * questions.
  */
 
-/**
+/*
  * @test
  * @bug 4251010
  * @summary equals does not works on stub objects created with
  *           custom socket AndFactory
- * @library ../../../testlibrary
- *
- * @build VerifyRemoteEquals
- * @run main/othervm/timeout=40 VerifyRemoteEquals
  * @author Laird Dornin
+ *
+ * @library ../../../testlibrary
+ * @build TestLibrary
+ * @run main/othervm/timeout=40 VerifyRemoteEquals
  */
 
 import java.io.*;

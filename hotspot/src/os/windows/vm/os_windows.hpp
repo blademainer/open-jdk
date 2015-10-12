@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@
 // Win32_OS defines the interface to windows operating systems
 
 class win32 {
+  friend class os;
 
  protected:
   static int    _vm_page_size;
@@ -38,6 +39,8 @@ class win32 {
   static bool   _is_nt;
   static bool   _is_windows_2003;
   static bool   _is_windows_server;
+
+  static void print_windows_version(outputStream* st);
 
  public:
   // Windows-specific interface:
@@ -91,11 +94,29 @@ class win32 {
   static address fast_jni_accessor_wrapper(BasicType);
 #endif
 
+#ifndef PRODUCT
+  static void call_test_func_with_wrapper(void (*funcPtr)(void));
+#endif
+
   // filter function to ignore faults on serializations page
   static LONG WINAPI serialize_fault_filter(struct _EXCEPTION_POINTERS* e);
 };
 
-class PlatformEvent : public CHeapObj {
+/*
+ * Crash protection for the watcher thread. Wrap the callback
+ * with a __try { call() }
+ * To be able to use this - don't take locks, don't rely on destructors,
+ * don't make OS library calls, don't allocate memory, don't print,
+ * don't call code that could leave the heap / memory in an inconsistent state,
+ * or anything else where we are not in control if we suddenly jump out.
+ */
+class WatcherThreadCrashProtection : public StackObj {
+public:
+  WatcherThreadCrashProtection();
+  bool call(os::CrashProtectionCallback& cb);
+};
+
+class PlatformEvent : public CHeapObj<mtInternal> {
   private:
     double CachePad [4] ;   // increase odds that _Event is sole occupant of cache line
     volatile int _Event ;
@@ -121,7 +142,7 @@ class PlatformEvent : public CHeapObj {
 
 
 
-class PlatformParker : public CHeapObj {
+class PlatformParker : public CHeapObj<mtInternal> {
   protected:
     HANDLE _ParkEvent ;
 
@@ -173,13 +194,29 @@ public:
   static BOOL GetNativeSystemInfoAvailable();
   static void GetNativeSystemInfo(LPSYSTEM_INFO);
 
+  // NUMA calls
+  static BOOL NumaCallsAvailable();
+  static LPVOID VirtualAllocExNuma(HANDLE, LPVOID, SIZE_T, DWORD, DWORD, DWORD);
+  static BOOL GetNumaHighestNodeNumber(PULONG);
+  static BOOL GetNumaNodeProcessorMask(UCHAR, PULONGLONG);
+
+  // Stack walking
+  static USHORT RtlCaptureStackBackTrace(ULONG, ULONG, PVOID*, PULONG);
+
 private:
   // GetLargePageMinimum available on Windows Vista/Windows Server 2003
   // and later
+  // NUMA calls available Windows Vista/WS2008 and later
+
   static SIZE_T (WINAPI *_GetLargePageMinimum)(void);
+  static LPVOID (WINAPI *_VirtualAllocExNuma) (HANDLE, LPVOID, SIZE_T, DWORD, DWORD, DWORD);
+  static BOOL (WINAPI *_GetNumaHighestNodeNumber) (PULONG);
+  static BOOL (WINAPI *_GetNumaNodeProcessorMask) (UCHAR, PULONGLONG);
+  static USHORT (WINAPI *_RtlCaptureStackBackTrace)(ULONG, ULONG, PVOID*, PULONG);
   static BOOL initialized;
 
   static void initialize();
+  static void initializeCommon();
 
 #ifdef JDK6_OR_EARLIER
 private:

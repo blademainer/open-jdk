@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,6 @@
 
 #include "awt_Component.h"
 
-#include "java_awt_TextComponent.h"
 #include "sun_awt_windows_WTextComponentPeer.h"
 
 #include <ole2.h>
@@ -42,12 +41,14 @@
 
 class AwtTextComponent : public AwtComponent {
 public:
-    /* java.awt.TextComponent canAccessClipboard field ID */
-    static jfieldID canAccessClipboardID;
+    static jmethodID canAccessClipboardMID;
 
     AwtTextComponent();
 
+    static AwtTextComponent* Create(jobject self, jobject parent, BOOL isMultiline);
+
     virtual LPCTSTR GetClassName();
+    LRESULT WindowProc(UINT message, WPARAM wParam, LPARAM lParam);
 
     int RemoveCR(WCHAR *pStr);
 
@@ -70,6 +71,10 @@ public:
     static jstring _GetText(void *param);
 
     void SetFont(AwtFont* font);
+
+    virtual void Enable(BOOL bEnable);
+    virtual void SetColor(COLORREF c);
+    virtual void SetBackgroundColor(COLORREF c);
 
     /*
      * Windows message handler functions
@@ -113,7 +118,40 @@ public:
     // Used to prevent untrusted code from synthesizing a WM_PASTE message
     // by posting a <CTRL>-V KeyEvent
     BOOL    m_synthetic;
-    virtual LONG EditGetCharFromPos(POINT& pt) = 0;
+    LONG EditGetCharFromPos(POINT& pt);
+
+    /*****************************************************************
+     * Inner class OleCallback declaration.
+     */
+    class OleCallback : public IRichEditOleCallback {
+    public:
+        OleCallback();
+
+        STDMETHODIMP QueryInterface(REFIID riid, LPVOID * ppvObj);
+        STDMETHODIMP_(ULONG) AddRef();
+        STDMETHODIMP_(ULONG) Release();
+        STDMETHODIMP GetNewStorage(LPSTORAGE FAR * ppstg);
+        STDMETHODIMP GetInPlaceContext(LPOLEINPLACEFRAME FAR * ppipframe,
+                                       LPOLEINPLACEUIWINDOW FAR* ppipuiDoc,
+                                       LPOLEINPLACEFRAMEINFO pipfinfo);
+        STDMETHODIMP ShowContainerUI(BOOL fShow);
+        STDMETHODIMP QueryInsertObject(LPCLSID pclsid, LPSTORAGE pstg, LONG cp);
+        STDMETHODIMP DeleteObject(LPOLEOBJECT poleobj);
+        STDMETHODIMP QueryAcceptData(LPDATAOBJECT pdataobj, CLIPFORMAT *pcfFormat,
+                                     DWORD reco, BOOL fReally, HGLOBAL hMetaPict);
+        STDMETHODIMP ContextSensitiveHelp(BOOL fEnterMode);
+        STDMETHODIMP GetClipboardData(CHARRANGE *pchrg, DWORD reco,
+                                      LPDATAOBJECT *ppdataobj);
+        STDMETHODIMP GetDragDropEffect(BOOL fDrag, DWORD grfKeyState,
+                                       LPDWORD pdwEffect);
+        STDMETHODIMP GetContextMenu(WORD seltype, LPOLEOBJECT poleobj,
+                                    CHARRANGE FAR * pchrg, HMENU FAR * phmenu);
+    private:
+        ULONG             m_refs; // Reference count
+    };//OleCallback class
+
+    INLINE static OleCallback& GetOleCallback() { return sm_oleCallback; }
+
 
 private:
 
@@ -126,6 +164,7 @@ private:
     HFONT m_hFont;
     //im --- end
 
+    static OleCallback sm_oleCallback;
 
     //
     // Accessibility support

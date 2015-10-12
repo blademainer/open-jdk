@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,13 +29,15 @@ import java.io.Serializable;
 import java.net.PasswordAuthentication;
 
 /**
- * AuthCacheValue: interface to minimise exposure to authentication cache
+ * AuthCacheValue: interface to minimize exposure to authentication cache
  * for external users (ie. plugin)
  *
  * @author Michael McMahon
  */
 
 public abstract class AuthCacheValue implements Serializable {
+
+    static final long serialVersionUID = 735249334068211611L;
 
     public enum Type {
         Proxy,

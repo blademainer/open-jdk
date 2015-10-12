@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,7 +53,7 @@ class StubSkeletonWriter {
     /** rmic environment for this object */
     private final BatchEnvironment env;
 
-    /** the remote implemention class to generate code for */
+    /** the remote implementation class to generate code for */
     private final RemoteClass remoteClass;
 
     /** version of the JRMP stub protocol to generate code for */

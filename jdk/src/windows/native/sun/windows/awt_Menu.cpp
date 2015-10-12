@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -117,6 +117,41 @@ done:
     }
 
     return menu;
+}
+
+void AwtMenu::UpdateLayout()
+{
+    UpdateLayout(GetHMenu());
+    RedrawMenuBar();
+}
+
+void AwtMenu::UpdateLayout(const HMENU hmenu)
+{
+    const int nMenuItemCount = ::GetMenuItemCount(hmenu);
+    static MENUITEMINFO  mii;
+    for (int idx = 0; idx < nMenuItemCount; ++idx) {
+        memset(&mii, 0, sizeof(mii));
+        mii.cbSize = sizeof(mii);
+        mii.fMask = MIIM_CHECKMARKS | MIIM_DATA | MIIM_ID
+                  | MIIM_STATE | MIIM_SUBMENU | MIIM_TYPE;
+        if (::GetMenuItemInfo(hmenu, idx, TRUE, &mii)) {
+            VERIFY(::RemoveMenu(hmenu, idx, MF_BYPOSITION));
+            VERIFY(::InsertMenuItem(hmenu, idx, TRUE, &mii));
+            if (mii.hSubMenu !=  NULL) {
+                UpdateLayout(mii.hSubMenu);
+            }
+        }
+    }
+}
+
+void AwtMenu::UpdateContainerLayout()
+{
+    AwtMenu* menu = GetMenuContainer();
+    if (menu != NULL) {
+        menu->UpdateLayout();
+    } else {
+        UpdateLayout();
+    }
 }
 
 AwtMenuBar* AwtMenu::GetMenuBar() {

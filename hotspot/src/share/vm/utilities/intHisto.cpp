@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,7 @@
 
 IntHistogram::IntHistogram(int est, int max) : _max(max), _tot(0) {
   assert(0 <= est && est <= max, "Preconditions");
-  _elements = new (ResourceObj::C_HEAP) GrowableArray<int>(est, true);
+  _elements = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<int>(est, true);
   guarantee(_elements != NULL, "alloc failure");
 }
 

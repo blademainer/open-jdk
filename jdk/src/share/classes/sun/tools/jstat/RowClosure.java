@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -62,6 +62,9 @@ public class RowClosure implements Closure {
             double d = ((Number)value).doubleValue();
             double scaledValue = c.getScale().scale(d);
             DecimalFormat df = new DecimalFormat(c.getFormat());
+            DecimalFormatSymbols syms = df.getDecimalFormatSymbols();
+            syms.setNaN("-");
+            df.setDecimalFormatSymbols(syms);
             s = df.format(scaledValue);
         }
 

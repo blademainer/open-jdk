@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -143,6 +143,7 @@ public:
     INLINE HICON GetHIcon() {return m_hIcon;};
     INLINE HICON GetHIconSm() {return m_hIconSm;};
     INLINE BOOL IsIconInherited() {return m_iconInherited;};
+    INLINE virtual BOOL IsLightweightFrame() {return FALSE;}
 
     /* Post events to the EventQueue */
     void SendComponentEvent(jint eventId);
@@ -193,8 +194,10 @@ public:
 
     // Execute on Toolkit only.
     INLINE static LRESULT SynthesizeWmActivate(BOOL doActivate, HWND targetHWnd, HWND oppositeHWnd) {
+        AwtWindow *win = static_cast<AwtWindow*>(AwtComponent::GetComponent(targetHWnd));
         if (doActivate &&
-            (!::IsWindowVisible(targetHWnd) || ::IsIconic(::GetAncestor(targetHWnd, GA_ROOT))))
+            (!::IsWindowVisible(targetHWnd) || ::IsIconic(::GetAncestor(targetHWnd, GA_ROOT))) &&
+            (win == NULL || !win->IsLightweightFrame()))
         {
             // The activation is rejected if either:
             // - The toplevel is not visible

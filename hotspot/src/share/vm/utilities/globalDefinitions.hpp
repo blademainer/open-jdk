@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,6 +24,10 @@
 
 #ifndef SHARE_VM_UTILITIES_GLOBALDEFINITIONS_HPP
 #define SHARE_VM_UTILITIES_GLOBALDEFINITIONS_HPP
+
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
 
 #ifdef TARGET_COMPILER_gcc
 # include "utilities/globalDefinitions_gcc.hpp"
@@ -124,6 +128,14 @@ class HeapWord {
 #endif
 };
 
+// Analogous opaque struct for metadata allocated from
+// metaspaces.
+class MetaWord {
+  friend class VMStructs;
+ private:
+  char* i;
+};
+
 // HeapWordSize must be 2^LogHeapWordSize.
 const int HeapWordSize        = sizeof(HeapWord);
 #ifdef _LP64
@@ -157,10 +169,6 @@ const size_t M                  = K*K;
 const size_t G                  = M*K;
 const size_t HWperKB            = K / sizeof(HeapWord);
 
-const size_t LOG_K              = 10;
-const size_t LOG_M              = 2 * LOG_K;
-const size_t LOG_G              = 2 * LOG_M;
-
 const jint min_jint = (jint)1 << (sizeof(jint)*BitsPerByte-1); // 0x80000000 == smallest jint
 const jint max_jint = (juint)min_jint - 1;                     // 0x7FFFFFFF == largest jint
 
@@ -171,7 +179,15 @@ const int MILLIUNITS    = 1000;         // milli units per base unit
 const int MICROUNITS    = 1000000;      // micro units per base unit
 const int NANOUNITS     = 1000000000;   // nano units per base unit
 
+const jlong NANOSECS_PER_SEC      = CONST64(1000000000);
+const jint  NANOSECS_PER_MILLISEC = 1000000;
+
 inline const char* proper_unit_for_byte_size(size_t s) {
+#ifdef _LP64
+  if (s >= 10*G) {
+    return "G";
+  }
+#endif
   if (s >= 10*M) {
     return "M";
   } else if (s >= 10*K) {
@@ -181,16 +197,21 @@ inline const char* proper_unit_for_byte_size(size_t s) {
   }
 }
 
-inline size_t byte_size_in_proper_unit(size_t s) {
+template <class T>
+inline T byte_size_in_proper_unit(T s) {
+#ifdef _LP64
+  if (s >= 10*G) {
+    return (T)(s/G);
+  }
+#endif
   if (s >= 10*M) {
-    return s/M;
+    return (T)(s/M);
   } else if (s >= 10*K) {
-    return s/K;
+    return (T)(s/K);
   } else {
     return s;
   }
 }
-
 
 //----------------------------------------------------------------------------------------------------
 // VM type definitions
@@ -259,6 +280,10 @@ inline size_t pointer_delta(const void* left,
 inline size_t pointer_delta(const HeapWord* left, const HeapWord* right) {
   return pointer_delta(left, right, sizeof(HeapWord));
 }
+// A version specialized for MetaWord*'s.
+inline size_t pointer_delta(const MetaWord* left, const MetaWord* right) {
+  return pointer_delta(left, right, sizeof(MetaWord));
+}
 
 //
 // ANSI C++ does not allow casting from one pointer type to a function pointer
@@ -291,10 +316,28 @@ const jushort max_jushort = (jushort)-1; // 0xFFFF     largest jushort
 const juint   max_juint   = (juint)-1;   // 0xFFFFFFFF largest juint
 const julong  max_julong  = (julong)-1;  // 0xFF....FF largest julong
 
+typedef jbyte  s1;
+typedef jshort s2;
+typedef jint   s4;
+typedef jlong  s8;
+
 //----------------------------------------------------------------------------------------------------
 // JVM spec restrictions
 
 const int max_method_code_size = 64*K - 1;  // JVM spec, 2nd ed. section 4.8.1 (p.134)
+
+// Default ProtectionDomainCacheSize values
+
+const int defaultProtectionDomainCacheSize = NOT_LP64(137) LP64_ONLY(2017);
+
+//----------------------------------------------------------------------------------------------------
+// Default and minimum StringTableSize values
+
+const int defaultStringTableSize = NOT_LP64(1009) LP64_ONLY(60013);
+const int minimumStringTableSize = 1009;
+
+const int defaultSymbolTableSize = 20011;
+const int minimumSymbolTableSize = 1009;
 
 
 //----------------------------------------------------------------------------------------------------
@@ -317,6 +360,14 @@ extern int MinObjAlignmentInBytesMask;
 extern int LogMinObjAlignment;
 extern int LogMinObjAlignmentInBytes;
 
+const int LogKlassAlignmentInBytes = 3;
+const int LogKlassAlignment        = LogKlassAlignmentInBytes - LogHeapWordSize;
+const int KlassAlignmentInBytes    = 1 << LogKlassAlignmentInBytes;
+const int KlassAlignment           = KlassAlignmentInBytes / HeapWordSize;
+
+// Klass encoding metaspace max size
+const uint64_t KlassEncodingMetaspaceMax = (uint64_t(max_juint) + 1) << LogKlassAlignmentInBytes;
+
 // Machine dependent stuff
 
 #ifdef TARGET_ARCH_x86
@@ -335,6 +386,14 @@ extern int LogMinObjAlignmentInBytes;
 # include "globalDefinitions_ppc.hpp"
 #endif
 
+/*
+ * If a platform does not support native stack walking
+ * the platform specific globalDefinitions (above)
+ * can set PLATFORM_NATIVE_STACK_WALKING_SUPPORTED to 0
+ */
+#ifndef PLATFORM_NATIVE_STACK_WALKING_SUPPORTED
+#define PLATFORM_NATIVE_STACK_WALKING_SUPPORTED 1
+#endif
 
 // The byte alignment to be used by Arena::Amalloc.  See bugid 4169348.
 // Note: this value must be a power of 2
@@ -347,6 +406,14 @@ extern int LogMinObjAlignmentInBytes;
 
 #define align_size_up_(size, alignment) (((size) + ((alignment) - 1)) & ~((alignment) - 1))
 
+inline bool is_size_aligned(size_t size, size_t alignment) {
+  return align_size_up_(size, alignment) == size;
+}
+
+inline bool is_ptr_aligned(void* ptr, size_t alignment) {
+  return align_size_up_((intptr_t)ptr, (intptr_t)alignment) == (intptr_t)ptr;
+}
+
 inline intptr_t align_size_up(intptr_t size, intptr_t alignment) {
   return align_size_up_(size, alignment);
 }
@@ -355,6 +422,16 @@ inline intptr_t align_size_up(intptr_t size, intptr_t alignment) {
 
 inline intptr_t align_size_down(intptr_t size, intptr_t alignment) {
   return align_size_down_(size, alignment);
+}
+
+#define is_size_aligned_(size, alignment) ((size) == (align_size_up_(size, alignment)))
+
+inline void* align_ptr_up(void* ptr, size_t alignment) {
+  return (void*)align_size_up((intptr_t)ptr, (intptr_t)alignment);
+}
+
+inline void* align_ptr_down(void* ptr, size_t alignment) {
+  return (void*)align_size_down((intptr_t)ptr, (intptr_t)alignment);
 }
 
 // Align objects by rounding up their size, in HeapWord units.
@@ -375,35 +452,38 @@ inline intptr_t align_object_offset(intptr_t offset) {
   return align_size_up(offset, HeapWordsPerLong);
 }
 
+inline void* align_pointer_up(const void* addr, size_t size) {
+  return (void*) align_size_up_((uintptr_t)addr, size);
+}
+
+// Align down with a lower bound. If the aligning results in 0, return 'alignment'.
+
+inline size_t align_size_down_bounded(size_t size, size_t alignment) {
+  size_t aligned_size = align_size_down_(size, alignment);
+  return aligned_size > 0 ? aligned_size : alignment;
+}
+
+// Clamp an address to be within a specific page
+// 1. If addr is on the page it is returned as is
+// 2. If addr is above the page_address the start of the *next* page will be returned
+// 3. Otherwise, if addr is below the page_address the start of the page will be returned
+inline address clamp_address_in_page(address addr, address page_address, intptr_t page_size) {
+  if (align_size_down(intptr_t(addr), page_size) == align_size_down(intptr_t(page_address), page_size)) {
+    // address is in the specified page, just return it as is
+    return addr;
+  } else if (addr > page_address) {
+    // address is above specified page, return start of next page
+    return (address)align_size_down(intptr_t(page_address), page_size) + page_size;
+  } else {
+    // address is below specified page, return start of page
+    return (address)align_size_down(intptr_t(page_address), page_size);
+  }
+}
+
+
 // The expected size in bytes of a cache line, used to pad data structures.
 #define DEFAULT_CACHE_LINE_SIZE 64
 
-// Bytes needed to pad type to avoid cache-line sharing; alignment should be the
-// expected cache line size (a power of two).  The first addend avoids sharing
-// when the start address is not a multiple of alignment; the second maintains
-// alignment of starting addresses that happen to be a multiple.
-#define PADDING_SIZE(type, alignment)                           \
-  ((alignment) + align_size_up_(sizeof(type), alignment))
-
-// Templates to create a subclass padded to avoid cache line sharing.  These are
-// effective only when applied to derived-most (leaf) classes.
-
-// When no args are passed to the base ctor.
-template <class T, size_t alignment = DEFAULT_CACHE_LINE_SIZE>
-class Padded: public T {
-private:
-  char _pad_buf_[PADDING_SIZE(T, alignment)];
-};
-
-// When either 0 or 1 args may be passed to the base ctor.
-template <class T, typename Arg1T, size_t alignment = DEFAULT_CACHE_LINE_SIZE>
-class Padded01: public T {
-public:
-  Padded01(): T() { }
-  Padded01(Arg1T arg1): T(arg1) { }
-private:
-  char _pad_buf_[PADDING_SIZE(T, alignment)];
-};
 
 //----------------------------------------------------------------------------------------------------
 // Utility macros for compilers
@@ -451,21 +531,23 @@ void basic_types_init(); // cannot define here; uses assert
 
 // NOTE: replicated in SA in vm/agent/sun/jvm/hotspot/runtime/BasicType.java
 enum BasicType {
-  T_BOOLEAN  =  4,
-  T_CHAR     =  5,
-  T_FLOAT    =  6,
-  T_DOUBLE   =  7,
-  T_BYTE     =  8,
-  T_SHORT    =  9,
-  T_INT      = 10,
-  T_LONG     = 11,
-  T_OBJECT   = 12,
-  T_ARRAY    = 13,
-  T_VOID     = 14,
-  T_ADDRESS  = 15,
-  T_NARROWOOP= 16,
-  T_CONFLICT = 17, // for stack value type with conflicting contents
-  T_ILLEGAL  = 99
+  T_BOOLEAN     =  4,
+  T_CHAR        =  5,
+  T_FLOAT       =  6,
+  T_DOUBLE      =  7,
+  T_BYTE        =  8,
+  T_SHORT       =  9,
+  T_INT         = 10,
+  T_LONG        = 11,
+  T_OBJECT      = 12,
+  T_ARRAY       = 13,
+  T_VOID        = 14,
+  T_ADDRESS     = 15,
+  T_NARROWOOP   = 16,
+  T_METADATA    = 17,
+  T_NARROWKLASS = 18,
+  T_CONFLICT    = 19, // for stack value type with conflicting contents
+  T_ILLEGAL     = 99
 };
 
 inline bool is_java_primitive(BasicType t) {
@@ -513,18 +595,19 @@ extern size_t lcm(size_t a, size_t b);
 
 // NOTE: replicated in SA in vm/agent/sun/jvm/hotspot/runtime/BasicType.java
 enum BasicTypeSize {
-  T_BOOLEAN_size = 1,
-  T_CHAR_size    = 1,
-  T_FLOAT_size   = 1,
-  T_DOUBLE_size  = 2,
-  T_BYTE_size    = 1,
-  T_SHORT_size   = 1,
-  T_INT_size     = 1,
-  T_LONG_size    = 2,
-  T_OBJECT_size  = 1,
-  T_ARRAY_size   = 1,
-  T_NARROWOOP_size = 1,
-  T_VOID_size    = 0
+  T_BOOLEAN_size     = 1,
+  T_CHAR_size        = 1,
+  T_FLOAT_size       = 1,
+  T_DOUBLE_size      = 2,
+  T_BYTE_size        = 1,
+  T_SHORT_size       = 1,
+  T_INT_size         = 1,
+  T_LONG_size        = 2,
+  T_OBJECT_size      = 1,
+  T_ARRAY_size       = 1,
+  T_NARROWOOP_size   = 1,
+  T_NARROWKLASS_size = 1,
+  T_VOID_size        = 0
 };
 
 
@@ -536,23 +619,24 @@ extern BasicType type2wfield[T_CONFLICT+1];
 
 // size in bytes
 enum ArrayElementSize {
-  T_BOOLEAN_aelem_bytes = 1,
-  T_CHAR_aelem_bytes    = 2,
-  T_FLOAT_aelem_bytes   = 4,
-  T_DOUBLE_aelem_bytes  = 8,
-  T_BYTE_aelem_bytes    = 1,
-  T_SHORT_aelem_bytes   = 2,
-  T_INT_aelem_bytes     = 4,
-  T_LONG_aelem_bytes    = 8,
+  T_BOOLEAN_aelem_bytes     = 1,
+  T_CHAR_aelem_bytes        = 2,
+  T_FLOAT_aelem_bytes       = 4,
+  T_DOUBLE_aelem_bytes      = 8,
+  T_BYTE_aelem_bytes        = 1,
+  T_SHORT_aelem_bytes       = 2,
+  T_INT_aelem_bytes         = 4,
+  T_LONG_aelem_bytes        = 8,
 #ifdef _LP64
-  T_OBJECT_aelem_bytes  = 8,
-  T_ARRAY_aelem_bytes   = 8,
+  T_OBJECT_aelem_bytes      = 8,
+  T_ARRAY_aelem_bytes       = 8,
 #else
-  T_OBJECT_aelem_bytes  = 4,
-  T_ARRAY_aelem_bytes   = 4,
+  T_OBJECT_aelem_bytes      = 4,
+  T_ARRAY_aelem_bytes       = 4,
 #endif
-  T_NARROWOOP_aelem_bytes = 4,
-  T_VOID_aelem_bytes    = 0
+  T_NARROWOOP_aelem_bytes   = 4,
+  T_NARROWKLASS_aelem_bytes = 4,
+  T_VOID_aelem_bytes        = 0
 };
 
 extern int _type2aelembytes[T_CONFLICT+1]; // maps a BasicType to nof bytes used by its array element
@@ -688,18 +772,6 @@ inline BasicType as_BasicType(TosState state) {
 TosState as_TosState(BasicType type);
 
 
-// ReferenceType is used to distinguish between java/lang/ref/Reference subclasses
-
-enum ReferenceType {
- REF_NONE,      // Regular class
- REF_OTHER,     // Subclass of java/lang/ref/Reference, but not subclass of one of the classes below
- REF_SOFT,      // Subclass of java/lang/ref/SoftReference
- REF_WEAK,      // Subclass of java/lang/ref/WeakReference
- REF_FINAL,     // Subclass of java/lang/ref/FinalReference
- REF_PHANTOM    // Subclass of java/lang/ref/PhantomReference
-};
-
-
 // JavaThreadState keeps track of which part of the code a thread is executing in. This
 // information is needed by the safepoint code.
 //
@@ -779,6 +851,10 @@ inline bool is_highest_tier_compile(int comp_level) {
   return comp_level == CompLevel_highest_tier;
 }
 
+inline bool is_compile(int comp_level) {
+  return is_c1_compile(comp_level) || is_c2_compile(comp_level);
+}
+
 //----------------------------------------------------------------------------------------------------
 // 'Forward' declarations of frequently used classes
 // (in order to reduce interface dependencies & reduce
@@ -836,6 +912,7 @@ class PeriodicTask;
 class JavaCallWrapper;
 
 class   oopDesc;
+class   metaDataOopDesc;
 
 class NativeCall;
 
@@ -893,6 +970,7 @@ const int      freeBlockPad     = 0xBA;                     // value used to pad
 const int      uninitBlockPad   = 0xF1;                     // value used to zap newly malloc'd blocks.
 const intptr_t badJNIHandleVal  = (intptr_t) CONST64(0xFEFEFEFEFEFEFEFE); // value used to zap jni handle area
 const juint    badHeapWordVal   = 0xBAADBABE;               // value used to zap heap after GC
+const juint    badMetaWordVal   = 0xBAADFADE;               // value used to zap metadata heap after GC
 const int      badCodeHeapNewVal= 0xCC;                     // value used to zap Code heap at allocation
 const int      badCodeHeapFreeVal = 0xDD;                   // value used to zap Code heap at deallocation
 
@@ -900,9 +978,9 @@ const int      badCodeHeapFreeVal = 0xDD;                   // value used to zap
 // (These must be implemented as #defines because C++ compilers are
 // not obligated to inline non-integral constants!)
 #define       badAddress        ((address)::badAddressVal)
-#define       badOop            ((oop)::badOopVal)
+#define       badOop            (cast_to_oop(::badOopVal))
 #define       badHeapWord       (::badHeapWordVal)
-#define       badJNIHandle      ((oop)::badJNIHandleVal)
+#define       badJNIHandle      (cast_to_oop(::badJNIHandleVal))
 
 // Default TaskQueue size is 16K (32-bit) or 128K (64-bit)
 #define TASKQUEUE_SIZE (NOT_LP64(1<<14) LP64_ONLY(1<<17))
@@ -1178,67 +1256,55 @@ inline int build_int_from_shorts( jushort low, jushort high ) {
 }
 
 // Printf-style formatters for fixed- and variable-width types as pointers and
-// integers.
-//
-// Each compiler-specific definitions file (e.g., globalDefinitions_gcc.hpp)
-// must define the macro FORMAT64_MODIFIER, which is the modifier for '%x' or
-// '%d' formats to indicate a 64-bit quantity; commonly "l" (in LP64) or "ll"
-// (in ILP32).
+// integers.  These are derived from the definitions in inttypes.h.  If the platform
+// doesn't provide appropriate definitions, they should be provided in
+// the compiler-specific definitions file (e.g., globalDefinitions_gcc.hpp)
 
 #define BOOL_TO_STR(_b_) ((_b_) ? "true" : "false")
 
 // Format 32-bit quantities.
-#define INT32_FORMAT  "%d"
-#define UINT32_FORMAT "%u"
-#define INT32_FORMAT_W(width)   "%" #width "d"
-#define UINT32_FORMAT_W(width)  "%" #width "u"
+#define INT32_FORMAT           "%" PRId32
+#define UINT32_FORMAT          "%" PRIu32
+#define INT32_FORMAT_W(width)  "%" #width PRId32
+#define UINT32_FORMAT_W(width) "%" #width PRIu32
 
-#define PTR32_FORMAT  "0x%08x"
+#define PTR32_FORMAT           "0x%08" PRIx32
 
 // Format 64-bit quantities.
-#define INT64_FORMAT  "%" FORMAT64_MODIFIER "d"
-#define UINT64_FORMAT "%" FORMAT64_MODIFIER "u"
-#define PTR64_FORMAT  "0x%016" FORMAT64_MODIFIER "x"
+#define INT64_FORMAT           "%" PRId64
+#define UINT64_FORMAT          "%" PRIu64
+#define INT64_FORMAT_W(width)  "%" #width PRId64
+#define UINT64_FORMAT_W(width) "%" #width PRIu64
 
-#define INT64_FORMAT_W(width)  "%" #width FORMAT64_MODIFIER "d"
-#define UINT64_FORMAT_W(width) "%" #width FORMAT64_MODIFIER "u"
+#define PTR64_FORMAT           "0x%016" PRIx64
 
-// Format macros that allow the field width to be specified.  The width must be
-// a string literal (e.g., "8") or a macro that evaluates to one.
-#ifdef _LP64
-#define UINTX_FORMAT_W(width)   UINT64_FORMAT_W(width)
-#define SSIZE_FORMAT_W(width)   INT64_FORMAT_W(width)
-#define SIZE_FORMAT_W(width)    UINT64_FORMAT_W(width)
-#else
-#define UINTX_FORMAT_W(width)   UINT32_FORMAT_W(width)
-#define SSIZE_FORMAT_W(width)   INT32_FORMAT_W(width)
-#define SIZE_FORMAT_W(width)    UINT32_FORMAT_W(width)
-#endif // _LP64
+// Format jlong, if necessary
+#ifndef JLONG_FORMAT
+#define JLONG_FORMAT           INT64_FORMAT
+#endif
+#ifndef JULONG_FORMAT
+#define JULONG_FORMAT          UINT64_FORMAT
+#endif
 
-// Format pointers and size_t (or size_t-like integer types) which change size
-// between 32- and 64-bit. The pointer format theoretically should be "%p",
-// however, it has different output on different platforms. On Windows, the data
-// will be padded with zeros automatically. On Solaris, we can use "%016p" &
-// "%08p" on 64 bit & 32 bit platforms to make the data padded with extra zeros.
-// On Linux, "%016p" or "%08p" is not be allowed, at least on the latest GCC
-// 4.3.2. So we have to use "%016x" or "%08x" to simulate the printing format.
-// GCC 4.3.2, however requires the data to be converted to "intptr_t" when
-// using "%x".
+// Format pointers which change size between 32- and 64-bit.
 #ifdef  _LP64
-#define PTR_FORMAT    PTR64_FORMAT
-#define UINTX_FORMAT  UINT64_FORMAT
-#define INTX_FORMAT   INT64_FORMAT
-#define SIZE_FORMAT   UINT64_FORMAT
-#define SSIZE_FORMAT  INT64_FORMAT
+#define INTPTR_FORMAT "0x%016" PRIxPTR
+#define PTR_FORMAT    "0x%016" PRIxPTR
 #else   // !_LP64
-#define PTR_FORMAT    PTR32_FORMAT
-#define UINTX_FORMAT  UINT32_FORMAT
-#define INTX_FORMAT   INT32_FORMAT
-#define SIZE_FORMAT   UINT32_FORMAT
-#define SSIZE_FORMAT  INT32_FORMAT
+#define INTPTR_FORMAT "0x%08"  PRIxPTR
+#define PTR_FORMAT    "0x%08"  PRIxPTR
 #endif  // _LP64
 
-#define INTPTR_FORMAT PTR_FORMAT
+#define SSIZE_FORMAT          "%" PRIdPTR
+#define SIZE_FORMAT           "%" PRIuPTR
+#define SSIZE_FORMAT_W(width) "%" #width PRIdPTR
+#define SIZE_FORMAT_W(width)  "%" #width PRIuPTR
+
+#define INTX_FORMAT           "%" PRIdPTR
+#define UINTX_FORMAT          "%" PRIuPTR
+#define INTX_FORMAT_W(width)  "%" #width PRIdPTR
+#define UINTX_FORMAT_W(width) "%" #width PRIuPTR
+
 
 // Enable zap-a-lot if in debug version.
 
@@ -1249,5 +1315,24 @@ inline int build_int_from_shorts( jushort low, jushort high ) {
 # endif /* ASSERT */
 
 #define ARRAY_SIZE(array) (sizeof(array)/sizeof((array)[0]))
+
+// Dereference vptr
+// All C++ compilers that we know of have the vtbl pointer in the first
+// word.  If there are exceptions, this function needs to be made compiler
+// specific.
+static inline void* dereference_vptr(void* addr) {
+  return *(void**)addr;
+}
+
+
+#ifndef PRODUCT
+
+// For unit testing only
+class GlobalDefinitions {
+public:
+  static void test_globals();
+};
+
+#endif // PRODUCT
 
 #endif // SHARE_VM_UTILITIES_GLOBALDEFINITIONS_HPP

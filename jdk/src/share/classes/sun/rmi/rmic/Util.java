@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -52,7 +52,7 @@ public class Util implements sun.rmi.rmic.Constants {
      * class.
      * @param theClass The fully qualified name of the class.
      * @param rootDir The directory to use as the root of the
-     * package heirarchy.  May be null, in which case the current
+     * package hierarchy.  May be null, in which case the current
      * working directory is used as the root.
      */
     public static File getOutputDirectoryFor(Identifier theClass,

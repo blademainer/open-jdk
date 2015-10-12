@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 1998, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -116,10 +116,10 @@ public class SimpleBeanInfo implements BeanInfo {
      */
     public java.awt.Image loadImage(final String resourceName) {
         try {
-            final Class c = getClass();
+            final Class<?> c = getClass();
             java.awt.image.ImageProducer ip = (java.awt.image.ImageProducer)
                 java.security.AccessController.doPrivileged(
-                new java.security.PrivilegedAction() {
+                new java.security.PrivilegedAction<Object>() {
                     public Object run() {
                         java.net.URL url;
                         if ((url = c.getResource(resourceName)) == null) {

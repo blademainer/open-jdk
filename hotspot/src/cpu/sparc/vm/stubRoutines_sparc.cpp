@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,12 +26,7 @@
 #include "runtime/deoptimization.hpp"
 #include "runtime/frame.inline.hpp"
 #include "runtime/stubRoutines.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
+#include "runtime/thread.inline.hpp"
 
 // Implementation of the platform-specific part of StubRoutines - for
 // a description of how to extend it, see the stubRoutines.hpp file.
@@ -57,7 +52,3 @@ address StubRoutines::Sparc::_stop_subroutine_entry = NULL;
 address StubRoutines::Sparc::_flush_callers_register_windows_entry = CAST_FROM_FN_PTR(address, bootstrap_flush_windows);
 
 address StubRoutines::Sparc::_partial_subtype_check = NULL;
-
-int StubRoutines::Sparc::_atomic_memory_operation_lock = StubRoutines::Sparc::unlocked;
-
-int StubRoutines::Sparc::_v8_oop_lock_cache[StubRoutines::Sparc::nof_v8_oop_lock_cache_entries];

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -68,7 +68,7 @@ class UnixPath
 
     UnixPath(UnixFileSystem fs, String input) {
         // removes redundant slashes and checks for invalid characters
-        this(fs, encode(normalizeAndCheck(input)));
+        this(fs, encode(fs, normalizeAndCheck(input)));
     }
 
     // package-private
@@ -116,17 +116,17 @@ class UnixPath
     }
 
     // encodes the given path-string into a sequence of bytes
-    private static byte[] encode(String input) {
+    private static byte[] encode(UnixFileSystem fs, String input) {
         SoftReference<CharsetEncoder> ref = encoder.get();
         CharsetEncoder ce = (ref != null) ? ref.get() : null;
         if (ce == null) {
-            ce = Charset.defaultCharset().newEncoder()
+            ce = Util.jnuEncoding().newEncoder()
                 .onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT);
             encoder.set(new SoftReference<CharsetEncoder>(ce));
         }
 
-        char[] ca = input.toCharArray();
+        char[] ca = fs.normalizeNativePath(input.toCharArray());
 
         // size output buffer for worse-case size
         byte[] ba = new byte[(int)(ca.length * (double)ce.maxBytesPerChar())];
@@ -145,7 +145,7 @@ class UnixPath
         }
         if (error) {
             throw new InvalidPathException(input,
-                "Malformed input or input contains unmappable chacraters");
+                "Malformed input or input contains unmappable characters");
         }
 
         // trim result to actual length if required
@@ -179,14 +179,14 @@ class UnixPath
     }
 
     // use this message when throwing exceptions
-    String getPathForExecptionMessage() {
+    String getPathForExceptionMessage() {
         return toString();
     }
 
     // use this path for permission checks
     String getPathForPermissionCheck() {
         if (getFileSystem().needToResolveAgainstDefaultDirectory()) {
-            return new String(getByteArrayForSysCalls());
+            return Util.toString(getByteArrayForSysCalls());
         } else {
             return toString();
         }
@@ -493,8 +493,8 @@ class UnixPath
 
         // first pass:
         //   1. compute length of names
-        //   2. mark all occurences of "." to ignore
-        //   3. and look for any occurences of ".."
+        //   2. mark all occurrences of "." to ignore
+        //   3. and look for any occurrences of ".."
         for (int i=0; i<count; i++) {
             int begin = offsets[i];
             int len;
@@ -517,7 +517,7 @@ class UnixPath
             }
         }
 
-        // multiple passes to eliminate all occurences of name/..
+        // multiple passes to eliminate all occurrences of name/..
         if (hasDotDot) {
             int prevRemaining;
             do {
@@ -728,7 +728,7 @@ class UnixPath
             if (c1 != c2) {
                 return c1 - c2;
             }
-            k++;
+           k++;
         }
         return len1 - len2;
     }
@@ -757,8 +757,9 @@ class UnixPath
     @Override
     public String toString() {
         // OK if two or more threads create a String
-        if (stringValue == null)
-            stringValue = new String(path);     // platform encoding
+        if (stringValue == null) {
+            stringValue = fs.normalizeJavaPath(Util.toString(path));     // platform encoding
+        }
         return stringValue;
     }
 
@@ -767,8 +768,11 @@ class UnixPath
     // package-private
     int openForAttributeAccess(boolean followLinks) throws IOException {
         int flags = O_RDONLY;
-        if (!followLinks)
+        if (!followLinks) {
+            if (O_NOFOLLOW == 0)
+                throw new IOException("NOFOLLOW_LINKS is not supported on this platform");
             flags |= O_NOFOLLOW;
+        }
         try {
             return open(this, flags, 0);
         } catch (UnixException x) {
@@ -777,7 +781,7 @@ class UnixPath
                 x.setError(ELOOP);
 
             if (x.errno() == ELOOP)
-                throw new FileSystemException(getPathForExecptionMessage(), null,
+                throw new FileSystemException(getPathForExceptionMessage(), null,
                     x.getMessage() + " or unable to access attributes of symbolic link");
 
             x.rethrowAsIOException(this);

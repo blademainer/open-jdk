@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -72,8 +72,12 @@ protected:
 
 // The next timers used for LogCompilation
   static elapsedTimer _t_parser;
-  static elapsedTimer _t_escapeAnalysis;
   static elapsedTimer _t_optimizer;
+public:
+  // ConnectionGraph can't be Phase since it is used after EA done.
+  static elapsedTimer   _t_escapeAnalysis;
+  static elapsedTimer     _t_connectionGraph;
+protected:
   static elapsedTimer   _t_idealLoop;
   static elapsedTimer   _t_ccp;
   static elapsedTimer _t_matcher;
@@ -84,6 +88,7 @@ protected:
   static elapsedTimer _t_graphReshaping;
   static elapsedTimer _t_scheduler;
   static elapsedTimer _t_blockOrdering;
+  static elapsedTimer _t_macroEliminate;
   static elapsedTimer _t_macroExpand;
   static elapsedTimer _t_peephole;
   static elapsedTimer _t_codeGeneration;
@@ -95,6 +100,7 @@ protected:
 // Subtimers for _t_optimizer
   static elapsedTimer   _t_iterGVN;
   static elapsedTimer   _t_iterGVN2;
+  static elapsedTimer   _t_incrInline;
 
 // Subtimers for _t_registerAllocation
   static elapsedTimer   _t_ctorChaitin;

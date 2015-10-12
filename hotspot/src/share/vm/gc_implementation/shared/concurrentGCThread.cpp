@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,17 +42,6 @@ ConcurrentGCThread::ConcurrentGCThread() :
   _should_terminate(false), _has_terminated(false) {
   _sts.initialize();
 };
-
-void ConcurrentGCThread::stopWorldAndDo(VoidClosure* op) {
-  MutexLockerEx x(Heap_lock,
-                  Mutex::_no_safepoint_check_flag);
-  // warning("CGC: about to try stopping world");
-  SafepointSynchronize::begin();
-  // warning("CGC: successfully stopped world");
-  op->do_void();
-  SafepointSynchronize::end();
-  // warning("CGC: successfully restarted world");
-}
 
 void ConcurrentGCThread::safepoint_synchronize() {
   _sts.suspend_all();
@@ -186,7 +175,7 @@ SurrogateLockerThread::SurrogateLockerThread() :
 {}
 
 SurrogateLockerThread* SurrogateLockerThread::make(TRAPS) {
-  klassOop k =
+  Klass* k =
     SystemDictionary::resolve_or_fail(vmSymbols::java_lang_Thread(),
                                       true, CHECK_NULL);
   instanceKlassHandle klass (THREAD, k);
@@ -235,6 +224,8 @@ void SurrogateLockerThread::manipulatePLL(SLT_msg_type msg) {
   MutexLockerEx x(&_monitor, Mutex::_no_safepoint_check_flag);
   assert(_buffer == empty, "Should be empty");
   assert(msg != empty, "empty message");
+  assert(!Heap_lock->owned_by_self(), "Heap_lock owned by requesting thread");
+
   _buffer = msg;
   while (_buffer != empty) {
     _monitor.notify();
@@ -264,13 +255,13 @@ void SurrogateLockerThread::loop() {
     }
     switch(msg) {
       case acquirePLL: {
-        instanceRefKlass::acquire_pending_list_lock(&pll_basic_lock);
+        InstanceRefKlass::acquire_pending_list_lock(&pll_basic_lock);
         debug_only(owned++;)
         break;
       }
       case releaseAndNotifyPLL: {
         assert(owned > 0, "Don't have PLL");
-        instanceRefKlass::release_and_notify_pending_list_lock(&pll_basic_lock);
+        InstanceRefKlass::release_and_notify_pending_list_lock(&pll_basic_lock);
         debug_only(owned--;)
         break;
       }

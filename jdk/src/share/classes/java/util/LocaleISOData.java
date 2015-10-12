@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -254,6 +254,7 @@ class LocaleISOData {
         + "BM" + "BMU"  // Bermuda
         + "BN" + "BRN"  // Brunei Darussalam
         + "BO" + "BOL"  // Bolivia, Republic of
+        + "BQ" + "BES"  // Bonaire, Sint Eustatius and Saba
         + "BR" + "BRA"  // Brazil, Federative Republic of
         + "BS" + "BHS"  // Bahamas, Commonwealth of the
         + "BT" + "BTN"  // Bhutan, Kingdom of
@@ -277,6 +278,7 @@ class LocaleISOData {
 //      + "CS" + "SCG"  // Serbia and Montenegro
         + "CU" + "CUB"  // Cuba, Republic of
         + "CV" + "CPV"  // Cape Verde, Republic of
+        + "CW" + "CUW"  // Cura\u00e7ao
         + "CX" + "CXR"  // Christmas Island
         + "CY" + "CYP"  // Cyprus, Republic of
         + "CZ" + "CZE"  // Czech Republic
@@ -402,7 +404,7 @@ class LocaleISOData {
         + "PG" + "PNG"  // Papua New Guinea
         + "PH" + "PHL"  // Philippines, Republic of the
         + "PK" + "PAK"  // Pakistan, Islamic Republic of
-        + "PL" + "POL"  // Poland, Polish People's Republic
+        + "PL" + "POL"  // Poland, Republic of Poland
         + "PM" + "SPM"  // St. Pierre and Miquelon
         + "PN" + "PCN"  // Pitcairn Island
         + "PR" + "PRI"  // Puerto Rico
@@ -431,8 +433,10 @@ class LocaleISOData {
         + "SN" + "SEN"  // Senegal, Republic of
         + "SO" + "SOM"  // Somalia, Somali Republic
         + "SR" + "SUR"  // Suriname, Republic of
+        + "SS" + "SSD"  // South Sudan
         + "ST" + "STP"  // Sao Tome and Principe, Democratic Republic of
         + "SV" + "SLV"  // El Salvador, Republic of
+        + "SX" + "SXM"  // Sint Maarten (Dutch part)
         + "SY" + "SYR"  // Syrian Arab Republic
         + "SZ" + "SWZ"  // Swaziland, Kingdom of
         + "TC" + "TCA"  // Turks and Caicos Islands

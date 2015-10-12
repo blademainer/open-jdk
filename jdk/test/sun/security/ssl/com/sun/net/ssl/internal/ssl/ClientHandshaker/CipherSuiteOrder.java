@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2002, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,10 @@
  * @bug 4330535
  * @summary  Client should follow suite order in
  *           SSLSocket.setEnabledCipherSuites()
+ * @run main/othervm CipherSuiteOrder
+ *
+ *     SunJSSE does not support dynamic system properties, no way to re-use
+ *     system properties in samevm/agentvm mode.
  * @author Jaya Hangal
  */
 

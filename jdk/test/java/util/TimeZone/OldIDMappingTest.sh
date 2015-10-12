@@ -1,11 +1,9 @@
-# Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License version 2 only, as
-# published by the Free Software Foundation.  Oracle designates this
-# particular file as subject to the "Classpath" exception as provided
-# by Oracle in the LICENSE file that accompanied this code.
+# published by the Free Software Foundation.
 #
 # This code is distributed in the hope that it will be useful, but WITHOUT
 # ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -40,7 +38,7 @@ do
     if [ x"$I" != x ]; then
 	D="-Dsun.timezone.ids.oldmapping=${I}"
     fi
-    if ! ${JAVA} ${D} -cp ${TESTCLASSES} OldIDMappingTest -new; then
+    if ! ${JAVA} ${D} ${TESTVMOPTS} -cp ${TESTCLASSES} OldIDMappingTest -new; then
 	STATUS=1
     fi
 done
@@ -51,7 +49,7 @@ do
     if [ "x$I" != x ]; then
 	D="-Dsun.timezone.ids.oldmapping=${I}"
     fi
-    if ! ${JAVA} ${D} -cp ${TESTCLASSES} OldIDMappingTest -old; then
+    if ! ${JAVA} ${D} ${TESTVMOPTS} -cp ${TESTCLASSES} OldIDMappingTest -old; then
 	STATUS=1
     fi
 done

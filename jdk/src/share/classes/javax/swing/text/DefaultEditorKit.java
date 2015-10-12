@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,6 +24,8 @@
  */
 package javax.swing.text;
 
+import sun.awt.SunToolkit;
+
 import java.io.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -39,7 +41,7 @@ import javax.swing.UIManager;
  * of text document.  This implementation provides a default
  * implementation which treats text as plain text and
  * provides a minimal set of actions for a simple editor.
- * <p>
+ *
  * <dl>
  * <dt><b><font size=+1>Newlines</font></b>
  * <dd>
@@ -138,7 +140,7 @@ public class DefaultEditorKit extends EditorKit {
      * @param in  The stream to read from
      * @param doc The destination for the insertion.
      * @param pos The location in the document to place the
-     *   content >= 0.
+     *   content &gt;=0.
      * @exception IOException on any I/O error
      * @exception BadLocationException if pos represents an invalid
      *   location within the document.
@@ -156,8 +158,8 @@ public class DefaultEditorKit extends EditorKit {
      * @param out The stream to write to
      * @param doc The source for the write.
      * @param pos The location in the document to fetch the
-     *   content >= 0.
-     * @param len The amount to write out >= 0.
+     *   content &gt;=0.
+     * @param len The amount to write out &gt;=0.
      * @exception IOException on any I/O error
      * @exception BadLocationException if pos represents an invalid
      *   location within the document.
@@ -189,7 +191,7 @@ public class DefaultEditorKit extends EditorKit {
      * @param in  The stream to read from
      * @param doc The destination for the insertion.
      * @param pos The location in the document to place the
-     *   content >= 0.
+     *   content &gt;=0.
      * @exception IOException on any I/O error
      * @exception BadLocationException if pos represents an invalid
      *   location within the document.
@@ -298,8 +300,8 @@ public class DefaultEditorKit extends EditorKit {
      * @param out  The stream to write to
      * @param doc The source for the write.
      * @param pos The location in the document to fetch the
-     *   content from >= 0.
-     * @param len The amount to write out >= 0.
+     *   content from &gt;=0.
+     * @param len The amount to write out &gt;=0.
      * @exception IOException on any I/O error
      * @exception BadLocationException if pos is not within 0 and
      *   the length of the document.
@@ -838,7 +840,7 @@ public class DefaultEditorKit extends EditorKit {
      * future Swing releases. The current serialization support is
      * appropriate for short term storage or RMI between applications running
      * the same version of Swing.  As of 1.4, support for long term storage
-     * of all JavaBeans<sup><font size="-2">TM</font></sup>
+     * of all JavaBeans&trade;
      * has been added to the <code>java.beans</code> package.
      * Please see {@link java.beans.XMLEncoder}.
      *
@@ -869,11 +871,18 @@ public class DefaultEditorKit extends EditorKit {
                 }
                 String content = e.getActionCommand();
                 int mod = e.getModifiers();
-                if ((content != null) && (content.length() > 0) &&
-                    ((mod & ActionEvent.ALT_MASK) == (mod & ActionEvent.CTRL_MASK))) {
-                    char c = content.charAt(0);
-                    if ((c >= 0x20) && (c != 0x7F)) {
-                        target.replaceSelection(content);
+                if ((content != null) && (content.length() > 0)) {
+                    boolean isPrintableMask = true;
+                    Toolkit tk = Toolkit.getDefaultToolkit();
+                    if (tk instanceof SunToolkit) {
+                        isPrintableMask = ((SunToolkit)tk).isPrintableCharacterModifiersMask(mod);
+                    }
+
+                    if (isPrintableMask) {
+                        char c = content.charAt(0);
+                        if ((c >= 0x20) && (c != 0x7F)) {
+                            target.replaceSelection(content);
+                        }
                     }
                 }
             }
@@ -890,7 +899,7 @@ public class DefaultEditorKit extends EditorKit {
      * future Swing releases. The current serialization support is
      * appropriate for short term storage or RMI between applications running
      * the same version of Swing.  As of 1.4, support for long term storage
-     * of all JavaBeans<sup><font size="-2">TM</font></sup>
+     * of all JavaBeans&trade;
      * has been added to the <code>java.beans</code> package.
      * Please see {@link java.beans.XMLEncoder}.
      *
@@ -938,7 +947,7 @@ public class DefaultEditorKit extends EditorKit {
      * future Swing releases. The current serialization support is
      * appropriate for short term storage or RMI between applications running
      * the same version of Swing.  As of 1.4, support for long term storage
-     * of all JavaBeans<sup><font size="-2">TM</font></sup>
+     * of all JavaBeans&trade;
      * has been added to the <code>java.beans</code> package.
      * Please see {@link java.beans.XMLEncoder}.
      *
@@ -980,7 +989,7 @@ public class DefaultEditorKit extends EditorKit {
      * future Swing releases. The current serialization support is
      * appropriate for short term storage or RMI between applications running
      * the same version of Swing.  As of 1.4, support for long term storage
-     * of all JavaBeans<sup><font size="-2">TM</font></sup>
+     * of all JavaBeans&trade;
      * has been added to the <code>java.beans</code> package.
      * Please see {@link java.beans.XMLEncoder}.
      *
@@ -1256,7 +1265,7 @@ public class DefaultEditorKit extends EditorKit {
      * future Swing releases. The current serialization support is
      * appropriate for short term storage or RMI between applications running
      * the same version of Swing.  As of 1.4, support for long term storage
-     * of all JavaBeans<sup><font size="-2">TM</font></sup>
+     * of all JavaBeans&trade;
      * has been added to the <code>java.beans</code> package.
      * Please see {@link java.beans.XMLEncoder}.
      *
@@ -1292,7 +1301,7 @@ public class DefaultEditorKit extends EditorKit {
      * future Swing releases. The current serialization support is
      * appropriate for short term storage or RMI between applications running
      * the same version of Swing.  As of 1.4, support for long term storage
-     * of all JavaBeans<sup><font size="-2">TM</font></sup>
+     * of all JavaBeans&trade;
      * has been added to the <code>java.beans</code> package.
      * Please see {@link java.beans.XMLEncoder}.
      *
@@ -1329,7 +1338,7 @@ public class DefaultEditorKit extends EditorKit {
      * future Swing releases. The current serialization support is
      * appropriate for short term storage or RMI between applications running
      * the same version of Swing.  As of 1.4, support for long term storage
-     * of all JavaBeans<sup><font size="-2">TM</font></sup>
+     * of all JavaBeans&trade;
      * has been added to the <code>java.beans</code> package.
      * Please see {@link java.beans.XMLEncoder}.
      *
@@ -1364,7 +1373,7 @@ public class DefaultEditorKit extends EditorKit {
      * future Swing releases. The current serialization support is
      * appropriate for short term storage or RMI between applications running
      * the same version of Swing.  As of 1.4, support for long term storage
-     * of all JavaBeans<sup><font size="-2">TM</font></sup>
+     * of all JavaBeans&trade;
      * has been added to the <code>java.beans</code> package.
      * Please see {@link java.beans.XMLEncoder}.
      *

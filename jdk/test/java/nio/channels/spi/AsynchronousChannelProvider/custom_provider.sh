@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2008, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -51,7 +51,7 @@ failures=0
 
 go() {
     echo ''
-    $JAVA $1 $2 $3 2>&1
+    $JAVA ${TESTVMOPTS} $1 $2 $3 2>&1
     if [ $? != 0 ]; then failures=`expr $failures + 1`; fi
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,18 +51,16 @@
   template(DeoptimizeAll)                         \
   template(ZombieAll)                             \
   template(UnlinkSymbols)                         \
-  template(HandleFullCodeCache)                   \
   template(Verify)                                \
   template(PrintJNI)                              \
   template(HeapDumper)                            \
   template(DeoptimizeTheWorld)                    \
+  template(CollectForMetadataAllocation)          \
   template(GC_HeapInspection)                     \
   template(GenCollectFull)                        \
   template(GenCollectFullConcurrent)              \
   template(GenCollectForAllocation)               \
-  template(GenCollectForPermanentAllocation)      \
   template(ParallelGCFailedAllocation)            \
-  template(ParallelGCFailedPermanentAllocation)   \
   template(ParallelGCSystemGC)                    \
   template(CGC_Operation)                         \
   template(CMS_Initial_Mark)                      \
@@ -93,9 +91,11 @@
   template(HeapWalkOperation)                     \
   template(HeapIterateOperation)                  \
   template(ReportJavaOutOfMemory)                 \
+  template(JFRCheckpoint)                         \
   template(Exit)                                  \
+  template(LinuxDllLoad)                          \
 
-class VM_Operation: public CHeapObj {
+class VM_Operation: public CHeapObj<mtInternal> {
  public:
   enum Mode {
     _safepoint,       // blocking,        safepoint, vm_op C-heap allocated
@@ -176,6 +176,8 @@ class VM_Operation: public CHeapObj {
     return evaluation_mode() == _concurrent ||
            evaluation_mode() == _async_safepoint;
   }
+
+  static const char* mode_to_string(Mode mode);
 
   // Debugging
   void print_on_error(outputStream* st) const;
@@ -258,16 +260,6 @@ class VM_DeoptimizeFrame: public VM_Operation {
   bool allow_nested_vm_operations() const        { return true;  }
 };
 
-class VM_HandleFullCodeCache: public VM_Operation {
- private:
-  bool  _is_full;
- public:
-  VM_HandleFullCodeCache(bool is_full)           { _is_full = is_full; }
-  VMOp_Type type() const                         { return VMOp_HandleFullCodeCache; }
-  void doit();
-  bool allow_nested_vm_operations() const        { return true; }
-};
-
 #ifndef PRODUCT
 class VM_DeoptimizeAll: public VM_Operation {
  private:
@@ -299,9 +291,9 @@ class VM_UnlinkSymbols: public VM_Operation {
 
 class VM_Verify: public VM_Operation {
  private:
-  KlassHandle _dependee;
+  bool _silent;
  public:
-  VM_Verify() {}
+  VM_Verify(bool silent = VerifySilently) : _silent(silent) {}
   VMOp_Type type() const { return VMOp_Verify; }
   void doit();
 };

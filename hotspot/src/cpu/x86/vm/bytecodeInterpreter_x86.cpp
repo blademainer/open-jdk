@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,8 +28,8 @@
 #include "interpreter/bytecodeInterpreter.inline.hpp"
 #include "interpreter/interpreter.hpp"
 #include "interpreter/interpreterRuntime.hpp"
-#include "oops/methodDataOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/methodData.hpp"
+#include "oops/method.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/jvmtiThreadState.hpp"
@@ -40,11 +40,8 @@
 #include "runtime/synchronizer.hpp"
 #include "runtime/vframeArray.hpp"
 #include "utilities/debug.hpp"
-#ifdef TARGET_ARCH_MODEL_x86_32
-# include "interp_masm_x86_32.hpp"
-#endif
-#ifdef TARGET_ARCH_MODEL_x86_64
-# include "interp_masm_x86_64.hpp"
+#ifdef TARGET_ARCH_x86
+# include "interp_masm_x86.hpp"
 #endif
 
 #ifdef CC_INTERP

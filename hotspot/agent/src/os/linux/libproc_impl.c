@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -50,10 +50,6 @@ int pathmap_open(const char* name) {
    char alt_path[PATH_MAX + 1];
 
    init_alt_root();
-   fd = open(name, O_RDONLY);
-   if (fd >= 0) {
-      return fd;
-   }
 
    if (alt_root_len > 0) {
       strcpy(alt_path, alt_root);
@@ -73,6 +69,11 @@ int pathmap_open(const char* name) {
             return fd;
          }
       }
+   } else {
+      fd = open(name, O_RDONLY);
+      if (fd >= 0) {
+         return fd;
+      }
    }
 
    return -1;
@@ -89,6 +90,14 @@ void print_debug(const char* format,...) {
      vfprintf(stderr, format, alist);
      va_end(alist);
    }
+}
+
+void print_error(const char* format,...) {
+  va_list alist;
+  va_start(alist, format);
+  fputs("ERROR: ", stderr);
+  vfprintf(stderr, format, alist);
+  va_end(alist);
 }
 
 bool is_debug() {

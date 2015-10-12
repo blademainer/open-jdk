@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -116,6 +116,8 @@ abstract public class XBaseMenuWindow extends XWindow {
     protected Point grabInputPoint = null;
     protected boolean hasPointerMoved = false;
 
+    private AppContext disposeAppContext;
+
     /************************************************
      *
      * Mapping data
@@ -157,7 +159,7 @@ abstract public class XBaseMenuWindow extends XWindow {
             try {
                 return super.clone();
             } catch (CloneNotSupportedException ex) {
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         }
 
@@ -174,6 +176,8 @@ abstract public class XBaseMenuWindow extends XWindow {
     XBaseMenuWindow() {
         super(new XCreateWindowParams(new Object[] {
             DELAYED, Boolean.TRUE}));
+
+        disposeAppContext = AppContext.getAppContext();
     }
 
     /************************************************
@@ -183,7 +187,7 @@ abstract public class XBaseMenuWindow extends XWindow {
      ************************************************/
 
     /**
-     * Returns parent menu window (not the X-heirarchy parent window)
+     * Returns parent menu window (not the X-hierarchy parent window)
      */
     protected abstract XBaseMenuWindow getParentMenuWindow();
 
@@ -330,7 +334,7 @@ abstract public class XBaseMenuWindow extends XWindow {
                 items.add(mp);
             }
         } else {
-            if (log.isLoggable(PlatformLogger.FINE)) {
+            if (log.isLoggable(PlatformLogger.Level.FINE)) {
                 log.fine("WARNING: Attempt to add menu item without a peer");
             }
         }
@@ -351,7 +355,7 @@ abstract public class XBaseMenuWindow extends XWindow {
             if (index < items.size()) {
                 items.remove(index);
             } else {
-                if (log.isLoggable(PlatformLogger.FINE)) {
+                if (log.isLoggable(PlatformLogger.Level.FINE)) {
                     log.fine("WARNING: Attempt to remove non-existing menu item, index : " + index + ", item count : " + items.size());
                 }
             }
@@ -386,7 +390,7 @@ abstract public class XBaseMenuWindow extends XWindow {
             XMenuPeer showingSubmenu = getShowingSubmenu();
             int newSelectedIndex = (item != null) ? items.indexOf(item) : -1;
             if (this.selectedIndex != newSelectedIndex) {
-                if (log.isLoggable(PlatformLogger.FINEST)) {
+                if (log.isLoggable(PlatformLogger.Level.FINEST)) {
                     log.finest("Selected index changed, was : " + this.selectedIndex + ", new : " + newSelectedIndex);
                 }
                 this.selectedIndex = newSelectedIndex;
@@ -426,7 +430,7 @@ abstract public class XBaseMenuWindow extends XWindow {
         try {
             synchronized(getMenuTreeLock()) {
                 if (showingSubmenu != submenuToShow) {
-                    if (log.isLoggable(PlatformLogger.FINER)) {
+                    if (log.isLoggable(PlatformLogger.Level.FINEST)) {
                         log.finest("Changing showing submenu");
                     }
                     if (showingSubmenu != null) {
@@ -904,7 +908,8 @@ abstract public class XBaseMenuWindow extends XWindow {
      */
     public void dispose() {
         setDisposed(true);
-        EventQueue.invokeLater(new Runnable() {
+
+        SunToolkit.invokeLaterOnAppContext(disposeAppContext, new Runnable()  {
             public void run() {
                 doDispose();
             }
@@ -922,7 +927,6 @@ abstract public class XBaseMenuWindow extends XWindow {
         if (oldData != null) {
             oldData.invalidate();
         }
-        XToolkit.targetDisposedPeer(target, this);
         destroy();
     }
 
@@ -933,11 +937,12 @@ abstract public class XBaseMenuWindow extends XWindow {
      * so events can not be processed using standart means
      */
     void postEvent(final AWTEvent event) {
-        EventQueue.invokeLater(new Runnable() {
-                public void run() {
-                    handleEvent(event);
-                }
-            });
+        InvocationEvent ev = new InvocationEvent(event.getSource(), new Runnable() {
+            public void run() {
+                handleEvent(event);
+            }
+        });
+        super.postEvent(ev);
     }
 
     /**
@@ -1122,7 +1127,9 @@ abstract public class XBaseMenuWindow extends XWindow {
      * that grabs input focus
      */
     void doHandleJavaKeyEvent(KeyEvent event) {
-        if (log.isLoggable(PlatformLogger.FINER)) log.finer(event.toString());
+        if (log.isLoggable(PlatformLogger.Level.FINER)) {
+            log.finer(event.toString());
+        }
         if (event.getID() != KeyEvent.KEY_PRESSED) {
             return;
         }

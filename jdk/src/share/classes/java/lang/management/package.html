@@ -1,5 +1,5 @@
 <!--
- Copyright (c) 2003, 2006, Oracle and/or its affiliates. All rights reserved.
+ Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 
  This code is free software; you can redistribute it and/or modify it
@@ -82,7 +82,7 @@ Java virtual machine and the runtime in the following ways:
 <b>1. Direct access to an MXBean interface</b>
 <p>
 <ul>
-<li>Get an MXBean instance locally in the running Java virtual machine:<p>
+<li>Get an MXBean instance locally in the running Java virtual machine:
 <pre>
    RuntimeMXBean mxbean = ManagementFactory.getRuntimeMXBean();
 
@@ -103,7 +103,7 @@ Java virtual machine and the runtime in the following ways:
 <p>
 </li>
 <li>Construct an MXBean proxy instance that forwards the
-    method calls to a given MBeanServer:<p>
+    method calls to a given MBeanServer:
 <pre>
    MBeanServerConnection mbs;
 

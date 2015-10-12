@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,7 +49,7 @@ import javax.swing.text.*;
  * CSS attributes to determine how they will render. This also defines
  * methods to map between CSS/HTML/StyleConstants. Any shorthand
  * properties, such as font, are mapped to the intrinsic properties.
- * <p>The following describes the CSS properties that are suppored by the
+ * <p>The following describes the CSS properties that are supported by the
  * rendering engine:
  * <ul><li>font-family
  *   <li>font-style
@@ -117,7 +117,7 @@ import javax.swing.text.*;
  * </ul>
  * <p><b>Note: for the time being we do not fully support relative units,
  * unless noted, so that
- * p { margin-top: 10% } will be treated as if no margin-top was specified.
+ * p { margin-top: 10% } will be treated as if no margin-top was specified.</b>
  *
  * @author  Timothy Prinzing
  * @author  Scott Violet
@@ -806,15 +806,11 @@ public class CSS implements Serializable {
             // translate border width into the cells, if it has non-zero value.
             AttributeSet tableAttr = elem.getParentElement().
                                      getParentElement().getAttributes();
-            int borderWidth;
-            try {
-                borderWidth = Integer.parseInt(
-                    (String) tableAttr.getAttribute(HTML.Attribute.BORDER));
-            } catch (NumberFormatException e) {
-                borderWidth = 0;
-            }
+
+            int borderWidth = getTableBorder(tableAttr);
             if (borderWidth > 0) {
-                translateAttribute(HTML.Attribute.BORDER, tableAttr, cssAttrSet);
+                // If table contains the BORDER attribute cells should have border width equals 1
+                translateAttribute(HTML.Attribute.BORDER, "1", cssAttrSet);
             }
             String pad = (String)tableAttr.getAttribute(HTML.Attribute.CELLPADDING);
             if (pad != null) {
@@ -848,6 +844,21 @@ public class CSS implements Serializable {
             }
         }
         return cssAttrSet;
+    }
+
+    private static int getTableBorder(AttributeSet tableAttr) {
+        String borderValue = (String) tableAttr.getAttribute(HTML.Attribute.BORDER);
+
+        if (borderValue == HTML.NULL_ATTRIBUTE_VALUE || "".equals(borderValue)) {
+            // Some browsers accept <TABLE BORDER> and <TABLE BORDER=""> with the same semantics as BORDER=1
+            return 1;
+        }
+
+        try {
+            return Integer.parseInt(borderValue);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     private static final Hashtable<String, Attribute> attributeMap = new Hashtable<String, Attribute>();
@@ -1400,17 +1411,20 @@ public class CSS implements Serializable {
                         }
                     }
                 } else {
-
-                    /*
-                     * The html size attribute has a mapping in the CSS world only
-                     * if it is par of a font or base font tag.
-                     */
-
                     if (key == HTML.Attribute.SIZE && !isHTMLFontTag(tag)) {
-                        continue;
-                    }
+                        /*
+                         * The html size attribute has a mapping in the CSS world only
+                         * if it is par of a font or base font tag.
+                         */
+                    } else if (tag == HTML.Tag.TABLE && key == HTML.Attribute.BORDER) {
+                        int borderWidth = getTableBorder(htmlAttrSet);
 
-                    translateAttribute(key, htmlAttrSet, cssAttrSet);
+                        if (borderWidth > 0) {
+                            translateAttribute(HTML.Attribute.BORDER, Integer.toString(borderWidth), cssAttrSet);
+                        }
+                    } else {
+                        translateAttribute(key, (String) htmlAttrSet.getAttribute(key), cssAttrSet);
+                    }
                 }
             } else if (name instanceof CSS.Attribute) {
                 cssAttrSet.addAttribute(name, htmlAttrSet.getAttribute(name));
@@ -1419,15 +1433,13 @@ public class CSS implements Serializable {
     }
 
     private void translateAttribute(HTML.Attribute key,
-                                           AttributeSet htmlAttrSet,
+                                           String htmlAttrValue,
                                            MutableAttributeSet cssAttrSet) {
         /*
          * In the case of all remaining HTML.Attribute's they
          * map to 1 or more CCS.Attribute.
          */
         CSS.Attribute[] cssAttrList = getCssAttribute(key);
-
-        String htmlAttrValue = (String)htmlAttrSet.getAttribute(key);
 
         if (cssAttrList == null || htmlAttrValue == null) {
             return;
@@ -3058,7 +3070,7 @@ public class CSS implements Serializable {
                     }
                 }
                 if (!valid) {
-                    // Part is non-parseable or occured more than once.
+                    // Part is non-parseable or occurred more than once.
                     return;
                 }
             }

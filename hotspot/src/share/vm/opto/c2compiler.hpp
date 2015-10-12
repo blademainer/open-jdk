@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,23 +28,16 @@
 #include "compiler/abstractCompiler.hpp"
 
 class C2Compiler : public AbstractCompiler {
-private:
-
-  static void initialize_runtime();
+ private:
+  static bool init_c2_runtime();
 
 public:
   // Name
   const char *name() { return "C2"; }
 
-  static volatile int _runtimes;
-
 #ifdef TIERED
   virtual bool is_c2() { return true; };
 #endif // TIERED
-
-  // Customization
-  bool needs_adapters         () { return true; }
-  bool needs_stubs            () { return true; }
 
   void initialize();
 

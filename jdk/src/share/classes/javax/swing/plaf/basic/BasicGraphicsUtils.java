@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -231,7 +231,7 @@ public class BasicGraphicsUtils
      * just like <code>g.drawString</code> would.
      * The character at index <code>underlinedIndex</code>
      * in text will be underlined. If <code>index</code> is beyond the
-     * bounds of <code>text</code> (including < 0), nothing will be
+     * bounds of <code>text</code> (including &lt; 0), nothing will be
      * underlined.
      *
      * @param g Graphics to draw with

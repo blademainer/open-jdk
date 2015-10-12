@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -53,7 +53,10 @@ public class Tracker {
 
     public static void ObjectInit(Object obj)
     {
-        if ( engaged != 0 ) {
+        if ( engaged != 0) {
+            if (obj == null) {
+                throw new IllegalArgumentException("Null object.");
+            }
             nativeObjectInit(Thread.currentThread(), obj);
         }
     }
@@ -66,7 +69,10 @@ public class Tracker {
 
     public static void NewArray(Object obj)
     {
-        if ( engaged != 0 ) {
+        if ( engaged != 0) {
+            if (obj == null) {
+                throw new IllegalArgumentException("Null object.");
+            }
             nativeNewArray(Thread.currentThread(), obj);
         }
     }
@@ -82,6 +88,14 @@ public class Tracker {
     public static void CallSite(int cnum, int mnum)
     {
         if ( engaged != 0 ) {
+            if (cnum < 0) {
+                throw new IllegalArgumentException("Negative class index");
+            }
+
+            if (mnum < 0) {
+                throw new IllegalArgumentException("Negative method index");
+            }
+
             nativeCallSite(Thread.currentThread(), cnum, mnum);
         }
     }
@@ -95,6 +109,14 @@ public class Tracker {
     public static void ReturnSite(int cnum, int mnum)
     {
         if ( engaged != 0 ) {
+            if (cnum < 0) {
+                throw new IllegalArgumentException("Negative class index");
+            }
+
+            if (mnum < 0) {
+                throw new IllegalArgumentException("Negative method index");
+            }
+
             nativeReturnSite(Thread.currentThread(), cnum, mnum);
         }
     }

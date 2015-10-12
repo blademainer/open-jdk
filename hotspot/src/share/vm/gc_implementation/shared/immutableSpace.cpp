@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,11 +23,12 @@
  */
 
 #include "precompiled.hpp"
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/shared/immutableSpace.hpp"
 #include "memory/universe.hpp"
 #include "oops/oop.inline.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
 void ImmutableSpace::initialize(MemRegion mr) {
   HeapWord* bottom = mr.start();
@@ -40,7 +41,7 @@ void ImmutableSpace::initialize(MemRegion mr) {
   _end = end;
 }
 
-void ImmutableSpace::oop_iterate(OopClosure* cl) {
+void ImmutableSpace::oop_iterate(ExtendedOopClosure* cl) {
   HeapWord* obj_addr = bottom();
   HeapWord* t = end();
   // Could call objects iterate, but this is easier.
@@ -70,7 +71,7 @@ void ImmutableSpace::print() const {
 
 #endif
 
-void ImmutableSpace::verify(bool allow_dirty) {
+void ImmutableSpace::verify() {
   HeapWord* p = bottom();
   HeapWord* t = end();
   HeapWord* prev_p = NULL;

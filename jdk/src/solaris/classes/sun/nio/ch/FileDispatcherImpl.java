@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,7 +31,7 @@ class FileDispatcherImpl extends FileDispatcher
 {
 
     static {
-        Util.load();
+        IOUtil.load();
         init();
     }
 
@@ -46,8 +46,9 @@ class FileDispatcherImpl extends FileDispatcher
         return read0(fd, address, len);
     }
 
-    int pread(FileDescriptor fd, long address, int len,
-                             long position, Object lock) throws IOException {
+    int pread(FileDescriptor fd, long address, int len, long position)
+        throws IOException
+    {
         return pread0(fd, address, len, position);
     }
 
@@ -59,8 +60,8 @@ class FileDispatcherImpl extends FileDispatcher
         return write0(fd, address, len);
     }
 
-    int pwrite(FileDescriptor fd, long address, int len,
-                             long position, Object lock) throws IOException
+    int pwrite(FileDescriptor fd, long address, int len, long position)
+        throws IOException
     {
         return pwrite0(fd, address, len, position);
     }

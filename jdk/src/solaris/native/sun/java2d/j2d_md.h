@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,11 +28,11 @@
 #include <sys/types.h>
 
 /*
- * Linux version of <sys/types.h> does not define intptr_t
+ * Linux and MACOSX's version of <sys/types.h> does not define intptr_t
  */
-#ifdef __linux__
+#if defined(__linux__) || defined(MACOSX)
 #include <stdint.h>
-#endif /* __linux__ */
+#endif /* __linux__ || MACOSX */
 
 typedef unsigned char   jubyte;
 typedef unsigned short  jushort;

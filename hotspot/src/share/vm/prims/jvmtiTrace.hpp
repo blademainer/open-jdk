@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,10 +43,10 @@
 
 // Support tracing except in product build on the client compiler
 #ifndef PRODUCT
-#define JVMTI_TRACE 1
+#define JVMTI_TRACE
 #else
 #ifdef COMPILER2
-#define JVMTI_TRACE 1
+#define JVMTI_TRACE
 #endif
 #endif
 

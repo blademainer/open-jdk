@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,9 +26,15 @@
 #ifndef _JAVASOFT_JNI_MD_H_
 #define _JAVASOFT_JNI_MD_H_
 
-#if defined(SOLARIS) || defined(LINUX)
+#if defined(SOLARIS) || defined(LINUX) || defined(_ALLBSD_SOURCE)
 
-#if defined(__GNUC__) && (__GNUC__ > 4) || (__GNUC__ == 4) && (__GNUC_MINOR__ > 2)
+
+// Note: please do not change these without also changing jni_md.h in the JDK
+// repository
+#ifndef __has_attribute
+  #define __has_attribute(x) 0
+#endif
+#if (defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4) && (__GNUC_MINOR__ > 2))) || __has_attribute(visibility)
   #define JNIEXPORT     __attribute__((visibility("default")))
   #define JNIIMPORT     __attribute__((visibility("default")))
 #else
@@ -38,8 +44,7 @@
 
   #define JNICALL
   typedef int jint;
-
-#ifdef _LP64
+#if defined(_LP64)
   typedef long jlong;
 #else
   typedef long long jlong;

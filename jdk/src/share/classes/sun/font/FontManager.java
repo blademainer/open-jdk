@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,6 +31,7 @@ import java.util.Locale;
 import java.util.TreeMap;
 
 import javax.swing.plaf.FontUIResource;
+
 
 /**
  * Interface between Java Fonts (java.awt.Font) and the underlying
@@ -91,7 +92,7 @@ public interface FontManager {
 
     /**
      * If usingPerAppContextComposites is true, we are in "applet"
-     * (eg browser) enviroment and at least one context has selected
+     * (eg browser) environment and at least one context has selected
      * an alternate composite font behaviour.
      */
     public boolean usingPerAppContextComposites();

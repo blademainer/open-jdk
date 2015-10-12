@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -149,7 +149,7 @@ class MLetParser {
     }
 
     /**
-     * Scan an html file for <mlet> tags
+     * Scan an html file for {@literal <mlet>} tags.
      */
     public List<MLetContent> parse(URL url) throws IOException {
         String mth = "parse";

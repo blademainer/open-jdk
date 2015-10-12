@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -70,6 +70,9 @@ class SocketChannelImpl
 
     // -- The following fields are protected by stateLock
 
+    // set true when exclusive binding is on and SO_REUSEADDR is emulated
+    private boolean isReuseAddress;
+
     // State, increases monotonically
     private static final int ST_UNINITIALIZED = -1;
     private static final int ST_UNCONNECTED = 0;
@@ -80,8 +83,8 @@ class SocketChannelImpl
     private int state = ST_UNINITIALIZED;
 
     // Binding
-    private SocketAddress localAddress;
-    private SocketAddress remoteAddress;
+    private InetSocketAddress localAddress;
+    private InetSocketAddress remoteAddress;
 
     // Input/Output open
     private boolean isInputOpen = true;
@@ -143,7 +146,7 @@ class SocketChannelImpl
         synchronized (stateLock) {
             if (!isOpen())
                 throw new ClosedChannelException();
-            return localAddress;
+            return  Net.getRevealedLocalAddress(localAddress);
         }
     }
 
@@ -174,6 +177,12 @@ class SocketChannelImpl
                 if (!Net.isIPv6Available())
                     Net.setSocketOption(fd, StandardProtocolFamily.INET, name, value);
                 return this;
+            } else if (name == StandardSocketOptions.SO_REUSEADDR &&
+                           Net.useExclusiveBind())
+            {
+                // SO_REUSEADDR emulated when using exclusive bind
+                isReuseAddress = (Boolean)value;
+                return this;
             }
 
             // no options that require special handling
@@ -195,6 +204,13 @@ class SocketChannelImpl
         synchronized (stateLock) {
             if (!isOpen())
                 throw new ClosedChannelException();
+
+            if (name == StandardSocketOptions.SO_REUSEADDR &&
+                    Net.useExclusiveBind())
+            {
+                // SO_REUSEADDR emulated when using exclusive bind
+                return (T)Boolean.valueOf(isReuseAddress);
+            }
 
             // special handling for IP_TOS: always return 0 when IPv6
             if (name == StandardSocketOptions.IP_TOS) {
@@ -356,7 +372,7 @@ class SocketChannelImpl
                 // except that the shutdown operation plays the role of
                 // nd.preClose().
                 for (;;) {
-                    n = IOUtil.read(fd, buf, -1, nd, readLock);
+                    n = IOUtil.read(fd, buf, -1, nd);
                     if ((n == IOStatus.INTERRUPTED) && isOpen()) {
                         // The system call was interrupted but the channel
                         // is still open, so retry
@@ -447,7 +463,7 @@ class SocketChannelImpl
                     writerThread = NativeThread.current();
                 }
                 for (;;) {
-                    n = IOUtil.write(fd, buf, -1, nd, writeLock);
+                    n = IOUtil.write(fd, buf, -1, nd);
                     if ((n == IOStatus.INTERRUPTED) && isOpen())
                         continue;
                     return IOStatus.normalize(n);
@@ -531,7 +547,7 @@ class SocketChannelImpl
         IOUtil.configureBlocking(fd, block);
     }
 
-    public SocketAddress localAddress() {
+    public InetSocketAddress localAddress() {
         synchronized (stateLock) {
             return localAddress;
         }
@@ -556,6 +572,10 @@ class SocketChannelImpl
                         throw new AlreadyBoundException();
                     InetSocketAddress isa = (local == null) ?
                         new InetSocketAddress(0) : Net.checkAddress(local);
+                    SecurityManager sm = System.getSecurityManager();
+                    if (sm != null) {
+                        sm.checkListen(isa.getPort());
+                    }
                     NetHooks.beforeTcpBind(fd, isa.getAddress(), isa.getPort());
                     Net.bind(fd, isa.getAddress(), isa.getPort());
                     localAddress = Net.localAddress(fd);
@@ -629,17 +649,6 @@ class SocketChannelImpl
                                 break;
                             }
 
-                            synchronized (stateLock) {
-                                if (isOpen() && (localAddress == null) ||
-                                    ((InetSocketAddress)localAddress)
-                                        .getAddress().isAnyLocalAddress())
-                                {
-                                    // Socket was not bound before connecting or
-                                    // Socket was bound with an "anyLocalAddress"
-                                    localAddress = Net.localAddress(fd);
-                                }
-                            }
-
                         } finally {
                             readerCleanup();
                             end((n > 0) || (n == IOStatus.UNAVAILABLE));
@@ -659,6 +668,8 @@ class SocketChannelImpl
                             // Connection succeeded; disallow further
                             // invocation
                             state = ST_CONNECTED;
+                            if (isOpen())
+                                localAddress = Net.localAddress(fd);
                             return true;
                         }
                         // If nonblocking and no exception then connection
@@ -747,6 +758,8 @@ class SocketChannelImpl
                 if (n > 0) {
                     synchronized (stateLock) {
                         state = ST_CONNECTED;
+                        if (isOpen())
+                            localAddress = Net.localAddress(fd);
                     }
                     return true;
                 }
@@ -816,7 +829,8 @@ class SocketChannelImpl
             // channel from using the old fd, which might be recycled in the
             // meantime and allocated to an entirely different channel.
             //
-            nd.preClose(fd);
+            if (state != ST_KILLED)
+                nd.preClose(fd);
 
             // Signal native threads, if needed.  If a target thread is not
             // currently blocked in an I/O operation then no harm is done since
@@ -920,6 +934,28 @@ class SocketChannelImpl
         return translateReadyOps(ops, 0, sk);
     }
 
+    // package-private
+    int poll(int events, long timeout) throws IOException {
+        assert Thread.holdsLock(blockingLock()) && !isBlocking();
+
+        synchronized (readLock) {
+            int n = 0;
+            try {
+                begin();
+                synchronized (stateLock) {
+                    if (!isOpen())
+                        return 0;
+                    readerThread = NativeThread.current();
+                }
+                n = Net.poll(fd, events, timeout);
+            } finally {
+                readerCleanup();
+                end(n > 0);
+            }
+            return n;
+        }
+    }
+
     /**
      * Translates an interest operation set into a native poll event set
      */
@@ -942,6 +978,7 @@ class SocketChannelImpl
         return fdVal;
     }
 
+    @Override
     public String toString() {
         StringBuffer sb = new StringBuffer();
         sb.append(this.getClass().getSuperclass().getName());
@@ -965,9 +1002,10 @@ class SocketChannelImpl
                         sb.append(" oshut");
                     break;
                 }
-                if (localAddress() != null) {
+                InetSocketAddress addr = localAddress();
+                if (addr != null) {
                     sb.append(" local=");
-                    sb.append(localAddress().toString());
+                    sb.append(Net.getRevealedLocalAddressAsString(addr));
                 }
                 if (remoteAddress() != null) {
                     sb.append(" remote=");
@@ -990,7 +1028,7 @@ class SocketChannelImpl
         throws IOException;
 
     static {
-        Util.load();
+        IOUtil.load();
         nd = new SocketDispatcher();
     }
 

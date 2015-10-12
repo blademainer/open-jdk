@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2007, 2008, 2009, 2010 Red Hat, Inc.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright 2007, 2008, 2009, 2010, 2011 Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,7 +29,7 @@
 #include "interpreter/interpreterRuntime.hpp"
 #include "memory/resourceArea.hpp"
 #include "oops/markOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/method.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/frame.inline.hpp"
 #include "runtime/handles.inline.hpp"
@@ -98,14 +98,25 @@ BasicObjectLock* frame::interpreter_frame_monitor_end() const {
 #endif // CC_INTERP
 
 void frame::patch_pc(Thread* thread, address pc) {
-  // We borrow this call to set the thread pointer in the interpreter
-  // state; the hook to set up deoptimized frames isn't supplied it.
-  assert(pc == NULL, "should be");
-  get_interpreterState()->set_thread((JavaThread *) thread);
+
+  if (pc != NULL) {
+    _cb = CodeCache::find_blob(pc);
+    SharkFrame* sharkframe = zeroframe()->as_shark_frame();
+    sharkframe->set_pc(pc);
+    _pc = pc;
+    _deopt_state = is_deoptimized;
+
+  } else {
+    // We borrow this call to set the thread pointer in the interpreter
+    // state; the hook to set up deoptimized frames isn't supplied it.
+    assert(pc == NULL, "should be");
+    get_interpreterState()->set_thread((JavaThread *) thread);
+  }
 }
 
 bool frame::safe_for_sender(JavaThread *thread) {
   ShouldNotCallThis();
+  return false;
 }
 
 void frame::pd_gc_epilog() {
@@ -113,12 +124,13 @@ void frame::pd_gc_epilog() {
 
 bool frame::is_interpreted_frame_valid(JavaThread *thread) const {
   ShouldNotCallThis();
+  return false;
 }
 
 BasicType frame::interpreter_frame_result(oop* oop_result,
                                           jvalue* value_result) {
   assert(is_interpreted_frame(), "interpreted frame expected");
-  methodOop method = interpreter_frame_method();
+  Method* method = interpreter_frame_method();
   BasicType type = method->result_type();
   intptr_t* tos_addr = (intptr_t *) interpreter_frame_tos_address();
   oop obj;
@@ -174,9 +186,8 @@ BasicType frame::interpreter_frame_result(oop* oop_result,
 int frame::frame_size(RegisterMap* map) const {
 #ifdef PRODUCT
   ShouldNotCallThis();
-#else
-  return 0; // make javaVFrame::print_value work
 #endif // PRODUCT
+  return 0; // make javaVFrame::print_value work
 }
 
 intptr_t* frame::interpreter_frame_tos_at(jint offset) const {
@@ -351,7 +362,7 @@ void SharkFrame::identify_word(int   frame_index,
   switch (offset) {
   case pc_off:
     strncpy(fieldbuf, "pc", buflen);
-    if (method()->is_oop()) {
+    if (method()->is_method()) {
       nmethod *code = method()->code();
       if (code && code->pc_desc_at(pc())) {
         SimpleScopeDesc ssd(code, pc());
@@ -367,7 +378,7 @@ void SharkFrame::identify_word(int   frame_index,
 
   case method_off:
     strncpy(fieldbuf, "method", buflen);
-    if (method()->is_oop()) {
+    if (method()->is_method()) {
       method()->name_and_sig_as_C_string(valuebuf, buflen);
     }
     return;
@@ -378,7 +389,7 @@ void SharkFrame::identify_word(int   frame_index,
   }
 
   // Variable part
-  if (method()->is_oop()) {
+  if (method()->is_method()) {
     identify_vp_word(frame_index, addr_of_word(offset),
                      addr_of_word(header_words + 1),
                      unextended_sp() + method()->max_stack(),
@@ -416,4 +427,17 @@ void ZeroFrame::identify_vp_word(int       frame_index,
              (int) (stack_base - addr - 1));
     return;
   }
+}
+
+#ifndef PRODUCT
+
+void frame::describe_pd(FrameValues& values, int frame_no) {
+
+}
+
+#endif
+
+intptr_t *frame::initial_deoptimization_info() {
+  // unused... but returns fp() to minimize changes introduced by 7087445
+  return fp();
 }

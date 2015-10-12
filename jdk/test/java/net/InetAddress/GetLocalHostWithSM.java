@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,9 +23,11 @@
 
 /**
  * @test
- * @bug 4531817
+ * @bug 4531817 8026245
  * @summary Inet[46]Address.localHost need doPrivileged
  * @run main/othervm GetLocalHostWithSM
+ * @run main/othervm -Djava.net.preferIPv4Stack=true GetLocalHostWithSM
+ * @run main/othervm -Djava.net.preferIPv6Addresses=true GetLocalHostWithSM
  * files needed: GetLocalHostWithSM.java, MyPrincipal.java, and policy.file
  */
 
@@ -41,14 +43,13 @@ public class GetLocalHostWithSM {
         public static void main(String[] args) throws Exception {
 
             // try setting the local hostname
-            try {
-                System.setProperty("host.name", InetAddress.
-                                                getLocalHost().
-                                                getHostName());
-            } catch (UnknownHostException e) {
-                System.out.println("Cannot find the local hostname, " +
-                        "no nameserver entry found");
+            InetAddress localHost = InetAddress.getLocalHost();
+            if (localHost.isLoopbackAddress()) {
+                System.err.println("Local host name is resolved into a loopback address. Quit now!");
+                return;
             }
+            System.setProperty("host.name", localHost.
+                                            getHostName());
             String policyFileName = System.getProperty("test.src", ".") +
                           "/" + "policy.file";
             System.setProperty("java.security.policy", policyFileName);
@@ -66,6 +67,7 @@ public class GetLocalHostWithSM {
                                 new MyAction(), null);
 
             if (localHost1.equals(localHost2)) {
+                System.out.println("localHost1 = " + localHost1);
                 throw new RuntimeException("InetAddress.getLocalHost() test " +
                                            " fails. localHost2 should be " +
                                            " the real address instead of " +

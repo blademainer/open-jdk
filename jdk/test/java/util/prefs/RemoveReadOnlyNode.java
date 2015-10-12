@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,10 +23,11 @@
 
 
 /* @test
-   @bug 6178148
-   @summary check if wrong exception gets thrown if one of the child
-            nodes is readonly on underlying filesystem when node is
-            being removed.
+ * @bug 6178148 7197662
+ * @summary check if wrong exception gets thrown if one of the child
+ *          nodes is readonly on underlying filesystem when node is
+ *          being removed.
+ * @run main/othervm -Djava.util.prefs.userRoot=. RemoveReadOnlyNode
  */
 
 import java.io.*;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -123,7 +123,7 @@ public class StandardMetadataFormatResources extends ListResourceBundle {
           "The vertical position, in millimeters, where the image should be rendered on media " },
 
         { "HorizontalPixelOffset",
-          "The horizonal position, in pixels, where the image should be rendered onto a raster display" },
+          "The horizontal position, in pixels, where the image should be rendered onto a raster display" },
 
         { "VerticalPixelOffset",
           "The vertical position, in pixels, where the image should be rendered onto a raster display" },

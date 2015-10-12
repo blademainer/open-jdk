@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -111,6 +111,7 @@ final class SSLAlgorithmConstraints implements AlgorithmConstraints {
         }
     }
 
+    @Override
     public boolean permits(Set<CryptoPrimitive> primitives,
             String algorithm, AlgorithmParameters parameters) {
 
@@ -139,6 +140,7 @@ final class SSLAlgorithmConstraints implements AlgorithmConstraints {
         return permitted;
     }
 
+    @Override
     public boolean permits(Set<CryptoPrimitive> primitives, Key key) {
 
         boolean permitted = true;
@@ -162,6 +164,7 @@ final class SSLAlgorithmConstraints implements AlgorithmConstraints {
         return permitted;
     }
 
+    @Override
     public boolean permits(Set<CryptoPrimitive> primitives,
             String algorithm, Key key, AlgorithmParameters parameters) {
 
@@ -204,6 +207,7 @@ final class SSLAlgorithmConstraints implements AlgorithmConstraints {
             }
         }
 
+        @Override
         public boolean permits(Set<CryptoPrimitive> primitives,
                 String algorithm, AlgorithmParameters parameters) {
 
@@ -237,10 +241,12 @@ final class SSLAlgorithmConstraints implements AlgorithmConstraints {
             return false;
         }
 
+        @Override
         final public boolean permits(Set<CryptoPrimitive> primitives, Key key) {
             return true;
         }
 
+        @Override
         final public boolean permits(Set<CryptoPrimitive> primitives,
                 String algorithm, Key key, AlgorithmParameters parameters) {
 

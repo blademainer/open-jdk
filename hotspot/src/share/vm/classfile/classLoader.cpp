@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,7 @@
 #include "classfile/classFileParser.hpp"
 #include "classfile/classFileStream.hpp"
 #include "classfile/classLoader.hpp"
+#include "classfile/classLoaderData.inline.hpp"
 #include "classfile/javaClasses.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "classfile/vmSymbols.hpp"
@@ -37,7 +38,6 @@
 #include "memory/generation.hpp"
 #include "memory/oopFactory.hpp"
 #include "memory/universe.inline.hpp"
-#include "oops/constantPoolKlass.hpp"
 #include "oops/instanceKlass.hpp"
 #include "oops/instanceRefKlass.hpp"
 #include "oops/oop.inline.hpp"
@@ -67,6 +67,9 @@
 #endif
 #ifdef TARGET_OS_FAMILY_windows
 # include "os_windows.inline.hpp"
+#endif
+#ifdef TARGET_OS_FAMILY_bsd
+# include "os_bsd.inline.hpp"
 #endif
 
 
@@ -150,7 +153,7 @@ MetaIndex::MetaIndex(char** meta_package_names, int num_meta_package_names) {
     _meta_package_names = NULL;
     _num_meta_package_names = 0;
   } else {
-    _meta_package_names = NEW_C_HEAP_ARRAY(char*, num_meta_package_names);
+    _meta_package_names = NEW_C_HEAP_ARRAY(char*, num_meta_package_names, mtClass);
     _num_meta_package_names = num_meta_package_names;
     memcpy(_meta_package_names, meta_package_names, num_meta_package_names * sizeof(char*));
   }
@@ -158,7 +161,7 @@ MetaIndex::MetaIndex(char** meta_package_names, int num_meta_package_names) {
 
 
 MetaIndex::~MetaIndex() {
-  FREE_C_HEAP_ARRAY(char*, _meta_package_names);
+  FREE_C_HEAP_ARRAY(char*, _meta_package_names, mtClass);
 }
 
 
@@ -189,12 +192,12 @@ bool ClassPathEntry::is_lazy() {
 }
 
 ClassPathDirEntry::ClassPathDirEntry(char* dir) : ClassPathEntry() {
-  _dir = NEW_C_HEAP_ARRAY(char, strlen(dir)+1);
+  _dir = NEW_C_HEAP_ARRAY(char, strlen(dir)+1, mtClass);
   strcpy(_dir, dir);
 }
 
 
-ClassFileStream* ClassPathDirEntry::open_stream(const char* name) {
+ClassFileStream* ClassPathDirEntry::open_stream(const char* name, TRAPS) {
   // construct full path name
   char path[JVM_MAXPATHLEN];
   if (jio_snprintf(path, sizeof(path), "%s%s%s", _dir, os::file_separator(), name) == -1) {
@@ -226,7 +229,7 @@ ClassFileStream* ClassPathDirEntry::open_stream(const char* name) {
 
 ClassPathZipEntry::ClassPathZipEntry(jzfile* zip, const char* zip_name) : ClassPathEntry() {
   _zip = zip;
-  _zip_name = NEW_C_HEAP_ARRAY(char, strlen(zip_name)+1);
+  _zip_name = NEW_C_HEAP_ARRAY(char, strlen(zip_name)+1, mtClass);
   strcpy(_zip_name, zip_name);
 }
 
@@ -234,10 +237,10 @@ ClassPathZipEntry::~ClassPathZipEntry() {
   if (ZipClose != NULL) {
     (*ZipClose)(_zip);
   }
-  FREE_C_HEAP_ARRAY(char, _zip_name);
+  FREE_C_HEAP_ARRAY(char, _zip_name, mtClass);
 }
 
-ClassFileStream* ClassPathZipEntry::open_stream(const char* name) {
+ClassFileStream* ClassPathZipEntry::open_stream(const char* name, TRAPS) {
   // enable call to C land
   JavaThread* thread = JavaThread::current();
   ThreadToNativeFromVM ttn(thread);
@@ -281,24 +284,24 @@ void ClassPathZipEntry::contents_do(void f(const char* name, void* context), voi
   }
 }
 
-LazyClassPathEntry::LazyClassPathEntry(char* path, struct stat st) : ClassPathEntry() {
+LazyClassPathEntry::LazyClassPathEntry(char* path, const struct stat* st) : ClassPathEntry() {
   _path = strdup(path);
-  _st = st;
+  _st = *st;
   _meta_index = NULL;
   _resolved_entry = NULL;
+  _has_error = false;
 }
 
 bool LazyClassPathEntry::is_jar_file() {
   return ((_st.st_mode & S_IFREG) == S_IFREG);
 }
 
-ClassPathEntry* LazyClassPathEntry::resolve_entry() {
+ClassPathEntry* LazyClassPathEntry::resolve_entry(TRAPS) {
   if (_resolved_entry != NULL) {
     return (ClassPathEntry*) _resolved_entry;
   }
   ClassPathEntry* new_entry = NULL;
-  ClassLoader::create_class_path_entry(_path, _st, &new_entry, false);
-  assert(new_entry != NULL, "earlier code should have caught this");
+  new_entry = ClassLoader::create_class_path_entry(_path, &_st, false, CHECK_NULL);
   {
     ThreadCritical tc;
     if (_resolved_entry == NULL) {
@@ -311,12 +314,21 @@ ClassPathEntry* LazyClassPathEntry::resolve_entry() {
   return (ClassPathEntry*) _resolved_entry;
 }
 
-ClassFileStream* LazyClassPathEntry::open_stream(const char* name) {
+ClassFileStream* LazyClassPathEntry::open_stream(const char* name, TRAPS) {
   if (_meta_index != NULL &&
       !_meta_index->may_contain(name)) {
     return NULL;
   }
-  return resolve_entry()->open_stream(name);
+  if (_has_error) {
+    return NULL;
+  }
+  ClassPathEntry* cpe = resolve_entry(THREAD);
+  if (cpe == NULL) {
+    _has_error = true;
+    return NULL;
+  } else {
+    return cpe->open_stream(name, THREAD);
+  }
 }
 
 bool LazyClassPathEntry::is_lazy() {
@@ -451,31 +463,30 @@ void ClassLoader::setup_bootstrap_search_path() {
     while (sys_class_path[end] && sys_class_path[end] != os::path_separator()[0]) {
       end++;
     }
-    char* path = NEW_C_HEAP_ARRAY(char, end-start+1);
+    char* path = NEW_C_HEAP_ARRAY(char, end-start+1, mtClass);
     strncpy(path, &sys_class_path[start], end-start);
     path[end-start] = '\0';
     update_class_path_entry_list(path, false);
-    FREE_C_HEAP_ARRAY(char, path);
+    FREE_C_HEAP_ARRAY(char, path, mtClass);
     while (sys_class_path[end] == os::path_separator()[0]) {
       end++;
     }
   }
 }
 
-void ClassLoader::create_class_path_entry(char *path, struct stat st, ClassPathEntry **new_entry, bool lazy) {
+ClassPathEntry* ClassLoader::create_class_path_entry(char *path, const struct stat* st, bool lazy, TRAPS) {
   JavaThread* thread = JavaThread::current();
   if (lazy) {
-    *new_entry = new LazyClassPathEntry(path, st);
-    return;
+    return new LazyClassPathEntry(path, st);
   }
-  if ((st.st_mode & S_IFREG) == S_IFREG) {
+  ClassPathEntry* new_entry = NULL;
+  if ((st->st_mode & S_IFREG) == S_IFREG) {
     // Regular file, should be a zip file
     // Canonicalized filename
     char canonical_path[JVM_MAXPATHLEN];
     if (!get_canonical_path(path, canonical_path, JVM_MAXPATHLEN)) {
       // This matches the classic VM
-      EXCEPTION_MARK;
-      THROW_MSG(vmSymbols::java_io_IOException(), "Bad pathname");
+      THROW_MSG_(vmSymbols::java_io_IOException(), "Bad pathname", NULL);
     }
     char* error_msg = NULL;
     jzfile* zip;
@@ -486,7 +497,7 @@ void ClassLoader::create_class_path_entry(char *path, struct stat st, ClassPathE
       zip = (*ZipOpen)(canonical_path, &error_msg);
     }
     if (zip != NULL && error_msg == NULL) {
-      *new_entry = new ClassPathZipEntry(zip, path);
+      new_entry = new ClassPathZipEntry(zip, path);
       if (TraceClassLoading) {
         tty->print_cr("[Opened %s]", path);
       }
@@ -501,16 +512,16 @@ void ClassLoader::create_class_path_entry(char *path, struct stat st, ClassPathE
         msg = NEW_RESOURCE_ARRAY(char, len); ;
         jio_snprintf(msg, len - 1, "error in opening JAR file <%s> %s", error_msg, path);
       }
-      EXCEPTION_MARK;
-      THROW_MSG(vmSymbols::java_lang_ClassNotFoundException(), msg);
+      THROW_MSG_(vmSymbols::java_lang_ClassNotFoundException(), msg, NULL);
     }
   } else {
     // Directory
-    *new_entry = new ClassPathDirEntry(path);
+    new_entry = new ClassPathDirEntry(path);
     if (TraceClassLoading) {
       tty->print_cr("[Path %s]", path);
     }
   }
+  return new_entry;
 }
 
 
@@ -569,13 +580,14 @@ void ClassLoader::add_to_list(ClassPathEntry *new_entry) {
   }
 }
 
-void ClassLoader::update_class_path_entry_list(const char *path,
+void ClassLoader::update_class_path_entry_list(char *path,
                                                bool check_for_duplicates) {
   struct stat st;
-  if (os::stat((char *)path, &st) == 0) {
+  if (os::stat(path, &st) == 0) {
     // File or directory found
     ClassPathEntry* new_entry = NULL;
-    create_class_path_entry((char *)path, st, &new_entry, LazyBootClassLoader);
+    Thread* THREAD = Thread::current();
+    new_entry = create_class_path_entry(path, &st, LazyBootClassLoader, CHECK);
     // The kernel VM adds dynamically to the end of the classloader path and
     // doesn't reorder the bootclasspath which would break java.lang.Package
     // (see PackageInfo).
@@ -603,8 +615,10 @@ void ClassLoader::load_zip_library() {
   // Load zip library
   char path[JVM_MAXPATHLEN];
   char ebuf[1024];
-  os::dll_build_name(path, sizeof(path), Arguments::get_dll_dir(), "zip");
-  void* handle = os::dll_load(path, ebuf, sizeof ebuf);
+  void* handle = NULL;
+  if (os::dll_build_name(path, sizeof(path), Arguments::get_dll_dir(), "zip")) {
+    handle = os::dll_load(path, ebuf, sizeof ebuf);
+  }
   if (handle == NULL) {
     vm_exit_during_initialization("Unable to load ZIP library", path);
   }
@@ -649,13 +663,13 @@ void ClassLoader::load_zip_library() {
 // in the classpath must be the same files, in the same order, even
 // though the exact name is not the same.
 
-class PackageInfo: public BasicHashtableEntry {
+class PackageInfo: public BasicHashtableEntry<mtClass> {
 public:
   const char* _pkgname;       // Package name
   int _classpath_index;       // Index of directory or JAR file loaded from
 
   PackageInfo* next() {
-    return (PackageInfo*)BasicHashtableEntry::next();
+    return (PackageInfo*)BasicHashtableEntry<mtClass>::next();
   }
 
   const char* pkgname()           { return _pkgname; }
@@ -671,7 +685,7 @@ public:
 };
 
 
-class PackageHashtable : public BasicHashtable {
+class PackageHashtable : public BasicHashtable<mtClass> {
 private:
   inline unsigned int compute_hash(const char *s, int n) {
     unsigned int val = 0;
@@ -682,7 +696,7 @@ private:
   }
 
   PackageInfo* bucket(int index) {
-    return (PackageInfo*)BasicHashtable::bucket(index);
+    return (PackageInfo*)BasicHashtable<mtClass>::bucket(index);
   }
 
   PackageInfo* get_entry(int index, unsigned int hash,
@@ -699,10 +713,10 @@ private:
 
 public:
   PackageHashtable(int table_size)
-    : BasicHashtable(table_size, sizeof(PackageInfo)) {}
+    : BasicHashtable<mtClass>(table_size, sizeof(PackageInfo)) {}
 
-  PackageHashtable(int table_size, HashtableBucket* t, int number_of_entries)
-    : BasicHashtable(table_size, sizeof(PackageInfo), t, number_of_entries) {}
+  PackageHashtable(int table_size, HashtableBucket<mtClass>* t, int number_of_entries)
+    : BasicHashtable<mtClass>(table_size, sizeof(PackageInfo), t, number_of_entries) {}
 
   PackageInfo* get_entry(const char* pkgname, int n) {
     unsigned int hash = compute_hash(pkgname, n);
@@ -712,14 +726,14 @@ public:
   PackageInfo* new_entry(char* pkgname, int n) {
     unsigned int hash = compute_hash(pkgname, n);
     PackageInfo* pp;
-    pp = (PackageInfo*)BasicHashtable::new_entry(hash);
+    pp = (PackageInfo*)BasicHashtable<mtClass>::new_entry(hash);
     pp->set_pkgname(pkgname);
     return pp;
   }
 
   void add_entry(PackageInfo* pp) {
     int index = hash_to_index(pp->hash());
-    BasicHashtable::add_entry(index, pp);
+    BasicHashtable<mtClass>::add_entry(index, pp);
   }
 
   void copy_pkgnames(const char** packages) {
@@ -739,7 +753,7 @@ public:
 void PackageHashtable::copy_table(char** top, char* end,
                                   PackageHashtable* table) {
   // Copy (relocate) the table to the shared space.
-  BasicHashtable::copy_table(top, end);
+  BasicHashtable<mtClass>::copy_table(top, end);
 
   // Calculate the space needed for the package name strings.
   int i;
@@ -812,7 +826,7 @@ bool ClassLoader::add_package(const char *pkgname, int classpath_index, TRAPS) {
       // Package prefix found
       int n = cp - pkgname + 1;
 
-      char* new_pkgname = NEW_C_HEAP_ARRAY(char, n + 1);
+      char* new_pkgname = NEW_C_HEAP_ARRAY(char, n + 1, mtClass);
       if (new_pkgname == NULL) {
         return false;
       }
@@ -873,7 +887,7 @@ objArrayOop ClassLoader::get_system_packages(TRAPS) {
 
 instanceKlassHandle ClassLoader::load_classfile(Symbol* h_name, TRAPS) {
   ResourceMark rm(THREAD);
-  EventMark m("loading class " INTPTR_FORMAT, (address)h_name);
+  EventMark m("loading class %s", h_name->as_C_string());
   ThreadProfilerMark tpm(ThreadProfilerMark::classLoaderRegion);
 
   stringStream st;
@@ -892,7 +906,7 @@ instanceKlassHandle ClassLoader::load_classfile(Symbol* h_name, TRAPS) {
                                PerfClassTraceTime::CLASS_LOAD);
     ClassPathEntry* e = _first_entry;
     while (e != NULL) {
-      stream = e->open_stream(name);
+      stream = e->open_stream(name, CHECK_NULL);
       if (stream != NULL) {
         break;
       }
@@ -901,16 +915,16 @@ instanceKlassHandle ClassLoader::load_classfile(Symbol* h_name, TRAPS) {
     }
   }
 
-  instanceKlassHandle h(THREAD, klassOop(NULL));
+  instanceKlassHandle h;
   if (stream != NULL) {
 
     // class file found, parse it
     ClassFileParser parser(stream);
-    Handle class_loader;
+    ClassLoaderData* loader_data = ClassLoaderData::the_null_class_loader_data();
     Handle protection_domain;
     TempNewSymbol parsed_name = NULL;
     instanceKlassHandle result = parser.parseClassFile(h_name,
-                                                       class_loader,
+                                                       loader_data,
                                                        protection_domain,
                                                        parsed_name,
                                                        false,
@@ -926,10 +940,10 @@ instanceKlassHandle ClassLoader::load_classfile(Symbol* h_name, TRAPS) {
 }
 
 
-void ClassLoader::create_package_info_table(HashtableBucket *t, int length,
+void ClassLoader::create_package_info_table(HashtableBucket<mtClass> *t, int length,
                                             int number_of_entries) {
   assert(_package_hash_table == NULL, "One package info table allowed.");
-  assert(length == package_hash_table_size * sizeof(HashtableBucket),
+  assert(length == package_hash_table_size * sizeof(HashtableBucket<mtClass>),
          "bad shared package info size.");
   _package_hash_table = new PackageHashtable(package_hash_table_size, t,
                                              number_of_entries);
@@ -1189,10 +1203,7 @@ void ClassPathZipEntry::compile_the_world(Handle loader, TRAPS) {
     if (PENDING_EXCEPTION->is_a(SystemDictionary::OutOfMemoryError_klass())) {
       CLEAR_PENDING_EXCEPTION;
       tty->print_cr("\nCompileTheWorld : Ran out of memory\n");
-      size_t used = Universe::heap()->permanent_used();
-      size_t capacity = Universe::heap()->permanent_capacity();
-      tty->print_cr("Permanent generation used %dK of %dK", used/K, capacity/K);
-      tty->print_cr("Increase size by setting e.g. -XX:MaxPermSize=%dK\n", capacity*2/K);
+      tty->print_cr("Increase class metadata storage if a limit was set");
     } else {
       tty->print_cr("\nCompileTheWorld : Unexpected exception occurred\n");
     }
@@ -1255,11 +1266,16 @@ bool ClassPathZipEntry::is_rt_jar12() {
 }
 
 void LazyClassPathEntry::compile_the_world(Handle loader, TRAPS) {
-  resolve_entry()->compile_the_world(loader, CHECK);
+  ClassPathEntry* cpe = resolve_entry(THREAD);
+  if (cpe != NULL) {
+    cpe->compile_the_world(loader, CHECK);
+  }
 }
 
 bool LazyClassPathEntry::is_rt_jar() {
-  return resolve_entry()->is_rt_jar();
+  Thread* THREAD = Thread::current();
+  ClassPathEntry* cpe = resolve_entry(THREAD);
+  return (cpe != NULL) ? cpe->is_jar_file() : false;
 }
 
 void ClassLoader::compile_the_world() {
@@ -1272,13 +1288,16 @@ void ClassLoader::compile_the_world() {
   Handle system_class_loader (THREAD, SystemDictionary::java_system_loader());
   // Iterate over all bootstrap class path entries
   ClassPathEntry* e = _first_entry;
+  jlong start = os::javaTimeMillis();
   while (e != NULL) {
     // We stop at rt.jar, unless it is the first bootstrap path entry
     if (e->is_rt_jar() && e != _first_entry) break;
     e->compile_the_world(system_class_loader, CATCH);
     e = e->next();
   }
-  tty->print_cr("CompileTheWorld : Done");
+  jlong end = os::javaTimeMillis();
+  tty->print_cr("CompileTheWorld : Done (%d classes, %d methods, %d ms)",
+                _compile_the_world_class_counter, _compile_the_world_method_counter, (end - start));
   {
     // Print statistics as if before normal exit:
     extern void print_statistics();
@@ -1287,7 +1306,8 @@ void ClassLoader::compile_the_world() {
   vm_exit(0);
 }
 
-int ClassLoader::_compile_the_world_counter = 0;
+int ClassLoader::_compile_the_world_class_counter = 0;
+int ClassLoader::_compile_the_world_method_counter = 0;
 static int _codecache_sweep_counter = 0;
 
 // Filter out all exceptions except OOMs
@@ -1297,6 +1317,25 @@ static void clear_pending_exception_if_not_oom(TRAPS) {
     CLEAR_PENDING_EXCEPTION;
   }
   // The CHECK at the caller will propagate the exception out
+}
+
+/**
+ * Returns if the given method should be compiled when doing compile-the-world.
+ *
+ * TODO:  This should be a private method in a CompileTheWorld class.
+ */
+static bool can_be_compiled(methodHandle m, int comp_level) {
+  assert(CompileTheWorld, "must be");
+
+  // It's not valid to compile a native wrapper for MethodHandle methods
+  // that take a MemberName appendix since the bytecode signature is not
+  // correct.
+  vmIntrinsics::ID iid = m->intrinsic_id();
+  if (MethodHandles::is_signature_polymorphic(iid) && MethodHandles::has_member_arg(iid)) {
+    return false;
+  }
+
+  return CompilationPolicy::can_be_compiled(m, comp_level);
 }
 
 void ClassLoader::compile_the_world_in(char* name, Handle loader, TRAPS) {
@@ -1309,13 +1348,13 @@ void ClassLoader::compile_the_world_in(char* name, Handle loader, TRAPS) {
     // If the file has a period after removing .class, it's not really a
     // valid class file.  The class loader will check everything else.
     if (strchr(buffer, '.') == NULL) {
-      _compile_the_world_counter++;
-      if (_compile_the_world_counter > CompileTheWorldStopAt) return;
+      _compile_the_world_class_counter++;
+      if (_compile_the_world_class_counter > CompileTheWorldStopAt) return;
 
       // Construct name without extension
       TempNewSymbol sym = SymbolTable::new_symbol(buffer, CHECK);
       // Use loader to load and initialize class
-      klassOop ik = SystemDictionary::resolve_or_null(sym, loader, Handle(), THREAD);
+      Klass* ik = SystemDictionary::resolve_or_null(sym, loader, Handle(), THREAD);
       instanceKlassHandle k (THREAD, ik);
       if (k.not_null() && !HAS_PENDING_EXCEPTION) {
         k->initialize(THREAD);
@@ -1323,26 +1362,26 @@ void ClassLoader::compile_the_world_in(char* name, Handle loader, TRAPS) {
       bool exception_occurred = HAS_PENDING_EXCEPTION;
       clear_pending_exception_if_not_oom(CHECK);
       if (CompileTheWorldPreloadClasses && k.not_null()) {
-        constantPoolKlass::preload_and_initialize_all_classes(k->constants(), THREAD);
+        ConstantPool::preload_and_initialize_all_classes(k->constants(), THREAD);
         if (HAS_PENDING_EXCEPTION) {
           // If something went wrong in preloading we just ignore it
           clear_pending_exception_if_not_oom(CHECK);
-          tty->print_cr("Preloading failed for (%d) %s", _compile_the_world_counter, buffer);
+          tty->print_cr("Preloading failed for (%d) %s", _compile_the_world_class_counter, buffer);
         }
       }
 
-      if (_compile_the_world_counter >= CompileTheWorldStartAt) {
+      if (_compile_the_world_class_counter >= CompileTheWorldStartAt) {
         if (k.is_null() || exception_occurred) {
           // If something went wrong (e.g. ExceptionInInitializerError) we skip this class
-          tty->print_cr("CompileTheWorld (%d) : Skipping %s", _compile_the_world_counter, buffer);
+          tty->print_cr("CompileTheWorld (%d) : Skipping %s", _compile_the_world_class_counter, buffer);
         } else {
-          tty->print_cr("CompileTheWorld (%d) : %s", _compile_the_world_counter, buffer);
+          tty->print_cr("CompileTheWorld (%d) : %s", _compile_the_world_class_counter, buffer);
           // Preload all classes to get around uncommon traps
           // Iterate over all methods in class
+          int comp_level = CompilationPolicy::policy()->initial_compile_level();
           for (int n = 0; n < k->methods()->length(); n++) {
-            methodHandle m (THREAD, methodOop(k->methods()->obj_at(n)));
-            if (CompilationPolicy::can_be_compiled(m)) {
-
+            methodHandle m (THREAD, k->methods()->at(n));
+            if (can_be_compiled(m, comp_level)) {
               if (++_codecache_sweep_counter == CompileTheWorldSafepointInterval) {
                 // Give sweeper a chance to keep up with CTW
                 VM_ForceSafepoint op;
@@ -1350,13 +1389,15 @@ void ClassLoader::compile_the_world_in(char* name, Handle loader, TRAPS) {
                 _codecache_sweep_counter = 0;
               }
               // Force compilation
-              CompileBroker::compile_method(m, InvocationEntryBci, CompLevel_initial_compile,
+              CompileBroker::compile_method(m, InvocationEntryBci, comp_level,
                                             methodHandle(), 0, "CTW", THREAD);
               if (HAS_PENDING_EXCEPTION) {
                 clear_pending_exception_if_not_oom(CHECK);
-                tty->print_cr("CompileTheWorld (%d) : Skipping method: %s", _compile_the_world_counter, m->name()->as_C_string());
+                tty->print_cr("CompileTheWorld (%d) : Skipping method: %s", _compile_the_world_class_counter, m->name_and_sig_as_C_string());
+              } else {
+                _compile_the_world_method_counter++;
               }
-              if (TieredCompilation) {
+              if (TieredCompilation && TieredStopAtLevel >= CompLevel_full_optimization) {
                 // Clobber the first compile and force second tier compilation
                 nmethod* nm = m->code();
                 if (nm != NULL) {
@@ -1368,9 +1409,13 @@ void ClassLoader::compile_the_world_in(char* name, Handle loader, TRAPS) {
                                               methodHandle(), 0, "CTW", THREAD);
                 if (HAS_PENDING_EXCEPTION) {
                   clear_pending_exception_if_not_oom(CHECK);
-                  tty->print_cr("CompileTheWorld (%d) : Skipping method: %s", _compile_the_world_counter, m->name()->as_C_string());
+                  tty->print_cr("CompileTheWorld (%d) : Skipping method: %s", _compile_the_world_class_counter, m->name_and_sig_as_C_string());
+                } else {
+                  _compile_the_world_method_counter++;
                 }
               }
+            } else {
+              tty->print_cr("CompileTheWorld (%d) : Skipping method: %s", _compile_the_world_class_counter, m->name_and_sig_as_C_string());
             }
 
             nmethod* nm = m->code();

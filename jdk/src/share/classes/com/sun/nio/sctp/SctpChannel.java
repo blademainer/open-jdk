@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -59,7 +59,7 @@ import java.nio.channels.SelectionKey;
  * {@link #setOption(SctpSocketOption,Object) setOption} method. An SCTP
  * channel support the following options:
  * <blockquote>
- * <table border>
+ * <table border summary="Socket options">
  *   <tr>
  *     <th>Option Name</th>
  *     <th>Description</th>
@@ -134,6 +134,7 @@ import java.nio.channels.SelectionKey;
  *
  * @since 1.7
  */
+@jdk.Exported
 public abstract class SctpChannel
     extends AbstractSelectableChannel
 {
@@ -162,7 +163,7 @@ public abstract class SctpChannel
      */
     public static SctpChannel open() throws
         IOException {
-        return new sun.nio.ch.SctpChannelImpl((SelectorProvider)null);
+        return new sun.nio.ch.sctp.SctpChannelImpl((SelectorProvider)null);
     }
 
     /**
@@ -275,6 +276,11 @@ public abstract class SctpChannel
      *
      * @throws  IOException
      *          If some other I/O error occurs
+     *
+     * @throws  SecurityException
+     *          If a security manager has been installed and its
+     *          {@link SecurityManager#checkListen checkListen} method denies
+     *          the operation
      */
     public abstract SctpChannel bind(SocketAddress local)
         throws IOException;
@@ -636,6 +642,9 @@ public abstract class SctpChannel
     /**
      * Returns the value of a socket option.
      *
+     * @param   <T>
+     *          The type of the socket option value
+     *
      * @param   name
      *          The socket option
      *
@@ -658,6 +667,9 @@ public abstract class SctpChannel
 
     /**
      * Sets the value of a socket option.
+     *
+     * @param   <T>
+     *          The type of the socket option value
      *
      * @param   name
      *          The socket option
@@ -752,6 +764,9 @@ public abstract class SctpChannel
      * the {@code receive} method of this channel, if it does an
      * {@link IllegalReceiveException} will be thrown.
      *
+     * @param  <T>
+     *         The type of the attachment
+     *
      * @param  dst
      *         The buffer into which message bytes are to be transferred
      *
@@ -831,7 +846,7 @@ public abstract class SctpChannel
      *          there was insufficient room for the message in the underlying
      *          output buffer
      *
-     * @throws  InvalidStreamExcepton
+     * @throws  InvalidStreamException
      *          If {@code streamNumner} is negative or greater than or equal to
      *          the maximum number of outgoing streams
      *

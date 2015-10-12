@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,6 +35,7 @@ import com.sun.jdi.VirtualMachine;
  * @author Gordon Hirsch
  * @since  1.3
  */
+@jdk.Exported
 public interface ListeningConnector extends Connector {
     /**
      * Indicates whether this listening connector supports multiple
@@ -69,7 +70,7 @@ public interface ListeningConnector extends Connector {
      * method).
      * <p>
      * If <code>arguments</code> contains addressing information. and
-     * only one conection will be accepted, the {@link #accept accept} method
+     * only one connection will be accepted, the {@link #accept accept} method
      * can be called immediately without calling this method.
      *
      * @return the address at which the connector is listening

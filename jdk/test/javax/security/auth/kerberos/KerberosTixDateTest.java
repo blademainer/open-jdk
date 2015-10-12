@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@ import java.io.*;
 import javax.security.auth.kerberos.KerberosKey;
 import javax.security.auth.kerberos.KerberosPrincipal;
 import javax.security.auth.kerberos.KerberosTicket;
-import sun.misc.BASE64Decoder;
+import java.util.Base64;
 
 public class KerberosTixDateTest {
 
@@ -127,7 +127,7 @@ public class KerberosTixDateTest {
 
         System.out.println("Testing against KerberosTicket from JDK6...");
         byte[] serializedBytes =
-            new BASE64Decoder().decodeBuffer(serializedKerberosTix);
+            Base64.getMimeDecoder().decode(serializedKerberosTix);
         checkEqualsAndHashCode(serializedBytes, t);
 
         System.out.println("Testing against KerberosTicket from current rel...");

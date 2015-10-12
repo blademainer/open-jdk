@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -263,9 +263,18 @@ public:
   bool stride_is_con() const        { Node *tmp = stride  (); return (tmp != NULL && tmp->is_Con()); }
   BoolTest::mask test_trip() const  { return in(TestValue)->as_Bool()->_test._test; }
   CountedLoopNode *loopnode() const {
+    // The CountedLoopNode that goes with this CountedLoopEndNode may
+    // have been optimized out by the IGVN so be cautious with the
+    // pattern matching on the graph
+    if (phi() == NULL) {
+      return NULL;
+    }
     Node *ln = phi()->in(0);
-    assert( ln->Opcode() == Op_CountedLoop, "malformed loop" );
-    return (CountedLoopNode*)ln; }
+    if (ln->is_CountedLoop() && ln->as_CountedLoop()->loopexit() == this) {
+      return (CountedLoopNode*)ln;
+    }
+    return NULL;
+  }
 
 #ifndef PRODUCT
   virtual void dump_spec(outputStream *st) const;
@@ -336,6 +345,7 @@ public:
         _has_sfpt:1,            // True if has non-call safepoint
         _rce_candidate:1;       // True if candidate for range check elimination
 
+  Node_List* _safepts;          // List of safepoints in this loop
   Node_List* _required_safept;  // A inner loop cannot delete these safepts;
   bool  _allow_optimizations;   // Allow loop optimizations
 
@@ -343,6 +353,7 @@ public:
     : _parent(0), _next(0), _child(0),
       _head(head), _tail(tail),
       _phase(phase),
+      _safepts(NULL),
       _required_safept(NULL),
       _allow_optimizations(true),
       _nest(0), _irreducible(0), _has_call(0), _has_sfpt(0), _rce_candidate(0)
@@ -592,10 +603,14 @@ class PhaseIdealLoop : public PhaseTransform {
   }
 
 public:
-  bool has_node( Node* n ) const { return _nodes[n->_idx] != NULL; }
+  bool has_node( Node* n ) const {
+    guarantee(n != NULL, "No Node.");
+    return _nodes[n->_idx] != NULL;
+  }
   // check if transform created new nodes that need _ctrl recorded
   Node *get_late_ctrl( Node *n, Node *early );
   Node *get_early_ctrl( Node *n );
+  Node *get_early_ctrl_for_expensive(Node *n, Node* earliest);
   void set_early_ctrl( Node *n );
   void set_subtree_ctrl( Node *root );
   void set_ctrl( Node *n, Node *ctrl ) {
@@ -725,7 +740,8 @@ private:
     return n;
   }
   uint dom_depth(Node* d) const {
-    assert(d->_idx < _idom_size, "");
+    guarantee(d != NULL, "Null dominator info.");
+    guarantee(d->_idx < _idom_size, "");
     return _dom_depth[d->_idx];
   }
   void set_idom(Node* d, Node* n, uint dom_depth);
@@ -747,11 +763,11 @@ private:
     _dom_lca_tags(arena()), // Thread::resource_area
     _verify_me(NULL),
     _verify_only(true) {
-    build_and_optimize(false);
+    build_and_optimize(false, false);
   }
 
   // build the loop tree and perform any requested optimizations
-  void build_and_optimize(bool do_split_if);
+  void build_and_optimize(bool do_split_if, bool skip_loop_opts);
 
 public:
   // Dominators for the sea of nodes
@@ -762,13 +778,13 @@ public:
   Node *dom_lca_internal( Node *n1, Node *n2 ) const;
 
   // Compute the Ideal Node to Loop mapping
-  PhaseIdealLoop( PhaseIterGVN &igvn, bool do_split_ifs) :
+  PhaseIdealLoop( PhaseIterGVN &igvn, bool do_split_ifs, bool skip_loop_opts = false) :
     PhaseTransform(Ideal_Loop),
     _igvn(igvn),
     _dom_lca_tags(arena()), // Thread::resource_area
     _verify_me(NULL),
     _verify_only(false) {
-    build_and_optimize(do_split_ifs);
+    build_and_optimize(do_split_ifs, skip_loop_opts);
   }
 
   // Verify that verify_me made the same decisions as a fresh run.
@@ -778,7 +794,7 @@ public:
     _dom_lca_tags(arena()), // Thread::resource_area
     _verify_me(verify_me),
     _verify_only(false) {
-    build_and_optimize(false);
+    build_and_optimize(false, false);
   }
 
   // Build and verify the loop tree without modifying the graph.  This
@@ -843,7 +859,7 @@ public:
   void insert_pre_post_loops( IdealLoopTree *loop, Node_List &old_new, bool peel_only );
   // If Node n lives in the back_ctrl block, we clone a private version of n
   // in preheader_ctrl block and return that, otherwise return n.
-  Node *clone_up_backedge_goo( Node *back_ctrl, Node *preheader_ctrl, Node *n );
+  Node *clone_up_backedge_goo( Node *back_ctrl, Node *preheader_ctrl, Node *n, VectorSet &visited, Node_Stack &clones );
 
   // Take steps to maximally unroll the loop.  Peel any odd iterations, then
   // unroll to do double iterations.  The next round of major loop transforms
@@ -860,13 +876,6 @@ public:
   // Return true if exp is a scaled induction var plus (or minus) constant
   bool is_scaled_iv_plus_offset(Node* exp, Node* iv, int* p_scale, Node** p_offset, int depth = 0);
 
-  // Return true if proj is for "proj->[region->..]call_uct"
-  static bool is_uncommon_trap_proj(ProjNode* proj, Deoptimization::DeoptReason reason);
-  // Return true for    "if(test)-> proj -> ...
-  //                          |
-  //                          V
-  //                      other_proj->[region->..]call_uct"
-  static bool is_uncommon_trap_if_pattern(ProjNode* proj, Deoptimization::DeoptReason reason);
   // Create a new if above the uncommon_trap_if_pattern for the predicate to be promoted
   ProjNode* create_new_if_for_predicate(ProjNode* cont_proj, Node* new_entry,
                                         Deoptimization::DeoptReason reason);
@@ -877,19 +886,13 @@ public:
                                    Deoptimization::DeoptReason reason,
                                    PhaseIdealLoop* loop_phase,
                                    PhaseIterGVN* igvn);
-  static ProjNode*  move_predicate(ProjNode* predicate_proj, Node* new_entry,
-                                   Deoptimization::DeoptReason reason,
-                                   PhaseIdealLoop* loop_phase,
-                                   PhaseIterGVN* igvn);
+
   static Node* clone_loop_predicates(Node* old_entry, Node* new_entry,
-                                         bool move_predicates,
                                          bool clone_limit_check,
                                          PhaseIdealLoop* loop_phase,
                                          PhaseIterGVN* igvn);
   Node* clone_loop_predicates(Node* old_entry, Node* new_entry, bool clone_limit_check);
-  Node*  move_loop_predicates(Node* old_entry, Node* new_entry, bool clone_limit_check);
 
-  void eliminate_loop_predicates(Node* entry);
   static Node* skip_loop_predicates(Node* entry);
 
   // Find a good location to insert a predicate
@@ -908,6 +911,16 @@ public:
   // Helper function to collect predicate for eliminating the useless ones
   void collect_potentially_useful_predicates(IdealLoopTree *loop, Unique_Node_List &predicate_opaque1);
   void eliminate_useless_predicates();
+
+  // Change the control input of expensive nodes to allow commoning by
+  // IGVN when it is guaranteed to not result in a more frequent
+  // execution of the expensive node. Return true if progress.
+  bool process_expensive_nodes();
+
+  // Check whether node has become unreachable
+  bool is_node_unreachable(Node *n) const {
+    return !has_node(n) || n->is_unreachable(_igvn);
+  }
 
   // Eliminate range-checks and other trip-counter vs loop-invariant tests.
   void do_range_check( IdealLoopTree *loop, Node_List &old_new );
@@ -945,7 +958,7 @@ public:
   // Has use internal to the vector set (ie. not in a phi at the loop head)
   bool has_use_internal_to_set( Node* n, VectorSet& vset, IdealLoopTree *loop );
   // clone "n" for uses that are outside of loop
-  void clone_for_use_outside_loop( IdealLoopTree *loop, Node* n, Node_List& worklist );
+  int  clone_for_use_outside_loop( IdealLoopTree *loop, Node* n, Node_List& worklist );
   // clone "n" for special uses that are in the not_peeled region
   void clone_for_special_use_inside_loop( IdealLoopTree *loop, Node* n,
                                           VectorSet& not_peel, Node_List& sink_list, Node_List& worklist );
@@ -1009,7 +1022,7 @@ public:
   Node *has_local_phi_input( Node *n );
   // Mark an IfNode as being dominated by a prior test,
   // without actually altering the CFG (and hence IDOM info).
-  void dominated_by( Node *prevdom, Node *iff, bool flip = false );
+  void dominated_by( Node *prevdom, Node *iff, bool flip = false, bool exclude_loop_predicate = false );
 
   // Split Node 'n' through merge point
   Node *split_thru_region( Node *n, Node *region );
@@ -1045,6 +1058,10 @@ public:
   void set_created_loop_node() { _created_loop_node = true; }
   bool created_loop_node()     { return _created_loop_node; }
   void register_new_node( Node *n, Node *blk );
+
+#ifdef ASSERT
+  void dump_bad_graph(const char* msg, Node* n, Node* early, Node* LCA);
+#endif
 
 #ifndef PRODUCT
   void dump( ) const;

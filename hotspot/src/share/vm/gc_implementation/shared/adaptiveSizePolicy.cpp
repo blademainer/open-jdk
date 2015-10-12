@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,8 +28,10 @@
 #include "memory/collectorPolicy.hpp"
 #include "runtime/timer.hpp"
 #include "utilities/ostream.hpp"
+#include "utilities/workgroup.hpp"
 elapsedTimer AdaptiveSizePolicy::_minor_timer;
 elapsedTimer AdaptiveSizePolicy::_major_timer;
+bool AdaptiveSizePolicy::_debug_perturbation = false;
 
 // The throughput goal is implemented as
 //      _throughput_goal = 1 - ( 1 / (1 + gc_cost_ratio))
@@ -86,6 +88,134 @@ AdaptiveSizePolicy::AdaptiveSizePolicy(size_t init_eden_size,
   _minor_timer.start();
 
   _young_gen_policy_is_ready = false;
+}
+
+//  If the number of GC threads was set on the command line,
+// use it.
+//  Else
+//    Calculate the number of GC threads based on the number of Java threads.
+//    Calculate the number of GC threads based on the size of the heap.
+//    Use the larger.
+
+int AdaptiveSizePolicy::calc_default_active_workers(uintx total_workers,
+                                            const uintx min_workers,
+                                            uintx active_workers,
+                                            uintx application_workers) {
+  // If the user has specifically set the number of
+  // GC threads, use them.
+
+  // If the user has turned off using a dynamic number of GC threads
+  // or the users has requested a specific number, set the active
+  // number of workers to all the workers.
+
+  uintx new_active_workers = total_workers;
+  uintx prev_active_workers = active_workers;
+  uintx active_workers_by_JT = 0;
+  uintx active_workers_by_heap_size = 0;
+
+  // Always use at least min_workers but use up to
+  // GCThreadsPerJavaThreads * application threads.
+  active_workers_by_JT =
+    MAX2((uintx) GCWorkersPerJavaThread * application_workers,
+         min_workers);
+
+  // Choose a number of GC threads based on the current size
+  // of the heap.  This may be complicated because the size of
+  // the heap depends on factors such as the thoughput goal.
+  // Still a large heap should be collected by more GC threads.
+  active_workers_by_heap_size =
+      MAX2((size_t) 2U, Universe::heap()->capacity() / HeapSizePerGCThread);
+
+  uintx max_active_workers =
+    MAX2(active_workers_by_JT, active_workers_by_heap_size);
+
+  // Limit the number of workers to the the number created,
+  // (workers()).
+  new_active_workers = MIN2(max_active_workers,
+                                (uintx) total_workers);
+
+  // Increase GC workers instantly but decrease them more
+  // slowly.
+  if (new_active_workers < prev_active_workers) {
+    new_active_workers =
+      MAX2(min_workers, (prev_active_workers + new_active_workers) / 2);
+  }
+
+  // Check once more that the number of workers is within the limits.
+  assert(min_workers <= total_workers, "Minimum workers not consistent with total workers");
+  assert(new_active_workers >= min_workers, "Minimum workers not observed");
+  assert(new_active_workers <= total_workers, "Total workers not observed");
+
+  if (ForceDynamicNumberOfGCThreads) {
+    // Assume this is debugging and jiggle the number of GC threads.
+    if (new_active_workers == prev_active_workers) {
+      if (new_active_workers < total_workers) {
+        new_active_workers++;
+      } else if (new_active_workers > min_workers) {
+        new_active_workers--;
+      }
+    }
+    if (new_active_workers == total_workers) {
+      if (_debug_perturbation) {
+        new_active_workers =  min_workers;
+      }
+      _debug_perturbation = !_debug_perturbation;
+    }
+    assert((new_active_workers <= (uintx) ParallelGCThreads) &&
+           (new_active_workers >= min_workers),
+      "Jiggled active workers too much");
+  }
+
+  if (TraceDynamicGCThreads) {
+     gclog_or_tty->print_cr("GCTaskManager::calc_default_active_workers() : "
+       "active_workers(): %d  new_acitve_workers: %d  "
+       "prev_active_workers: %d\n"
+       " active_workers_by_JT: %d  active_workers_by_heap_size: %d",
+       active_workers, new_active_workers, prev_active_workers,
+       active_workers_by_JT, active_workers_by_heap_size);
+  }
+  assert(new_active_workers > 0, "Always need at least 1");
+  return new_active_workers;
+}
+
+int AdaptiveSizePolicy::calc_active_workers(uintx total_workers,
+                                            uintx active_workers,
+                                            uintx application_workers) {
+  // If the user has specifically set the number of
+  // GC threads, use them.
+
+  // If the user has turned off using a dynamic number of GC threads
+  // or the users has requested a specific number, set the active
+  // number of workers to all the workers.
+
+  int new_active_workers;
+  if (!UseDynamicNumberOfGCThreads ||
+     (!FLAG_IS_DEFAULT(ParallelGCThreads) && !ForceDynamicNumberOfGCThreads)) {
+    new_active_workers = total_workers;
+  } else {
+    new_active_workers = calc_default_active_workers(total_workers,
+                                                     2, /* Minimum number of workers */
+                                                     active_workers,
+                                                     application_workers);
+  }
+  assert(new_active_workers > 0, "Always need at least 1");
+  return new_active_workers;
+}
+
+int AdaptiveSizePolicy::calc_active_conc_workers(uintx total_workers,
+                                                 uintx active_workers,
+                                                 uintx application_workers) {
+  if (!UseDynamicNumberOfGCThreads ||
+     (!FLAG_IS_DEFAULT(ConcGCThreads) && !ForceDynamicNumberOfGCThreads)) {
+    return ConcGCThreads;
+  } else {
+    int no_of_gc_threads = calc_default_active_workers(
+                             total_workers,
+                             1, /* Minimum number of workers */
+                             active_workers,
+                             application_workers);
+    return no_of_gc_threads;
+  }
 }
 
 bool AdaptiveSizePolicy::tenuring_threshold_change() const {
@@ -337,7 +467,7 @@ void AdaptiveSizePolicy::check_gc_overhead_limit(
       (free_in_old_gen < (size_t) mem_free_old_limit &&
        free_in_eden < (size_t) mem_free_eden_limit))) {
     gclog_or_tty->print_cr(
-          "PSAdaptiveSizePolicy::compute_generation_free_space limits:"
+          "PSAdaptiveSizePolicy::check_gc_overhead_limit:"
           " promo_limit: " SIZE_FORMAT
           " max_eden_size: " SIZE_FORMAT
           " total_free_limit: " SIZE_FORMAT
@@ -512,7 +642,7 @@ bool AdaptiveSizePolicy::print_adaptive_size_policy_on(outputStream* st) const {
 
 bool AdaptiveSizePolicy::print_adaptive_size_policy_on(
                                             outputStream* st,
-                                            int tenuring_threshold_arg) const {
+                                            uint tenuring_threshold_arg) const {
   if (!AdaptiveSizePolicy::print_adaptive_size_policy_on(st)) {
     return false;
   }
@@ -533,7 +663,7 @@ bool AdaptiveSizePolicy::print_adaptive_size_policy_on(
     assert(!tenuring_threshold_change(), "(no change was attempted)");
   }
   if (tenuring_threshold_changed) {
-    st->print_cr("%d", tenuring_threshold_arg);
+    st->print_cr("%u", tenuring_threshold_arg);
   }
   return true;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -658,6 +658,13 @@ OGLContext_IsFBObjectExtensionAvailable(JNIEnv *env,
     // first see if the fbobject extension is available
     if (!OGLContext_IsExtensionAvailable(extString,
                                          "GL_EXT_framebuffer_object"))
+    {
+        return JNI_FALSE;
+    }
+
+    // next see if the depth texture extension is available
+    if (!OGLContext_IsExtensionAvailable(extString,
+                                         "GL_ARB_depth_texture"))
     {
         return JNI_FALSE;
     }

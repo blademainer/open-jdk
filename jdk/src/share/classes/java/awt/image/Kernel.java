@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -147,7 +147,7 @@ public class Kernel implements Cloneable {
             return super.clone();
         } catch (CloneNotSupportedException e) {
             // this shouldn't happen, since we are Cloneable
-            throw new InternalError();
+            throw new InternalError(e);
         }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2008, 2009, 2010, 2011 Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -46,10 +46,9 @@ class SharkCompiler : public AbstractCompiler {
   // Missing feature tests
   bool supports_native() { return true; }
   bool supports_osr()    { return true; }
-
-  // Customization
-  bool needs_adapters()  { return false; }
-  bool needs_stubs()     { return false; }
+  bool can_compile_method(methodHandle method)  {
+    return ! (method->is_method_handle_intrinsic() || method->is_compiled_lambda_form());
+  }
 
   // Initialization
   void initialize();

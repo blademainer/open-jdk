@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@ import java.io.*;
 
 /**
  * @test
- * @bug     4385429
+ * @bug     4385429 8004928
  * @summary Certain legacy chained exceptions throw IllegalArgumentException
  *          upon deserialization if "causative exception" is null.
  * @author  Josh Bloch
@@ -36,8 +36,7 @@ public class LegacyChainedExceptionSerialization {
         new ExceptionInInitializerError(),
         new java.lang.reflect.UndeclaredThrowableException(null),
         new java.lang.reflect.InvocationTargetException(null),
-        new java.security.PrivilegedActionException(null),
-        new java.awt.print.PrinterIOException(null)
+        new java.security.PrivilegedActionException(null)
     };
 
     public static void main(String[] args) throws Exception {

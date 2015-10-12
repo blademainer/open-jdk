@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,6 +34,7 @@
 #include "runtime/javaCalls.hpp"
 #include "runtime/os.hpp"
 #include "services/attachListener.hpp"
+#include "services/diagnosticCommand.hpp"
 #include "services/heapDumper.hpp"
 
 volatile bool AttachListener::_initialized;
@@ -43,8 +44,8 @@ volatile bool AttachListener::_initialized;
 // Invokes sun.misc.VMSupport.serializePropertiesToByteArray to serialize
 // the system properties into a byte array.
 
-static klassOop load_and_initialize_klass(Symbol* sh, TRAPS) {
-  klassOop k = SystemDictionary::resolve_or_fail(sh, true, CHECK_NULL);
+static Klass* load_and_initialize_klass(Symbol* sh, TRAPS) {
+  Klass* k = SystemDictionary::resolve_or_fail(sh, true, CHECK_NULL);
   instanceKlassHandle ik (THREAD, k);
   if (ik->should_be_initialized()) {
     ik->initialize(CHECK_NULL);
@@ -58,7 +59,7 @@ static jint get_properties(AttachOperation* op, outputStream* out, Symbol* seria
 
   // load sun.misc.VMSupport
   Symbol* klass = vmSymbols::sun_misc_VMSupport();
-  klassOop k = load_and_initialize_klass(klass, THREAD);
+  Klass* k = load_and_initialize_klass(klass, THREAD);
   if (HAS_PENDING_EXCEPTION) {
     java_lang_Throwable::print(PENDING_EXCEPTION, out);
     CLEAR_PENDING_EXCEPTION;
@@ -87,7 +88,7 @@ static jint get_properties(AttachOperation* op, outputStream* out, Symbol* seria
   // The result should be a [B
   oop res = (oop)result.get_jobject();
   assert(res->is_typeArray(), "just checking");
-  assert(typeArrayKlass::cast(res->klass())->element_type() == T_BYTE, "just checking");
+  assert(TypeArrayKlass::cast(res->klass())->element_type() == T_BYTE, "just checking");
 
   // copy the bytes to the output stream
   typeArrayOop ba = typeArrayOop(res);
@@ -98,6 +99,7 @@ static jint get_properties(AttachOperation* op, outputStream* out, Symbol* seria
 }
 
 // Implementation of "properties" command.
+// See also: PrintSystemPropertiesDCmd class
 static jint get_system_properties(AttachOperation* op, outputStream* out) {
   return get_properties(op, out, vmSymbols::serializePropertiesToByteArray_name());
 }
@@ -126,6 +128,7 @@ static jint data_dump(AttachOperation* op, outputStream* out) {
 }
 
 // Implementation of "threaddump" command - essentially a remote ctrl-break
+// See also: ThreadDumpDCmd class
 //
 static jint thread_dump(AttachOperation* op, outputStream* out) {
   bool print_concurrent_locks = false;
@@ -148,8 +151,27 @@ static jint thread_dump(AttachOperation* op, outputStream* out) {
   return JNI_OK;
 }
 
-#ifndef SERVICES_KERNEL   // Heap dumping not supported
+// A jcmd attach operation request was received, which will now
+// dispatch to the diagnostic commands used for serviceability functions.
+static jint jcmd(AttachOperation* op, outputStream* out) {
+  Thread* THREAD = Thread::current();
+  // All the supplied jcmd arguments are stored as a single
+  // string (op->arg(0)). This is parsed by the Dcmd framework.
+  DCmd::parse_and_execute(DCmd_Source_AttachAPI, out, op->arg(0), ' ', THREAD);
+  if (HAS_PENDING_EXCEPTION) {
+    java_lang_Throwable::print(PENDING_EXCEPTION, out);
+    out->cr();
+    CLEAR_PENDING_EXCEPTION;
+    // The exception has been printed on the output stream
+    // If the JVM returns JNI_ERR, the attachAPI throws a generic I/O
+    // exception and the content of the output stream is not processed.
+    // By returning JNI_OK, the exception will be displayed on the client side
+  }
+  return JNI_OK;
+}
+
 // Implementation of "dumpheap" command.
+// See also: HeapDumpDCmd class
 //
 // Input arguments :-
 //   arg0: Name of the dump file
@@ -189,9 +211,9 @@ jint dump_heap(AttachOperation* op, outputStream* out) {
   }
   return JNI_OK;
 }
-#endif // SERVICES_KERNEL
 
 // Implementation of "inspectheap" command
+// See also: ClassHistogramDCmd class
 //
 // Input arguments :-
 //   arg0: "-live" or "-all"
@@ -205,7 +227,7 @@ static jint heap_inspection(AttachOperation* op, outputStream* out) {
     }
     live_objects_only = strcmp(arg0, "-live") == 0;
   }
-  VM_GC_HeapInspection heapop(out, live_objects_only /* request full gc */, true /* need_prologue */);
+  VM_GC_HeapInspection heapop(out, live_objects_only /* request full gc */);
   VMThread::execute(&heapop);
   return JNI_OK;
 }
@@ -223,7 +245,7 @@ static jint set_bool_flag(const char* name, AttachOperation* op, outputStream* o
     }
     value = (tmp != 0);
   }
-  bool res = CommandLineFlags::boolAtPut((char*)name, &value, ATTACH_ON_DEMAND);
+  bool res = CommandLineFlags::boolAtPut((char*)name, &value, Flag::ATTACH_ON_DEMAND);
   if (! res) {
     out->print_cr("setting flag %s failed", name);
   }
@@ -241,7 +263,7 @@ static jint set_intx_flag(const char* name, AttachOperation* op, outputStream* o
       return JNI_ERR;
     }
   }
-  bool res = CommandLineFlags::intxAtPut((char*)name, &value, ATTACH_ON_DEMAND);
+  bool res = CommandLineFlags::intxAtPut((char*)name, &value, Flag::ATTACH_ON_DEMAND);
   if (! res) {
     out->print_cr("setting flag %s failed", name);
   }
@@ -260,7 +282,7 @@ static jint set_uintx_flag(const char* name, AttachOperation* op, outputStream* 
       return JNI_ERR;
     }
   }
-  bool res = CommandLineFlags::uintxAtPut((char*)name, &value, ATTACH_ON_DEMAND);
+  bool res = CommandLineFlags::uintxAtPut((char*)name, &value, Flag::ATTACH_ON_DEMAND);
   if (! res) {
     out->print_cr("setting flag %s failed", name);
   }
@@ -279,7 +301,7 @@ static jint set_uint64_t_flag(const char* name, AttachOperation* op, outputStrea
       return JNI_ERR;
     }
   }
-  bool res = CommandLineFlags::uint64_tAtPut((char*)name, &value, ATTACH_ON_DEMAND);
+  bool res = CommandLineFlags::uint64_tAtPut((char*)name, &value, Flag::ATTACH_ON_DEMAND);
   if (! res) {
     out->print_cr("setting flag %s failed", name);
   }
@@ -294,9 +316,9 @@ static jint set_ccstr_flag(const char* name, AttachOperation* op, outputStream* 
     out->print_cr("flag value must be a string");
     return JNI_ERR;
   }
-  bool res = CommandLineFlags::ccstrAtPut((char*)name, &value, ATTACH_ON_DEMAND);
+  bool res = CommandLineFlags::ccstrAtPut((char*)name, &value, Flag::ATTACH_ON_DEMAND);
   if (res) {
-    FREE_C_HEAP_ARRAY(char, value);
+    FREE_C_HEAP_ARRAY(char, value, mtInternal);
   } else {
     out->print_cr("setting flag %s failed", name);
   }
@@ -335,6 +357,7 @@ static jint set_flag(AttachOperation* op, outputStream* out) {
 }
 
 // Implementation of "printflag" command
+// See also: PrintVMFlagsDCmd class
 static jint print_flag(AttachOperation* op, outputStream* out) {
   const char* name = NULL;
   if ((name = op->arg(0)) == NULL) {
@@ -357,15 +380,14 @@ static jint print_flag(AttachOperation* op, outputStream* out) {
 static AttachOperationFunctionInfo funcs[] = {
   { "agentProperties",  get_agent_properties },
   { "datadump",         data_dump },
-#ifndef SERVICES_KERNEL
   { "dumpheap",         dump_heap },
-#endif  // SERVICES_KERNEL
   { "load",             JvmtiExport::load_agent_library },
   { "properties",       get_system_properties },
   { "threaddump",       thread_dump },
   { "inspectheap",      heap_inspection },
   { "setflag",          set_flag },
   { "printflag",        print_flag },
+  { "jcmd",             jcmd },
   { NULL,               NULL }
 };
 
@@ -377,6 +399,8 @@ static AttachOperationFunctionInfo funcs[] = {
 
 static void attach_listener_thread_entry(JavaThread* thread, TRAPS) {
   os::set_priority(thread, NearMaxPriority);
+
+  thread->record_stack_base_and_size();
 
   if (AttachListener::pd_init() != 0) {
     return;
@@ -430,7 +454,7 @@ static void attach_listener_thread_entry(JavaThread* thread, TRAPS) {
 // Starts the Attach Listener thread
 void AttachListener::init() {
   EXCEPTION_MARK;
-  klassOop k = SystemDictionary::resolve_or_fail(vmSymbols::java_lang_Thread(), true, CHECK);
+  Klass* k = SystemDictionary::resolve_or_fail(vmSymbols::java_lang_Thread(), true, CHECK);
   instanceKlassHandle klass (THREAD, k);
   instanceHandle thread_oop = klass->allocate_instance_handle(CHECK);
 
@@ -446,7 +470,17 @@ void AttachListener::init() {
                        vmSymbols::threadgroup_string_void_signature(),
                        thread_group,
                        string,
-                       CHECK);
+                       THREAD);
+
+  if (HAS_PENDING_EXCEPTION) {
+    tty->print_cr("Exception in VM (AttachListener::init) : ");
+    java_lang_Throwable::print(PENDING_EXCEPTION, tty);
+    tty->cr();
+
+    CLEAR_PENDING_EXCEPTION;
+
+    return;
+  }
 
   KlassHandle group(THREAD, SystemDictionary::ThreadGroup_klass());
   JavaCalls::call_special(&result,
@@ -455,7 +489,17 @@ void AttachListener::init() {
                         vmSymbols::add_method_name(),
                         vmSymbols::thread_void_signature(),
                         thread_oop,             // ARG 1
-                        CHECK);
+                        THREAD);
+
+  if (HAS_PENDING_EXCEPTION) {
+    tty->print_cr("Exception in VM (AttachListener::init) : ");
+    java_lang_Throwable::print(PENDING_EXCEPTION, tty);
+    tty->cr();
+
+    CLEAR_PENDING_EXCEPTION;
+
+    return;
+  }
 
   { MutexLocker mu(Threads_lock);
     JavaThread* listener_thread = new JavaThread(&attach_listener_thread_entry);

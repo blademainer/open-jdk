@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,7 +41,7 @@ import sun.rmi.runtime.Log;
  * @author  Ann Wollrath
  * @author  Peter Jones
  */
-class WeakRef extends WeakReference {
+class WeakRef extends WeakReference<Object> {
 
     /** value of the referent's "identity" hash code */
     private int hashValue;
@@ -60,7 +60,7 @@ class WeakRef extends WeakReference {
     /**
      * Create a new WeakRef to the given object, registered with a queue.
      */
-    public WeakRef(Object obj, ReferenceQueue q) {
+    public WeakRef(Object obj, ReferenceQueue<Object> q) {
         super(obj, q);
         setHashValue(obj);      // cache object's "identity" hash code
     }

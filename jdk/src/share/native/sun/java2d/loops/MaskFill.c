@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -84,6 +84,11 @@ Java_sun_java2d_loops_MaskFill_MaskFill
                 (maskArray
                  ? (*env)->GetPrimitiveArrayCritical(env, maskArray, 0)
                  : 0);
+            if (maskArray != NULL && pMask == NULL) {
+                SurfaceData_InvokeRelease(env, sdOps, &rasInfo);
+                SurfaceData_InvokeUnlock(env, sdOps, &rasInfo);
+                return;
+            }
             maskoff += ((rasInfo.bounds.y1 - y) * maskscan +
                         (rasInfo.bounds.x1 - x));
             (*pPrim->funcs.maskfill)(pDst,

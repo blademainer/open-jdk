@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,9 @@
 #endif
 #ifdef TARGET_OS_FAMILY_windows
 # include "os_windows.inline.hpp"
+#endif
+#ifdef TARGET_OS_FAMILY_bsd
+# include "os_bsd.inline.hpp"
 #endif
 
 // This class provides a framework for collecting various statistics.
@@ -74,7 +77,7 @@
 
 #ifdef ASSERT
 
-class HistogramElement : public CHeapObj {
+class HistogramElement : public CHeapObj<mtInternal> {
  protected:
   jint _count;
   const char* _name;
@@ -88,7 +91,7 @@ class HistogramElement : public CHeapObj {
   virtual int compare(HistogramElement* e1,HistogramElement* e2);
 };
 
-class Histogram : public CHeapObj {
+class Histogram : public CHeapObj<mtInternal> {
  protected:
   GrowableArray<HistogramElement*>* _elements;
   GrowableArray<HistogramElement*>* elements() { return _elements; }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,21 +27,8 @@
 
 #include "memory/allocation.hpp"
 #include "utilities/globalDefinitions.hpp"
-#ifdef TARGET_ARCH_x86
-# include "register_x86.hpp"
-#endif
-#ifdef TARGET_ARCH_sparc
-# include "register_sparc.hpp"
-#endif
-#ifdef TARGET_ARCH_zero
-# include "register_zero.hpp"
-#endif
-#ifdef TARGET_ARCH_arm
-# include "register_arm.hpp"
-#endif
-#ifdef TARGET_ARCH_ppc
-# include "register_ppc.hpp"
-#endif
+#include "asm/register.hpp"
+
 #ifdef COMPILER2
 #include "opto/adlcVMDeps.hpp"
 #include "utilities/ostream.hpp"
@@ -130,6 +117,10 @@ public:
   VMReg next() {
     assert((is_reg() && value() < stack0->value() - 1) || is_stack(), "must be");
     return (VMReg)(intptr_t)(value() + 1);
+  }
+  VMReg next(int i) {
+    assert((is_reg() && value() < stack0->value() - i) || is_stack(), "must be");
+    return (VMReg)(intptr_t)(value() + i);
   }
   VMReg prev() {
     assert((is_stack() && value() > stack0->value()) || (is_reg() && value() != 0), "must be");

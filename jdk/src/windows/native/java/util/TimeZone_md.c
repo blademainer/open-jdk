@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -65,8 +65,6 @@ static void *keyNames[] = {
 #define STANDARD_NAME           0
 #define STD_NAME                2
 
-static int isNT = FALSE;        /* TRUE if it is NT. */
-
 /*
  * Calls RegQueryValueEx() to get the value for the specified key. If
  * the platform is NT, 2000 or XP, it calls the Unicode
@@ -95,12 +93,10 @@ getValueInRegistry(HKEY hKey,
     int len;
 
     *typePtr = 0;
-    if (isNT) {
-        ret = RegQueryValueExW(hKey, (WCHAR *) keyNames[keyIndex], NULL,
-                               typePtr, buf, bufLengthPtr);
-        if (ret == ERROR_SUCCESS && *typePtr == REG_SZ) {
-            return ret;
-        }
+    ret = RegQueryValueExW(hKey, (WCHAR *) keyNames[keyIndex], NULL,
+                           typePtr, buf, bufLengthPtr);
+    if (ret == ERROR_SUCCESS && *typePtr == REG_SZ) {
+        return ret;
     }
 
     valSize = sizeof(val);
@@ -165,6 +161,7 @@ static int getWinTimeZone(char *winZoneName, char *winMapID)
     WCHAR *stdNamePtr = tzi.StandardName;
     DWORD valueSize;
     DWORD timeType;
+    int isVista;
 
     /*
      * Get the current time zone setting of the platform.
@@ -179,7 +176,7 @@ static int getWinTimeZone(char *winZoneName, char *winMapID)
      */
     ver.dwOSVersionInfoSize = sizeof(ver);
     GetVersionEx(&ver);
-    isNT = ver.dwPlatformId == VER_PLATFORM_WIN32_NT;
+    isVista = ver.dwMajorVersion >= 6;
 
     ret = RegOpenKeyEx(HKEY_LOCAL_MACHINE, WIN_CURRENT_TZ_KEY, 0,
                        KEY_READ, (PHKEY)&hKey);
@@ -202,8 +199,13 @@ static int getWinTimeZone(char *winZoneName, char *winMapID)
             ret = RegQueryValueExA(hKey, "DynamicDaylightTimeDisabled",
                                    NULL, &valueType, (LPBYTE) &val, &bufSize);
         }
+
         if (ret == ERROR_SUCCESS) {
-            if (val == 1) {
+            int daylightSavingsUpdateDisabledOther = val == 1 && tzi.DaylightDate.wMonth != 0;
+            int daylightSavingsUpdateDisabledVista = val == 1;
+            int daylightSavingsUpdateDisabled = isVista ? daylightSavingsUpdateDisabledVista : daylightSavingsUpdateDisabledOther;
+
+            if (daylightSavingsUpdateDisabled) {
                 (void) RegCloseKey(hKey);
                 customZoneName(tzi.Bias, winZoneName);
                 return VALUE_GMTOFFSET;
@@ -213,7 +215,7 @@ static int getWinTimeZone(char *winZoneName, char *winMapID)
         /*
          * Vista has the key for the current "Time Zones" entry.
          */
-        if (isNT && ver.dwMajorVersion >= 6) {
+        if (isVista) {
             valueType = 0;
             bufSize = MAX_ZONE_CHAR;
             ret = RegQueryValueExA(hKey, "TimeZoneKeyName", NULL,

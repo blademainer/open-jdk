@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -166,7 +166,7 @@ public final class StrikeCache {
                 * cache strikes. The default is "soft" which hints to keep
                 * the strikes around. This property allows the client to
                 * override this to "weak" which hint to the GC to free
-                * memory more agressively.
+                * memory more aggressively.
                 */
                String refType =
                    System.getProperty("sun.java2d.font.reftype", "soft");

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,26 +42,16 @@
 #include "runtime/interfaceSupport.hpp"
 #include "runtime/sharedRuntime.hpp"
 
-volatile int Compiler::_runtimes = uninitialized;
 
-Compiler::Compiler() {
-}
+Compiler::Compiler () {}
 
-
-Compiler::~Compiler() {
-  Unimplemented();
-}
-
-
-void Compiler::initialize_all() {
+void Compiler::init_c1_runtime() {
   BufferBlob* buffer_blob = CompilerThread::current()->get_buffer_blob();
-  Arena* arena = new Arena();
+  Arena* arena = new (mtCompiler) Arena();
   Runtime1::initialize(buffer_blob);
   FrameMap::initialize();
   // initialize data structures
   ValueType::initialize(arena);
-  // Instruction::initialize();
-  // BlockBegin::initialize();
   GraphBuilder::initialize();
   // note: to use more than one instance of LinearScan at a time this function call has to
   //       be moved somewhere outside of this constructor:
@@ -70,37 +60,43 @@ void Compiler::initialize_all() {
 
 
 void Compiler::initialize() {
-  if (_runtimes != initialized) {
-    initialize_runtimes( initialize_all, &_runtimes);
+  // Buffer blob must be allocated per C1 compiler thread at startup
+  BufferBlob* buffer_blob = init_buffer_blob();
+
+  if (should_perform_init()) {
+    if (buffer_blob == NULL) {
+      // When we come here we are in state 'initializing'; entire C1 compilation
+      // can be shut down.
+      set_state(failed);
+    } else {
+      init_c1_runtime();
+      set_state(initialized);
+    }
   }
-  mark_initialized();
 }
 
+BufferBlob* Compiler::init_buffer_blob() {
+  // Allocate buffer blob once at startup since allocation for each
+  // compilation seems to be too expensive (at least on Intel win32).
+  assert (CompilerThread::current()->get_buffer_blob() == NULL, "Should initialize only once");
 
-BufferBlob* Compiler::build_buffer_blob() {
   // setup CodeBuffer.  Preallocate a BufferBlob of size
   // NMethodSizeLimit plus some extra space for constants.
   int code_buffer_size = Compilation::desired_max_code_buffer_size() +
     Compilation::desired_max_constant_size();
-  BufferBlob* blob = BufferBlob::create("Compiler1 temporary CodeBuffer",
-                                        code_buffer_size);
-  guarantee(blob != NULL, "must create initial code buffer");
-  return blob;
+
+  BufferBlob* buffer_blob = BufferBlob::create("C1 temporary CodeBuffer", code_buffer_size);
+  if (buffer_blob != NULL) {
+    CompilerThread::current()->set_buffer_blob(buffer_blob);
+  }
+
+  return buffer_blob;
 }
 
 
 void Compiler::compile_method(ciEnv* env, ciMethod* method, int entry_bci) {
-  // Allocate buffer blob once at startup since allocation for each
-  // compilation seems to be too expensive (at least on Intel win32).
   BufferBlob* buffer_blob = CompilerThread::current()->get_buffer_blob();
-  if (buffer_blob == NULL) {
-    buffer_blob = build_buffer_blob();
-    CompilerThread::current()->set_buffer_blob(buffer_blob);
-  }
-
-  if (!is_initialized()) {
-    initialize();
-  }
+  assert(buffer_blob != NULL, "Must exist");
   // invoke compilation
   {
     // We are nested here because we need for the destructor

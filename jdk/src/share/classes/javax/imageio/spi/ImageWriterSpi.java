@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -80,7 +80,7 @@ public abstract class ImageWriterSpi extends ImageReaderWriterSpi {
      * <code>ImageOutputStream.class</code>, to be returned from
      * <code>getOutputTypes</code>.
      * @deprecated Instead of using this field, directly create
-     * the equivalent array <code>{ ImageOutputStream.class }<code>.
+     * the equivalent array <code>{ ImageOutputStream.class }</code>.
      */
     @Deprecated
     public static final Class[] STANDARD_OUTPUT_TYPE =

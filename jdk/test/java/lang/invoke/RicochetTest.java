@@ -1,12 +1,10 @@
 /*
- * Copyright (c) 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -25,7 +23,7 @@
 
 /* @test
  * @summary unit tests for recursive method handles
- * @run junit/othervm -DRicochetTest.MAX_ARITY=50 test.java.lang.invoke.RicochetTest
+ * @run junit/othervm/timeout=3600 -XX:+IgnoreUnrecognizedVMOptions -XX:-VerifyDependencies -DRicochetTest.MAX_ARITY=10 test.java.lang.invoke.RicochetTest
  */
 /*
  * @ignore The following test creates an unreasonable number of adapters in -Xcomp mode (7049122)
@@ -40,7 +38,6 @@ import org.junit.*;
 import static java.lang.invoke.MethodType.*;
 import static java.lang.invoke.MethodHandles.*;
 import static org.junit.Assert.*;
-import static org.junit.Assume.*;
 
 
 /**
@@ -48,7 +45,7 @@ import static org.junit.Assume.*;
  * @author jrose
  */
 public class RicochetTest {
-    private static final Class CLASS = RicochetTest.class;
+    private static final Class<?> CLASS = RicochetTest.class;
     private static final int MAX_ARITY = Integer.getInteger(CLASS.getSimpleName()+".MAX_ARITY", 40);
 
     public static void main(String... av) throws Throwable {
@@ -82,6 +79,7 @@ public class RicochetTest {
         testLongSpreads();
         testIntCollects();
         testReturns();
+        testRecursion();
     }
 
     @Test
@@ -147,7 +145,7 @@ public class RicochetTest {
         for (int nargs = 0; nargs <= MAX; nargs++) {
             if (nargs > 30 && nargs < MAX-20)  nargs += 10;
             int[] args = new int[nargs];
-            for (int j = 0; j < args.length; j++)  args[j] = (int)(j + 11);
+            for (int j = 0; j < args.length; j++)  args[j] = j + 11;
             //System.out.println("testIntSpreads "+Arrays.toString(args));
             int[] args1 = (int[]) id.invokeExact(args);
             assertArrayEquals(args, args1);
@@ -256,7 +254,7 @@ public class RicochetTest {
                     //System.out.println("  expect="+expect);
 
                     // now use the combined MH, and test the output:
-                    MethodHandle mh = collectArguments(lister, pos, INT_COLLECTORS[collects]);
+                    MethodHandle mh = collectArguments(lister, pos, int[].class, INT_COLLECTORS[collects]);
                     if (mh == null)  continue;  // no infix collection, yet
                     assert(mh.type().parameterCount() == inputs);
                     Object observe = mh.asSpreader(int[].class, args.length).invokeExact(args);
@@ -266,13 +264,53 @@ public class RicochetTest {
         }
     }
 
-    private static MethodHandle collectArguments(MethodHandle lister, int pos, MethodHandle collector) {
+    @Test
+    public void testByteCollects() throws Throwable {
+        if (!startTest("testByteCollects"))  return;
+        for (MethodHandle lister : BYTE_LISTERS) {
+            int outputs = lister.type().parameterCount();
+            for (int collects = 0; collects <= Math.min(outputs, BYTE_COLLECTORS.length-1); collects++) {
+                int inputs = outputs - 1 + collects;
+                if (inputs < 0)  continue;
+                for (int pos = 0; pos + collects <= inputs; pos++) {
+                    MethodHandle collector = BYTE_COLLECTORS[collects];
+                    byte[] args = new byte[inputs];
+                    int ap = 0, arg = 31;
+                    for (int i = 0; i < pos; i++)
+                        args[ap++] = (byte)(arg++ + 0);
+                    for (int i = 0; i < collects; i++)
+                        args[ap++] = (byte)(arg++ + 10);
+                    while (ap < args.length)
+                        args[ap++] = (byte)(arg++ + 20);
+                    // calculate piecemeal:
+                    //System.out.println("testIntCollects "+Arrays.asList(lister, pos, collector)+" on "+Arrays.toString(args));
+                    byte[] collargs = Arrays.copyOfRange(args, pos, pos+collects);
+                    byte coll = (byte) collector.asSpreader(byte[].class, collargs.length).invokeExact(collargs);
+                    byte[] listargs = Arrays.copyOfRange(args, 0, outputs);
+                    System.arraycopy(args, pos+collects, listargs, pos+1, outputs - (pos+1));
+                    listargs[pos] = coll;
+                    //System.out.println("  coll="+coll+" listargs="+Arrays.toString(listargs));
+                    Object expect = lister.asSpreader(byte[].class, listargs.length).invokeExact(listargs);
+                    //System.out.println("  expect="+expect);
+
+                    // now use the combined MH, and test the output:
+                    MethodHandle mh = collectArguments(lister, pos, byte[].class, BYTE_COLLECTORS[collects]);
+                    if (mh == null)  continue;  // no infix collection, yet
+                    assert(mh.type().parameterCount() == inputs);
+                    Object observe = mh.asSpreader(byte[].class, args.length).invokeExact(args);
+                    assertEquals(expect, observe);
+                }
+            }
+        }
+    }
+
+    private static MethodHandle collectArguments(MethodHandle lister, int pos, Class<?> array, MethodHandle collector) {
         int collects = collector.type().parameterCount();
         int outputs = lister.type().parameterCount();
         if (pos == outputs - 1)
             return MethodHandles.filterArguments(lister, pos,
-                        collector.asSpreader(int[].class, collects))
-                            .asCollector(int[].class, collects);
+                        collector.asSpreader(array, collects))
+                            .asCollector(array, collects);
         //return MethodHandles.collectArguments(lister, pos, collector); //no such animal
         return null;
     }
@@ -371,6 +409,62 @@ public class RicochetTest {
         //System.out.println("faultCount="+faultCount);
     }
 
+    @Test
+    public void testRecursion() throws Throwable {
+        if (!startTest("testRecursion"))  return;
+        final int LIMIT = 10;
+        for (int i = 0; i < LIMIT; i++) {
+            RFCB rfcb = new RFCB(i);
+            Object x = "x", y = "y";
+            Object result = rfcb.recursiveFunction(x, y);
+            verbose(1, result);
+        }
+    }
+    /** Recursive Function Control Block */
+    private static class RFCB {
+        java.util.Random random;
+        final MethodHandle[] fns;
+        int depth;
+        @SuppressWarnings("LeakingThisInConstructor")
+        RFCB(int seed) throws Throwable {
+            this.random = new java.util.Random(seed);
+            this.fns = new MethodHandle[Math.max(29, (1 << MAX_DEPTH-2)/3)];
+            java.util.Arrays.fill(fns, lookup().bind(this, "recursiveFunction", genericMethodType(2)));
+            for (int i = 5; i < fns.length; i++) {
+                switch (i % 4) {
+                case 0: fns[i] = filterArguments(fns[i - 5], 0, insertArguments(fns[i - 4], 1, ".")); break;
+                case 1: fns[i] = filterArguments(fns[i - 5], 1, insertArguments(fns[i - 3], 1, ".")); break;
+                case 2: fns[i] = filterReturnValue(fns[i - 5], insertArguments(fns[i - 2], 1, ".")); break;
+                }
+            }
+        }
+        Object recursiveFunction(Object x, Object y) throws Throwable {
+            depth++;
+            try {
+                final int ACTION_COUNT = 11;
+                switch (random.nextInt(ACTION_COUNT)) {
+                case 1:
+                    Throwable ex = new RuntimeException();
+                    ex.fillInStackTrace();
+                    if (VERBOSITY >= 2) ex.printStackTrace(System.out);
+                    x = "ST; " + x;
+                    break;
+                case 2:
+                    System.gc();
+                    x = "GC; " + x;
+                    break;
+                }
+                boolean isLeaf = (depth >= MAX_DEPTH);
+                if (isLeaf) {
+                    return Arrays.asList(x, y).toString();
+                }
+                return fns[random.nextInt(fns.length)].invokeExact(x, y);
+            } finally {
+                depth--;
+            }
+        }
+    }
+
     private static MethodHandle sequence(MethodHandle mh1, MethodHandle... mhs) {
         MethodHandle res = mh1;
         for (MethodHandle mh2 : mhs)
@@ -411,7 +505,7 @@ public class RicochetTest {
             return mh.invokeWithArguments(args);
         } catch (Throwable ex) {
             System.out.println("threw: "+mh+Arrays.asList(args));
-            ex.printStackTrace();
+            ex.printStackTrace(System.out);
             return ex;
         }
     }
@@ -459,8 +553,8 @@ public class RicochetTest {
     private static long opJ(long x) { return (long) opI((int)x); }
     private static Object opL2(Object x, Object y) { return (Object) opI2((int)x, (int)y); }
     private static Object opL(Object x) { return (Object) opI((int)x); }
-    private static int opL2_I(Object x, Object y) { return (int) opI2((int)x, (int)y); }
-    private static int opL_I(Object x) { return (int) opI((int)x); }
+    private static int opL2_I(Object x, Object y) { return opI2((int)x, (int)y); }
+    private static int opL_I(Object x) { return opI((int)x); }
     private static long opL_J(Object x) { return (long) opI((int)x); }
     private static final MethodHandle opI, opI2, opI3, opI4, opI_L, opJ, opJ2, opJ3, opL2, opL, opL2_I, opL_I, opL_J;
     static {
@@ -480,6 +574,9 @@ public class RicochetTest {
     }
     private static final MethodHandle[] INT_COLLECTORS = {
         constant(int.class, 42), opI, opI2, opI3, opI4
+    };
+    private static final MethodHandle[] BYTE_COLLECTORS = {
+        constant(byte.class, (byte)42), i2b(opI), i2b(opI2), i2b(opI3), i2b(opI4)
     };
     private static final MethodHandle[] LONG_COLLECTORS = {
         constant(long.class, 42), opJ, opJ2, opJ3
@@ -503,21 +600,36 @@ public class RicochetTest {
                                                              Collections.nCopies(8, int.class));
     private static final MethodHandle list8longs = findStatic("list8longs", Object.class,
                                                               Collections.nCopies(8, long.class));
-    private static final MethodHandle[] INT_LISTERS, LONG_LISTERS;
+    private static final MethodHandle[] INT_LISTERS, LONG_LISTERS, BYTE_LISTERS;
     static {
         int listerCount = list8ints.type().parameterCount() + 1;
         INT_LISTERS  = new MethodHandle[listerCount];
         LONG_LISTERS = new MethodHandle[listerCount];
+        BYTE_LISTERS = new MethodHandle[listerCount];
         MethodHandle lister = list8ints;
         MethodHandle llister = list8longs;
         for (int i = listerCount - 1; ; i--) {
             INT_LISTERS[i] = lister;
             LONG_LISTERS[i] = llister;
+            BYTE_LISTERS[i] = i2b(lister);
             if (i == 0)  break;
-            lister  = insertArguments(lister,  i-1, (int)0);
-            llister = insertArguments(llister, i-1, (long)0);
+            lister  = insertArguments(lister,  i-1, 0);
+            llister = insertArguments(llister, i-1, 0L);
         }
     }
+    private static MethodHandle i2b(MethodHandle mh) {
+        return MethodHandles.explicitCastArguments(mh, subst(mh.type(), int.class, byte.class));
+    }
+    private static MethodType subst(MethodType mt, Class<?> from, Class<?> to) {
+        for (int i = 0; i < mt.parameterCount(); i++) {
+            if (mt.parameterType(i) == from)
+                mt = mt.changeParameterType(i, to);
+        }
+        if (mt.returnType() == from)
+            mt = mt.changeReturnType(to);
+        return mt;
+    }
+
 
     private static Object  convI_L(int     x) { stress(); return (Object)  x; }
     private static int     convL_I(Object  x) { stress(); return (int)     x; }
@@ -536,6 +648,7 @@ public class RicochetTest {
     }
 
     // stress modes:
+    private static final int MAX_DEPTH = getProperty("MAX_DEPTH", 5);
     private static final int REPEAT = getProperty("REPEAT", 0);
     private static final int STRESS = getProperty("STRESS", 0);
     private static /*v*/ int STRESS_COUNT;

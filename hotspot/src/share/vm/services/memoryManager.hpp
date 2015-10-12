@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,7 +40,7 @@ class MemoryPool;
 class GCMemoryManager;
 class OopClosure;
 
-class MemoryManager : public CHeapObj {
+class MemoryManager : public CHeapObj<mtInternal> {
 private:
   enum {
     max_num_pools = 10
@@ -56,6 +56,7 @@ public:
   enum Name {
     Abstract,
     CodeCache,
+    Metaspace,
     Copy,
     MarkSweepCompact,
     ParNew,
@@ -88,6 +89,7 @@ public:
 
   // Static factory methods to get a memory manager of a specific type
   static MemoryManager*   get_code_cache_memory_manager();
+  static MemoryManager*   get_metaspace_memory_manager();
   static GCMemoryManager* get_copy_memory_manager();
   static GCMemoryManager* get_msc_memory_manager();
   static GCMemoryManager* get_parnew_memory_manager();
@@ -108,7 +110,15 @@ public:
   const char* name()         { return "CodeCacheManager"; }
 };
 
-class GCStatInfo : public CHeapObj {
+class MetaspaceMemoryManager : public MemoryManager {
+public:
+  MetaspaceMemoryManager() : MemoryManager() {}
+
+  MemoryManager::Name kind() { return MemoryManager::Metaspace; }
+  const char *name()         { return "Metaspace Manager"; }
+};
+
+class GCStatInfo : public ResourceObj {
 private:
   size_t _index;
   jlong  _start_time;

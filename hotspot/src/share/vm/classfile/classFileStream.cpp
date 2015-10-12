@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -92,4 +92,11 @@ void ClassFileStream::skip_u2(int length, TRAPS) {
     guarantee_more(length * 2, CHECK);
   }
   _current += length * 2;
+}
+
+void ClassFileStream::skip_u4(int length, TRAPS) {
+  if (_need_verify) {
+    guarantee_more(length * 4, CHECK);
+  }
+  _current += length * 4;
 }

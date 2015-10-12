@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,19 @@
 package sun.jvm.hotspot.tools;
 
 import java.io.*;
+import sun.jvm.hotspot.debugger.JVMDebugger;
 import sun.jvm.hotspot.runtime.*;
 
 public class JSnap extends Tool {
+
+    public JSnap() {
+        super();
+    }
+
+    public JSnap(JVMDebugger d) {
+        super(d);
+    }
+
     public void run() {
         final PrintStream out = System.out;
         if (PerfMemory.initialized()) {
@@ -54,7 +64,6 @@ public class JSnap extends Tool {
 
     public static void main(String[] args) {
         JSnap js = new JSnap();
-        js.start(args);
-        js.stop();
+        js.execute(args);
     }
 }

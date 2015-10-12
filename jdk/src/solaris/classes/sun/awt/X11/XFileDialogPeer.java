@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -396,11 +396,18 @@ class XFileDialogPeer extends XDialogPeer implements FileDialogPeer, ActionListe
             savedFile = file.substring(index+1);
         }
 
+        String[] fileNames = fileList.getSelectedItems();
+        int filesNumber = (fileNames != null) ? fileNames.length : 0;
+        File[] files = new File[filesNumber];
+        for (int i = 0; i < filesNumber; i++) {
+            files[i] = new File(savedDir, fileNames[i]);
+        }
+
         AWTAccessor.FileDialogAccessor fileDialogAccessor = AWTAccessor.getFileDialogAccessor();
 
         fileDialogAccessor.setDirectory(target, savedDir);
         fileDialogAccessor.setFile(target, savedFile);
-        fileDialogAccessor.setFiles(target, savedDir, fileList.getSelectedItems());
+        fileDialogAccessor.setFiles(target, files);
     }
 
     /**
@@ -419,7 +426,7 @@ class XFileDialogPeer extends XDialogPeer implements FileDialogPeer, ActionListe
 
         fileDialogAccessor.setDirectory(target, null);
         fileDialogAccessor.setFile(target, null);
-        fileDialogAccessor.setFiles(target, null, null);
+        fileDialogAccessor.setFiles(target, null);
 
         handleQuitButton();
     }
@@ -713,7 +720,9 @@ class XFileDialogPeer extends XDialogPeer implements FileDialogPeer, ActionListe
         }
 
         File fe = new File(dir).getAbsoluteFile();
-        log.fine("Current directory : " + fe);
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine("Current directory : " + fe);
+        }
 
         if (!fe.isDirectory()) {
             dir = "./";

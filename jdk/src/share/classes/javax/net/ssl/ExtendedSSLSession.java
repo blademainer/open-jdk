@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,8 @@
 
 package javax.net.ssl;
 
+import java.util.List;
+
 /**
  * Extends the <code>SSLSession</code> interface to support additional
  * session attributes.
@@ -43,7 +45,7 @@ public abstract class ExtendedSSLSession implements SSLSession {
      * The signature algorithm name must be a standard Java Security
      * name (such as "SHA1withRSA", "SHA256withECDSA", and so on).
      * See Appendix A in the <a href=
-     * "../../../technotes/guides/security/crypto/CryptoSpec.html#AppA">
+     * "{@docRoot}/../technotes/guides/security/crypto/CryptoSpec.html#AppA">
      * Java Cryptography Architecture API Specification &amp; Reference </a>
      * for information about standard algorithm names.
      * <p>
@@ -71,7 +73,7 @@ public abstract class ExtendedSSLSession implements SSLSession {
      * The signature algorithm name must be a standard Java Security
      * name (such as "SHA1withRSA", "SHA256withECDSA", and so on).
      * See Appendix A in the <a href=
-     * "../../../technotes/guides/security/crypto/CryptoSpec.html#AppA">
+     * "{@docRoot}/../technotes/guides/security/crypto/CryptoSpec.html#AppA">
      * Java Cryptography Architecture API Specification &amp; Reference </a>
      * for information about standard algorithm names.
      *
@@ -83,4 +85,34 @@ public abstract class ExtendedSSLSession implements SSLSession {
      * @see X509ExtendedKeyManager
      */
     public abstract String[] getPeerSupportedSignatureAlgorithms();
+
+    /**
+     * Obtains a {@link List} containing all {@link SNIServerName}s
+     * of the requested Server Name Indication (SNI) extension.
+     * <P>
+     * In server mode, unless the return {@link List} is empty,
+     * the server should use the requested server names to guide its
+     * selection of an appropriate authentication certificate, and/or
+     * other aspects of security policy.
+     * <P>
+     * In client mode, unless the return {@link List} is empty,
+     * the client should use the requested server names to guide its
+     * endpoint identification of the peer's identity, and/or
+     * other aspects of security policy.
+     *
+     * @return a non-null immutable list of {@link SNIServerName}s of the
+     *         requested server name indications. The returned list may be
+     *         empty if no server name indications were requested.
+     * @throws UnsupportedOperationException if the underlying provider
+     *         does not implement the operation
+     *
+     * @see SNIServerName
+     * @see X509ExtendedTrustManager
+     * @see X509ExtendedKeyManager
+     *
+     * @since 1.8
+     */
+    public List<SNIServerName> getRequestedServerNames() {
+        throw new UnsupportedOperationException();
+    }
 }

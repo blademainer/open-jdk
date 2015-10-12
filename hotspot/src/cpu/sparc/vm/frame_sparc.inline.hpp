@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,6 +24,8 @@
 
 #ifndef CPU_SPARC_VM_FRAME_SPARC_INLINE_HPP
 #define CPU_SPARC_VM_FRAME_SPARC_INLINE_HPP
+
+#include "asm/macroAssembler.hpp"
 
 // Inline functions for SPARC frames:
 
@@ -82,6 +84,8 @@ inline address* frame::O0_addr() const  { return (address*) &younger_sp()[ I0->s
 
 inline intptr_t*    frame::sender_sp() const  { return fp(); }
 
+inline intptr_t* frame::real_fp() const { return fp(); }
+
 // Used only in frame::oopmapreg_to_location
 // This return a value in VMRegImpl::slot_size
 inline int frame::pd_oop_map_offset_adjustment() const {
@@ -136,7 +140,7 @@ inline int frame::interpreter_frame_monitor_size() {
   return round_to(BasicObjectLock::size(), WordsPerLong);
 }
 
-inline methodOop* frame::interpreter_frame_method_addr() const {
+inline Method** frame::interpreter_frame_method_addr() const {
   interpreterState istate = get_interpreterState();
   return &istate->_method;
 }
@@ -145,12 +149,12 @@ inline methodOop* frame::interpreter_frame_method_addr() const {
 // Constant pool cache
 
 // where LcpoolCache is saved:
-inline constantPoolCacheOop* frame::interpreter_frame_cpoolcache_addr() const {
+inline ConstantPoolCache** frame::interpreter_frame_cpoolcache_addr() const {
   interpreterState istate = get_interpreterState();
   return &istate->_constants; // should really use accessor
   }
 
-inline constantPoolCacheOop* frame::interpreter_frame_cache_addr() const {
+inline ConstantPoolCache** frame::interpreter_frame_cache_addr() const {
   interpreterState istate = get_interpreterState();
   return &istate->_constants;
 }
@@ -183,6 +187,13 @@ inline intptr_t* frame::interpreter_frame_tos_address() const {
   return *interpreter_frame_esp_addr() + 1;
 }
 
+inline BasicObjectLock** frame::interpreter_frame_monitors_addr() const {
+  return (BasicObjectLock**) sp_addr_at(Lmonitors->sp_offset_in_saved_window());
+}
+inline intptr_t** frame::interpreter_frame_esp_addr() const {
+  return (intptr_t**)sp_addr_at(Lesp->sp_offset_in_saved_window());
+}
+
 inline void frame::interpreter_frame_set_tos_address( intptr_t* x ) {
   *interpreter_frame_esp_addr() = x - 1;
 }
@@ -211,28 +222,28 @@ inline int frame::interpreter_frame_monitor_size() {
   return round_to(BasicObjectLock::size(), WordsPerLong);
 }
 
-inline methodOop* frame::interpreter_frame_method_addr() const {
-  return (methodOop*)sp_addr_at( Lmethod->sp_offset_in_saved_window());
+inline Method** frame::interpreter_frame_method_addr() const {
+  return (Method**)sp_addr_at( Lmethod->sp_offset_in_saved_window());
 }
 
 
 // Constant pool cache
 
 // where LcpoolCache is saved:
-inline constantPoolCacheOop* frame::interpreter_frame_cpoolcache_addr() const {
-    return (constantPoolCacheOop*)sp_addr_at(LcpoolCache->sp_offset_in_saved_window());
+inline ConstantPoolCache** frame::interpreter_frame_cpoolcache_addr() const {
+    return (ConstantPoolCache**)sp_addr_at(LcpoolCache->sp_offset_in_saved_window());
   }
 
-inline constantPoolCacheOop* frame::interpreter_frame_cache_addr() const {
-  return (constantPoolCacheOop*)sp_addr_at( LcpoolCache->sp_offset_in_saved_window());
+inline ConstantPoolCache** frame::interpreter_frame_cache_addr() const {
+  return (ConstantPoolCache**)sp_addr_at( LcpoolCache->sp_offset_in_saved_window());
 }
 #endif // CC_INTERP
 
 
-inline JavaCallWrapper* frame::entry_frame_call_wrapper() const {
+inline JavaCallWrapper** frame::entry_frame_call_wrapper_addr() const {
   // note: adjust this code if the link argument in StubGenerator::call_stub() changes!
   const Argument link = Argument(0, false);
-  return (JavaCallWrapper*)sp()[link.as_in().as_register()->sp_offset_in_saved_window()];
+  return (JavaCallWrapper**)&sp()[link.as_in().as_register()->sp_offset_in_saved_window()];
 }
 
 

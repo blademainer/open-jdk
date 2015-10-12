@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,6 +57,7 @@ class VMManagementImpl implements VMManagement {
     private static boolean synchronizerUsageSupport;
     private static boolean threadAllocatedMemorySupport;
     private static boolean gcNotificationSupport;
+    private static boolean remoteDiagnosticCommandsSupport;
 
 
     static {
@@ -104,6 +105,10 @@ class VMManagementImpl implements VMManagement {
 
     public boolean isGcNotificationSupported() {
         return gcNotificationSupport;
+    }
+
+    public boolean isRemoteDiagnosticCommandsSupported() {
+        return remoteDiagnosticCommandsSupport;
     }
 
     public native boolean isThreadContentionMonitoringEnabled();
@@ -174,6 +179,10 @@ class VMManagementImpl implements VMManagement {
         return result;
     }
 
+    public long getUptime() {
+        return getUptime0();
+    }
+
     private List<String> vmArgs = null;
     public synchronized List<String> getVmArguments() {
         if (vmArgs == null) {
@@ -187,6 +196,7 @@ class VMManagementImpl implements VMManagement {
     public native String[] getVmArguments0();
 
     public native long getStartupTime();
+    private native long getUptime0();
     public native int getAvailableProcessors();
 
     // Compilation Subsystem

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,9 +57,12 @@ void PSOldGen::initialize(ReservedSpace rs, size_t alignment,
                           const char* perf_data_name, int level) {
   initialize_virtual_space(rs, alignment);
   initialize_work(perf_data_name, level);
+
   // The old gen can grow to gen_size_limit().  _reserve reflects only
   // the current maximum that can be committed.
   assert(_reserved.byte_size() <= gen_size_limit(), "Consistency check");
+
+  initialize_performance_counters(perf_data_name, level);
 }
 
 void PSOldGen::initialize_virtual_space(ReservedSpace rs, size_t alignment) {
@@ -140,7 +143,9 @@ void PSOldGen::initialize_work(const char* perf_data_name, int level) {
 
   // Update the start_array
   start_array()->set_covered_region(cmr);
+}
 
+void PSOldGen::initialize_performance_counters(const char* perf_data_name, int level) {
   // Generation Counters, generation 'level', 1 subspace
   _gen_counters = new PSGenerationCounters(perf_data_name, level, 1,
                                            virtual_space());
@@ -182,12 +187,12 @@ size_t PSOldGen::contiguous_available() const {
 
 // Allocation. We report all successful allocations to the size policy
 // Note that the perm gen does not use this method, and should not!
-HeapWord* PSOldGen::allocate(size_t word_size, bool is_tlab) {
+HeapWord* PSOldGen::allocate(size_t word_size) {
   assert_locked_or_safepoint(Heap_lock);
-  HeapWord* res = allocate_noexpand(word_size, is_tlab);
+  HeapWord* res = allocate_noexpand(word_size);
 
   if (res == NULL) {
-    res = expand_and_allocate(word_size, is_tlab);
+    res = expand_and_allocate(word_size);
   }
 
   // Allocations in the old generation need to be reported
@@ -199,13 +204,12 @@ HeapWord* PSOldGen::allocate(size_t word_size, bool is_tlab) {
   return res;
 }
 
-HeapWord* PSOldGen::expand_and_allocate(size_t word_size, bool is_tlab) {
-  assert(!is_tlab, "TLAB's are not supported in PSOldGen");
+HeapWord* PSOldGen::expand_and_allocate(size_t word_size) {
   expand(word_size*HeapWordSize);
   if (GCExpandToAllocateDelayMillis > 0) {
     os::sleep(Thread::current(), GCExpandToAllocateDelayMillis, false);
   }
-  return allocate_noexpand(word_size, is_tlab);
+  return allocate_noexpand(word_size);
 }
 
 HeapWord* PSOldGen::expand_and_cas_allocate(size_t word_size) {
@@ -252,7 +256,7 @@ void PSOldGen::expand(size_t bytes) {
   }
 
   if (PrintGC && Verbose) {
-    if (success && GC_locker::is_active()) {
+    if (success && GC_locker::is_active_and_needs_gc()) {
       gclog_or_tty->print_cr("Garbage collection disabled, expanded heap instead");
     }
   }
@@ -478,8 +482,8 @@ void PSOldGen::space_invariants() {
 }
 #endif
 
-void PSOldGen::verify(bool allow_dirty) {
-  object_space()->verify(allow_dirty);
+void PSOldGen::verify() {
+  object_space()->verify();
 }
 class VerifyObjectStartArrayClosure : public ObjectClosure {
   PSOldGen* _gen;

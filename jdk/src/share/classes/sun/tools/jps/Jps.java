@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,11 +45,11 @@ public class Jps {
         } catch (IllegalArgumentException e) {
             System.err.println(e.getMessage());
             Arguments.printUsage(System.err);
-            return;
+            System.exit(1);
         }
 
         if (arguments.isHelp()) {
-            Arguments.printUsage(System.out);
+            Arguments.printUsage(System.err);
             System.exit(0);
         }
 
@@ -59,13 +59,13 @@ public class Jps {
                     MonitoredHost.getMonitoredHost(hostId);
 
             // get the set active JVMs on the specified host.
-            Set jvms = monitoredHost.activeVms();
+            Set<Integer> jvms = monitoredHost.activeVms();
 
-            for (Iterator j = jvms.iterator(); j.hasNext(); /* empty */ ) {
+            for (Integer jvm: jvms) {
                 StringBuilder output = new StringBuilder();
                 Throwable lastError = null;
 
-                int lvmid = ((Integer)j.next()).intValue();
+                int lvmid = jvm;
 
                 output.append(String.valueOf(lvmid));
 
@@ -165,6 +165,7 @@ public class Jps {
                     e.printStackTrace();
                 }
             }
+            System.exit(1);
         }
     }
 }

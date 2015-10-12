@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,9 @@
 #ifdef TARGET_OS_FAMILY_windows
 # include "os_windows.inline.hpp"
 #endif
+#ifdef TARGET_OS_FAMILY_bsd
+# include "os_bsd.inline.hpp"
+#endif
 
 // Mutexes used in the VM.
 
@@ -47,7 +50,7 @@ extern Mutex*   InlineCacheBuffer_lock;          // a lock used to guard the Inl
 extern Mutex*   VMStatistic_lock;                // a lock used to guard statistics count increment
 extern Mutex*   JNIGlobalHandle_lock;            // a lock on creating JNI global handles
 extern Mutex*   JNIHandleBlockFreeList_lock;     // a lock on the JNI handle block free list
-extern Mutex*   JNICachedItableIndex_lock;       // a lock on caching an itable index during JNI invoke
+extern Mutex*   MemberNameTable_lock;            // a lock on the MemberNameTable updates
 extern Mutex*   JmethodIdCreation_lock;          // a lock on creating JNI method identifiers
 extern Mutex*   JfieldIdCreation_lock;           // a lock on creating JNI static field identifiers
 extern Monitor* JNICritical_lock;                // a lock used while entering and exiting JNI critical regions, allows GC to sometimes get in
@@ -112,7 +115,7 @@ extern Mutex*   OsrList_lock;                    // a lock used to serialize acc
 
 #ifndef PRODUCT
 extern Mutex*   FullGCALot_lock;                 // a lock to make FullGCALot MT safe
-#endif
+#endif // PRODUCT
 extern Mutex*   Debug1_lock;                     // A bunch of pre-allocated locks that can be used for tracing
 extern Mutex*   Debug2_lock;                     // down synchronization related bugs!
 extern Mutex*   Debug3_lock;
@@ -126,12 +129,22 @@ extern Mutex*   OopMapCacheAlloc_lock;           // protects allocation of oop_m
 extern Mutex*   FreeList_lock;                   // protects the free region list during safepoints
 extern Monitor* SecondaryFreeList_lock;          // protects the secondary free region list
 extern Mutex*   OldSets_lock;                    // protects the old region sets
+extern Monitor* RootRegionScan_lock;             // used to notify that the CM threads have finished scanning the IM snapshot regions
 extern Mutex*   MMUTracker_lock;                 // protects the MMU
                                                  // tracker data structures
 extern Mutex*   HotCardCache_lock;               // protects the hot card cache
 
 extern Mutex*   Management_lock;                 // a lock used to serialize JVM management
 extern Monitor* Service_lock;                    // a lock used for service thread operation
+extern Monitor* PeriodicTask_lock;               // protects the periodic task structure
+
+#ifdef INCLUDE_TRACE
+extern Mutex*   JfrStacktrace_lock;              // used to guard access to the JFR stacktrace table
+extern Monitor* JfrMsg_lock;                     // protects JFR messaging
+extern Mutex*   JfrBuffer_lock;                  // protects JFR buffer operations
+extern Mutex*   JfrStream_lock;                  // protects JFR stream access
+extern Mutex*   JfrThreadGroups_lock;            // protects JFR access to Thread Groups
+#endif
 
 // A MutexLocker provides mutual exclusion with respect to a given mutex
 // for the scope which contains the locker.  The lock is an OS lock, not

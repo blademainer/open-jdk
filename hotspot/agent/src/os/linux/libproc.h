@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,14 @@
 #ifndef _LIBPROC_H_
 #define _LIBPROC_H_
 
+#include <jni.h>
 #include <unistd.h>
 #include <stdint.h>
 #include "proc_service.h"
+
+#if defined(arm) || defined(ppc)
+#include "libproc_md.h"
+#endif
 
 #if defined(sparc) || defined(sparcv9)
 /*
@@ -74,14 +79,6 @@ combination of ptrace and /proc calls.
 
 *************************************************************************************/
 
-#ifdef ia64
-struct user_regs_struct {
-/* copied from user.h which doesn't define this in a struct */
-
-#define IA64_REG_COUNT (EF_SIZE/8+32)   /* integer and fp regs */
-unsigned long   regs[IA64_REG_COUNT];     /* integer and fp regs */
-};
-#endif
 
 #if defined(sparc)  || defined(sparcv9)
 #define user_regs_struct  pt_regs
@@ -138,5 +135,9 @@ uintptr_t lookup_symbol(struct ps_prochandle* ph,  const char* object_name,
 
 // address->nearest symbol lookup. return NULL for no symbol
 const char* symbol_for_pc(struct ps_prochandle* ph, uintptr_t addr, uintptr_t* poffset);
+
+struct ps_prochandle* get_proc_handle(JNIEnv* env, jobject this_obj);
+
+void throw_new_debugger_exception(JNIEnv* env, const char* errMsg);
 
 #endif //__LIBPROC_H_

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,7 +31,11 @@ package sun.nio.ch;
 
 class NativeThread {
 
-    static long current() { return -1; }
+    static long current() {
+        // return 0 to ensure that async close of blocking sockets will close
+        // the underlying socket.
+        return 0;
+    }
 
     static void signal(long nt) { }
 

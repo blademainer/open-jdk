@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -283,7 +283,7 @@ class WindowsPath extends AbstractPath {
 
     // Add long path prefix to path if required
     static String addPrefixIfNeeded(String path) {
-        if (path.length() > 248) {
+        if (path.length() > MAX_PATH) {
             if (path.startsWith("\\\\")) {
                 path = "\\\\?\\UNC" + path.substring(1, path.length());
             } else {
@@ -429,7 +429,7 @@ class WindowsPath extends AbstractPath {
         boolean[] ignore = new boolean[count];      // true => ignore name
         int remaining = count;                      // number of names remaining
 
-        // multiple passes to eliminate all occurences of "." and "name/.."
+        // multiple passes to eliminate all occurrences of "." and "name/.."
         int prevRemaining;
         do {
             prevRemaining = remaining;

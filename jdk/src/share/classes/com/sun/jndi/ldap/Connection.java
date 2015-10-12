@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.InputStream;
 import java.net.Socket;
+import javax.net.ssl.SSLSocket;
 
 import javax.naming.CommunicationException;
 import javax.naming.ServiceUnavailableException;
@@ -156,7 +157,8 @@ public final class Connection implements Runnable {
     volatile IOException closureReason = null;
     volatile boolean useable = true;  // is Connection still useable
 
-    private int readTimeout;
+    int readTimeout;
+    int connectTimeout;
 
     // true means v3; false means v2
     // Called in LdapClient.authenticate() (which is synchronized)
@@ -186,6 +188,7 @@ public final class Connection implements Runnable {
         this.port = port;
         this.parent = parent;
         this.readTimeout = readTimeout;
+        this.connectTimeout = connectTimeout;
 
         if (trace != null) {
             traceFile = trace;
@@ -238,27 +241,22 @@ public final class Connection implements Runnable {
             throws NoSuchMethodException {
 
         try {
-            Class inetSocketAddressClass =
+            Class<?> inetSocketAddressClass =
                 Class.forName("java.net.InetSocketAddress");
 
-            Constructor inetSocketAddressCons =
-                inetSocketAddressClass.getConstructor(new Class[]{
+            Constructor<?> inetSocketAddressCons =
+                inetSocketAddressClass.getConstructor(new Class<?>[]{
                 String.class, int.class});
 
             return inetSocketAddressCons.newInstance(new Object[]{
                 host, new Integer(port)});
 
-        } catch (ClassNotFoundException e) {
+        } catch (ClassNotFoundException |
+                 InstantiationException |
+                 InvocationTargetException |
+                 IllegalAccessException e) {
             throw new NoSuchMethodException();
 
-        } catch (InstantiationException e) {
-            throw new NoSuchMethodException();
-
-        } catch (InvocationTargetException e) {
-            throw new NoSuchMethodException();
-
-        } catch (IllegalAccessException e) {
-            throw new NoSuchMethodException();
         }
     }
 
@@ -280,9 +278,9 @@ public final class Connection implements Runnable {
 
             // create the factory
 
-            Class socketFactoryClass = Obj.helper.loadClass(socketFactory);
+            Class<?> socketFactoryClass = Obj.helper.loadClass(socketFactory);
             Method getDefault =
-                socketFactoryClass.getMethod("getDefault", new Class[]{});
+                socketFactoryClass.getMethod("getDefault", new Class<?>[]{});
             Object factory = getDefault.invoke(null, new Object[]{});
 
             // create the socket
@@ -293,10 +291,10 @@ public final class Connection implements Runnable {
 
                 try {
                     createSocket = socketFactoryClass.getMethod("createSocket",
-                        new Class[]{});
+                        new Class<?>[]{});
 
                     Method connect = Socket.class.getMethod("connect",
-                        new Class[]{Class.forName("java.net.SocketAddress"),
+                        new Class<?>[]{Class.forName("java.net.SocketAddress"),
                         int.class});
                     Object endpoint = createInetSocketAddress(host, port);
 
@@ -320,7 +318,7 @@ public final class Connection implements Runnable {
 
             if (socket == null) {
                 createSocket = socketFactoryClass.getMethod("createSocket",
-                    new Class[]{String.class, int.class});
+                    new Class<?>[]{String.class, int.class});
 
                 if (debug) {
                     System.err.println("Connection: creating socket using " +
@@ -335,15 +333,15 @@ public final class Connection implements Runnable {
             if (connectTimeout > 0) {
 
                 try {
-                    Constructor socketCons =
-                        Socket.class.getConstructor(new Class[]{});
+                    Constructor<Socket> socketCons =
+                        Socket.class.getConstructor(new Class<?>[]{});
 
                     Method connect = Socket.class.getMethod("connect",
-                        new Class[]{Class.forName("java.net.SocketAddress"),
+                        new Class<?>[]{Class.forName("java.net.SocketAddress"),
                         int.class});
                     Object endpoint = createInetSocketAddress(host, port);
 
-                    socket = (Socket) socketCons.newInstance(new Object[]{});
+                    socket = socketCons.newInstance(new Object[]{});
 
                     if (debug) {
                         System.err.println("Connection: creating socket with " +
@@ -364,6 +362,19 @@ public final class Connection implements Runnable {
                 // connected socket
                 socket = new Socket(host, port);
             }
+        }
+
+        // For LDAP connect timeouts on LDAP over SSL connections must treat
+        // the SSL handshake following socket connection as part of the timeout.
+        // So explicitly set a socket read timeout, trigger the SSL handshake,
+        // then reset the timeout.
+        if (connectTimeout > 0 && socket instanceof SSLSocket) {
+            SSLSocket sslSocket = (SSLSocket) socket;
+            int socketTimeout = sslSocket.getSoTimeout();
+
+            sslSocket.setSoTimeout(connectTimeout); // reuse full timeout value
+            sslSocket.startHandshake();
+            sslSocket.setSoTimeout(socketTimeout);
         }
 
         return socket;
@@ -557,7 +568,7 @@ public final class Connection implements Runnable {
             //System.err.println("ldap.abandon: " + ex);
         }
 
-        // Dont expect any response for the abandon request.
+        // Don't expect any response for the abandon request.
     }
 
     synchronized void abandonOutstandingReqs(Control[] reqCtls) {
@@ -612,7 +623,7 @@ public final class Connection implements Runnable {
             //System.err.println("ldap.unbind: " + ex);
         }
 
-        // Dont expect any response for the unbind request.
+        // Don't expect any response for the unbind request.
     }
 
     /**
@@ -671,8 +682,10 @@ public final class Connection implements Runnable {
                         ldr = ldr.next;
                     }
                 }
-                parent.processConnectionClosure();
             }
+        }
+        if (nparent) {
+            parent.processConnectionClosure();
         }
     }
 

@@ -1,12 +1,10 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -40,6 +38,9 @@ public class Bug6912560 {
         // set the user.timezone property
         String tzname = "Asia/Tokyo";
         System.setProperty("user.timezone", tzname);
+        // make sure the timezone will be initialized by
+        // the next call to TimeZone.getDefault()
+        TimeZone.setDefault(null);
 
         System.setSecurityManager(new SecurityManager());
         TimeZone tz = TimeZone.getDefault();

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,10 +23,11 @@
  */
 
 #include "precompiled.hpp"
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/shared/allocationStats.hpp"
 #include "utilities/ostream.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
 // Technically this should be derived from machine speed, and
 // ideally it would be dynamically adjusted.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,8 +35,9 @@ class G1CollectedHeap;
 class G1BlockOffsetSharedArray;
 class HeapRegion;
 class HeapRegionRemSetIterator;
-class PosParPRT;
+class PerRegionTable;
 class SparsePRT;
+class nmethod;
 
 // Essentially a wrapper around SparsePRTCleanupTask. See
 // sparsePRT.hpp for more details.
@@ -79,15 +80,22 @@ class OtherRegionsTable VALUE_OBJ_CLASS_SPEC {
   size_t      _n_coarse_entries;
   static jint _n_coarsenings;
 
-  PosParPRT** _fine_grain_regions;
-  size_t      _n_fine_entries;
+  PerRegionTable** _fine_grain_regions;
+  size_t           _n_fine_entries;
 
-#define SAMPLE_FOR_EVICTION 1
-#if SAMPLE_FOR_EVICTION
+  // The fine grain remembered sets are doubly linked together using
+  // their 'next' and 'prev' fields.
+  // This allows fast bulk freeing of all the fine grain remembered
+  // set entries, and fast finding of all of them without iterating
+  // over the _fine_grain_regions table.
+  PerRegionTable * _first_all_fine_prts;
+  PerRegionTable * _last_all_fine_prts;
+
+  // Used to sample a subset of the fine grain PRTs to determine which
+  // PRT to evict and coarsen.
   size_t        _fine_eviction_start;
   static size_t _fine_eviction_stride;
   static size_t _fine_eviction_sample_size;
-#endif
 
   SparsePRT   _sparse_table;
 
@@ -98,25 +106,27 @@ class OtherRegionsTable VALUE_OBJ_CLASS_SPEC {
   // Requires "prt" to be the first element of the bucket list appropriate
   // for "hr".  If this list contains an entry for "hr", return it,
   // otherwise return "NULL".
-  PosParPRT* find_region_table(size_t ind, HeapRegion* hr) const;
+  PerRegionTable* find_region_table(size_t ind, HeapRegion* hr) const;
 
-  // Find, delete, and return a candidate PosParPRT, if any exists,
+  // Find, delete, and return a candidate PerRegionTable, if any exists,
   // adding the deleted region to the coarse bitmap.  Requires the caller
   // to hold _m, and the fine-grain table to be full.
-  PosParPRT* delete_region_table();
+  PerRegionTable* delete_region_table();
 
   // If a PRT for "hr" is in the bucket list indicated by "ind" (which must
   // be the correct index for "hr"), delete it and return true; else return
   // false.
   bool del_single_region_table(size_t ind, HeapRegion* hr);
 
-  static jint _cache_probes;
-  static jint _cache_hits;
-
   // Indexed by thread X heap region, to minimize thread contention.
   static int** _from_card_cache;
   static size_t _from_card_cache_max_regions;
   static size_t _from_card_cache_mem_size;
+
+  // link/add the given fine grain remembered set into the "all" list
+  void link_to_all(PerRegionTable * prt);
+  // unlink/remove the given fine grain remembered set into the "all" list
+  void unlink_from_all(PerRegionTable * prt);
 
 public:
   OtherRegionsTable(HeapRegion* hr);
@@ -126,10 +136,6 @@ public:
   // For now.  Could "expand" some tables in the future, so that this made
   // sense.
   void add_reference(OopOrNarrowOopStar from, int tid);
-
-  void add_reference(OopOrNarrowOopStar from) {
-    return add_reference(from, 0);
-  }
 
   // Removes any entries shown by the given bitmaps to contain only dead
   // objects.
@@ -173,7 +179,7 @@ public:
   static void print_from_card_cache();
 };
 
-class HeapRegionRemSet : public CHeapObj {
+class HeapRegionRemSet : public CHeapObj<mtGC> {
   friend class VMStructs;
   friend class HeapRegionRemSetIterator;
 
@@ -185,6 +191,10 @@ public:
 private:
   G1BlockOffsetSharedArray* _bosa;
   G1BlockOffsetSharedArray* bosa() const { return _bosa; }
+
+  // A list of code blobs (nmethods) whose code contains pointers into
+  // the region that owns this RSet.
+  GrowableArray<nmethod*>* _strong_code_roots_list;
 
   OtherRegionsTable _other_regions;
 
@@ -233,14 +243,12 @@ public:
 
   static jint n_coarsenings() { return OtherRegionsTable::n_coarsenings(); }
 
-  /* Used in the sequential case.  Returns "true" iff this addition causes
-     the size limit to be reached. */
+  // Used in the sequential case.
   void add_reference(OopOrNarrowOopStar from) {
-    _other_regions.add_reference(from);
+    _other_regions.add_reference(from, 0);
   }
 
-  /* Used in the parallel case.  Returns "true" iff this addition causes
-     the size limit to be reached. */
+  // Used in the parallel case.
   void add_reference(OopOrNarrowOopStar from, int tid) {
     _other_regions.add_reference(from, tid);
   }
@@ -253,17 +261,6 @@ public:
   // entries for this region in other remsets.
   void clear();
 
-  // Forget any entries due to pointers from "from_hr".
-  void clear_incoming_entry(HeapRegion* from_hr) {
-    _other_regions.clear_incoming_entry(from_hr);
-  }
-
-#if 0
-  virtual void cleanup() = 0;
-#endif
-
-  // Should be called from single-threaded code.
-  void init_for_par_iteration();
   // Attempt to claim the region.  Returns true iff this call caused an
   // atomic transition from Unclaimed to Claimed.
   bool claim_iter();
@@ -273,7 +270,6 @@ public:
   bool iter_is_complete();
 
   // Support for claiming blocks of cards during iteration
-  void set_iter_claimed(size_t x) { _iter_claimed = (jlong)x; }
   size_t iter_claimed() const { return (size_t)_iter_claimed; }
   // Claim the next block of cards
   size_t iter_claimed_next(size_t step) {
@@ -284,22 +280,20 @@ public:
     } while (Atomic::cmpxchg((jlong)next, &_iter_claimed, (jlong)current) != (jlong)current);
     return current;
   }
+  void reset_for_par_iteration();
 
-  // Initialize the given iterator to iterate over this rem set.
-  void init_iterator(HeapRegionRemSetIterator* iter) const;
-
-#if 0
-  // Apply the "do_card" method to the start address of every card in the
-  // rem set.  Returns false if some application of the closure aborted.
-  virtual bool card_iterate(CardClosure* iter) = 0;
-#endif
+  bool verify_ready_for_par_iteration() {
+    return (_iter_state == Unclaimed) && (_iter_claimed == 0);
+  }
 
   // The actual # of bytes this hr_remset takes up.
+  // Note also includes the strong code root set.
   size_t mem_size() {
     return _other_regions.mem_size()
       // This correction is necessary because the above includes the second
       // part.
-      + sizeof(this) - sizeof(OtherRegionsTable);
+      + (sizeof(this) - sizeof(OtherRegionsTable))
+      + strong_code_roots_mem_size();
   }
 
   // Returns the memory occupancy of all static data structures associated
@@ -317,23 +311,51 @@ public:
   bool contains_reference(OopOrNarrowOopStar from) const {
     return _other_regions.contains_reference(from);
   }
+
+  // Routines for managing the list of code roots that point into
+  // the heap region that owns this RSet.
+  void add_strong_code_root(nmethod* nm);
+  void remove_strong_code_root(nmethod* nm);
+
+  // During a collection, migrate the successfully evacuated strong
+  // code roots that referenced into the region that owns this RSet
+  // to the RSets of the new regions that they now point into.
+  // Unsuccessfully evacuated code roots are not migrated.
+  void migrate_strong_code_roots();
+
+  // Applies blk->do_code_blob() to each of the entries in
+  // the strong code roots list
+  void strong_code_roots_do(CodeBlobClosure* blk) const;
+
+  // Returns the number of elements in the strong code roots list
+  int strong_code_roots_list_length() {
+    return _strong_code_roots_list->length();
+  }
+
+  // Returns true if the strong code roots contains the given
+  // nmethod.
+  bool strong_code_roots_list_contains(nmethod* nm) {
+    return _strong_code_roots_list->contains(nm);
+  }
+
+  // Returns the amount of memory, in bytes, currently
+  // consumed by the strong code roots.
+  size_t strong_code_roots_mem_size();
+
   void print() const;
 
   // Called during a stop-world phase to perform any deferred cleanups.
-  // The second version may be called by parallel threads after then finish
-  // collection work.
   static void cleanup();
-  static void par_cleanup();
 
   // Declare the heap size (in # of regions) to the HeapRegionRemSet(s).
   // (Uses it to initialize from_card_cache).
-  static void init_heap(size_t max_regions) {
-    OtherRegionsTable::init_from_card_cache(max_regions);
+  static void init_heap(uint max_regions) {
+    OtherRegionsTable::init_from_card_cache((size_t) max_regions);
   }
 
   // Declares that only regions i s.t. 0 <= i < new_n_regs are in use.
-  static void shrink_heap(size_t new_n_regs) {
-    OtherRegionsTable::shrink_from_card_cache(new_n_regs);
+  static void shrink_heap(uint new_n_regs) {
+    OtherRegionsTable::shrink_from_card_cache((size_t) new_n_regs);
   }
 
 #ifndef PRODUCT
@@ -354,18 +376,19 @@ public:
 
   // Run unit tests.
 #ifndef PRODUCT
+  static void test_prt();
   static void test();
 #endif
 };
 
-class HeapRegionRemSetIterator : public CHeapObj {
+class HeapRegionRemSetIterator : public StackObj {
 
-  // The region over which we're iterating.
+  // The region RSet over which we're iterating.
   const HeapRegionRemSet* _hrrs;
 
   // Local caching of HRRS fields.
   const BitMap*             _coarse_map;
-  PosParPRT**               _fine_grain_regions;
+  PerRegionTable**          _fine_grain_regions;
 
   G1BlockOffsetSharedArray* _bosa;
   G1CollectedHeap*          _g1h;
@@ -375,8 +398,10 @@ class HeapRegionRemSetIterator : public CHeapObj {
   size_t _n_yielded_coarse;
   size_t _n_yielded_sparse;
 
-  // If true we're iterating over the coarse table; if false the fine
-  // table.
+  // Indicates what granularity of table that we're currently iterating over.
+  // We start iterating over the sparse table, progress to the fine grain
+  // table, and then finish with the coarse table.
+  // See HeapRegionRemSetIterator::has_next().
   enum IterState {
     Sparse,
     Fine,
@@ -393,8 +418,8 @@ class HeapRegionRemSetIterator : public CHeapObj {
   // Coarse table iteration fields:
 
   // Current region index;
-  int _coarse_cur_region_index;
-  int _coarse_cur_region_cur_card;
+  int    _coarse_cur_region_index;
+  size_t _coarse_cur_region_cur_card;
 
   bool coarse_has_next(size_t& card_index);
 
@@ -402,8 +427,9 @@ class HeapRegionRemSetIterator : public CHeapObj {
 
   // Index of bucket-list we're working on.
   int _fine_array_index;
+
   // Per Region Table we're doing within current bucket list.
-  PosParPRT* _fine_cur_prt;
+  PerRegionTable* _fine_cur_prt;
 
   /* SparsePRT::*/ SparsePRTIter _sparse_iter;
 
@@ -415,9 +441,7 @@ class HeapRegionRemSetIterator : public CHeapObj {
 public:
   // We require an iterator to be initialized before use, so the
   // constructor does little.
-  HeapRegionRemSetIterator();
-
-  void initialize(const HeapRegionRemSet* hrrs);
+  HeapRegionRemSetIterator(const HeapRegionRemSet* hrrs);
 
   // If there remains one or more cards to be yielded, returns true and
   // sets "card_index" to one of those cards (which is then considered
@@ -432,13 +456,5 @@ public:
     return n_yielded_fine() + n_yielded_coarse() + n_yielded_sparse();
   }
 };
-
-#if 0
-class CardClosure: public Closure {
-public:
-  virtual void do_card(HeapWord* card_start) = 0;
-};
-
-#endif
 
 #endif // SHARE_VM_GC_IMPLEMENTATION_G1_HEAPREGIONREMSET_HPP

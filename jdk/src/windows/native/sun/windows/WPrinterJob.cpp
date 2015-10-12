@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -750,7 +750,7 @@ Java_sun_print_Win32PrintService_getCapabilities(JNIEnv *env,
 
 
 #define GETDEFAULT_ERROR        -50
-#define NDEFAULT 8
+#define NDEFAULT 9
 
 JNIEXPORT jintArray JNICALL
 Java_sun_print_Win32PrintService_getDefaultSettings(JNIEnv *env,
@@ -810,7 +810,7 @@ Java_sun_print_Win32PrintService_getDefaultSettings(JNIEnv *env,
       int numSizes = ::DeviceCapabilities(printerName, printerPort,
                                           DC_PAPERS, NULL, NULL);
       if (numSizes > 0) {
-          LPTSTR papers = (LPTSTR)safe_Malloc(numSizes * sizeof(WORD));
+          LPTSTR papers = (LPTSTR)SAFE_SIZE_ARRAY_ALLOC(safe_Malloc, numSizes, sizeof(WORD));
           if (papers != NULL &&
               ::DeviceCapabilities(printerName, printerPort,
                                    DC_PAPERS, papers, NULL) != -1) {
@@ -858,6 +858,11 @@ Java_sun_print_Win32PrintService_getDefaultSettings(JNIEnv *env,
   if (pDevMode->dmFields & DM_COLLATE) {
       defIndices[7] = pDevMode->dmCollate;
   }
+
+  if (pDevMode->dmFields & DM_COLOR) {
+      defIndices[8] = pDevMode->dmColor;
+  }
+
 
   GlobalFree(pDevMode);
   ::ClosePrinter(hPrinter);

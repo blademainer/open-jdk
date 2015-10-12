@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -62,7 +62,9 @@ public class Credentials {
     private static CredentialsCache cache;
     static boolean alreadyLoaded = false;
     private static boolean alreadyTried = false;
-    private static native Credentials acquireDefaultNativeCreds();
+
+    // Read native ticket with session key type in the given list
+    private static native Credentials acquireDefaultNativeCreds(int[] eTypes);
 
     public Credentials(Ticket new_ticket,
                        PrincipalName new_client,
@@ -285,10 +287,11 @@ public class Credentials {
         throws KrbException, IOException {
 
         if (ticketCache == null) {
-            // The default ticket cache on Windows is not a file.
+            // The default ticket cache on Windows and Mac is not a file.
             String os = java.security.AccessController.doPrivileged(
                         new sun.security.action.GetPropertyAction("os.name"));
-            if (os.toUpperCase(Locale.ENGLISH).startsWith("WINDOWS")) {
+            if (os.toUpperCase(Locale.ENGLISH).startsWith("WINDOWS") ||
+                    os.toUpperCase(Locale.ENGLISH).contains("OS X")) {
                 Credentials creds = acquireDefaultCreds();
                 if (creds == null) {
                     if (DEBUG) {
@@ -329,11 +332,16 @@ public class Credentials {
         CredentialsCache ccache =
             CredentialsCache.getInstance(princ, ticketCache);
 
-        if (ccache == null)
+        if (ccache == null) {
             return null;
+        }
 
         sun.security.krb5.internal.ccache.Credentials tgtCred  =
             ccache.getDefaultCreds();
+
+        if (tgtCred == null) {
+            return null;
+        }
 
         if (EType.isSupported(tgtCred.getEType())) {
             return tgtCred.setKrbCreds();
@@ -367,6 +375,8 @@ public class Credentials {
     // It assumes that the GSS call has
     // the privilege to access the default cache file.
 
+    // This method is only called on Windows and Mac OS X, the native
+    // acquireDefaultNativeCreds is also available on these platforms.
     public static synchronized Credentials acquireDefaultCreds() {
         Credentials result = null;
 
@@ -374,19 +384,21 @@ public class Credentials {
             cache = CredentialsCache.getInstance();
         }
         if (cache != null) {
-            if (DEBUG) {
-                System.out.println(">>> KrbCreds found the default ticket " +
-                                   "granting ticket in credential cache.");
-            }
             sun.security.krb5.internal.ccache.Credentials temp =
                 cache.getDefaultCreds();
-            if (EType.isSupported(temp.getEType())) {
-                result = temp.setKrbCreds();
-            } else {
+            if (temp != null) {
                 if (DEBUG) {
-                    System.out.println(
-                        ">>> unsupported key type found the default TGT: " +
-                        temp.getEType());
+                    System.out.println(">>> KrbCreds found the default ticket"
+                            + " granting ticket in credential cache.");
+                }
+                if (EType.isSupported(temp.getEType())) {
+                    result = temp.setKrbCreds();
+                } else {
+                    if (DEBUG) {
+                        System.out.println(
+                            ">>> unsupported key type found the default TGT: " +
+                            temp.getEType());
+                    }
                 }
             }
         }
@@ -408,10 +420,15 @@ public class Credentials {
             }
             if (alreadyLoaded) {
                 // There is some native code
-                if (DEBUG)
-                   System.out.println(">> Acquire default native Credentials");
-                result = acquireDefaultNativeCreds();
-                // only TGT with DES key will be returned by native method
+                if (DEBUG) {
+                    System.out.println(">> Acquire default native Credentials");
+                }
+                try {
+                    result = acquireDefaultNativeCreds(
+                            EType.getDefaults("default_tkt_enctypes"));
+                } catch (KrbException ke) {
+                    // when there is no default_tkt_enctypes.
+                }
             }
         }
         return result;
@@ -441,6 +458,18 @@ public class Credentials {
         return CredentialsUtil.acquireServiceCreds(service, ccreds);
     }
 
+    public static Credentials acquireS4U2selfCreds(PrincipalName user,
+            Credentials ccreds) throws KrbException, IOException {
+        return CredentialsUtil.acquireS4U2selfCreds(user, ccreds);
+    }
+
+    public static Credentials acquireS4U2proxyCreds(String service,
+            Ticket second, PrincipalName client, Credentials ccreds)
+        throws KrbException, IOException {
+        return CredentialsUtil.acquireS4U2proxyCreds(
+                service, second, client, ccreds);
+    }
+
     public CredentialsCache getCache() {
         return cache;
     }
@@ -456,8 +485,7 @@ public class Credentials {
         System.out.println(">>> DEBUG: ----Credentials----");
         System.out.println("\tclient: " + c.client.toString());
         System.out.println("\tserver: " + c.server.toString());
-        System.out.println("\tticket: realm: " + c.ticket.realm.toString());
-        System.out.println("\t        sname: " + c.ticket.sname.toString());
+        System.out.println("\tticket: sname: " + c.ticket.sname.toString());
         if (c.startTime != null) {
             System.out.println("\tstartTime: " + c.startTime.getTime());
         }
@@ -470,7 +498,11 @@ public class Credentials {
         java.security.AccessController.doPrivileged(
                 new java.security.PrivilegedAction<Void> () {
                         public Void run() {
-                                System.loadLibrary("w2k_lsa_auth");
+                                if (System.getProperty("os.name").contains("OS X")) {
+                                    System.loadLibrary("osxkrb5");
+                                } else {
+                                    System.loadLibrary("w2k_lsa_auth");
+                                }
                                 return null;
                         }
                 });
@@ -479,18 +511,19 @@ public class Credentials {
 
     public String toString() {
         StringBuffer buffer = new StringBuffer("Credentials:");
-        buffer.append("\nclient=").append(client);
-        buffer.append("\nserver=").append(server);
+        buffer.append(    "\n      client=").append(client);
+        buffer.append(    "\n      server=").append(server);
         if (authTime != null) {
-            buffer.append("\nauthTime=").append(authTime);
+            buffer.append("\n    authTime=").append(authTime);
         }
         if (startTime != null) {
-            buffer.append("\nstartTime=").append(startTime);
+            buffer.append("\n   startTime=").append(startTime);
         }
-        buffer.append("\nendTime=").append(endTime);
-        buffer.append("\nrenewTill=").append(renewTill);
-        buffer.append("\nflags: ").append(flags);
-        buffer.append("\nEType (int): ").append(key.getEType());
+        buffer.append(    "\n     endTime=").append(endTime);
+        buffer.append(    "\n   renewTill=").append(renewTill);
+        buffer.append(    "\n       flags=").append(flags);
+        buffer.append(    "\nEType (skey)=").append(key.getEType());
+        buffer.append(    "\n   (tkt key)=").append(ticket.encPart.eType);
         return buffer.toString();
     }
 

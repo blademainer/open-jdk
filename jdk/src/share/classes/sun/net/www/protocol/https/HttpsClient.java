@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,13 +30,13 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.io.PrintStream;
 import java.io.BufferedOutputStream;
+import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
-import java.net.CookieHandler;
 import java.security.Principal;
 import java.security.cert.*;
 import java.util.StringTokenizer;
@@ -47,10 +47,14 @@ import javax.security.auth.x500.X500Principal;
 
 import javax.net.ssl.*;
 import sun.net.www.http.HttpClient;
+import sun.net.www.protocol.http.HttpURLConnection;
 import sun.security.action.*;
 
 import sun.security.util.HostnameChecker;
 import sun.security.ssl.SSLSocketImpl;
+
+import sun.util.logging.PlatformLogger;
+import static sun.net.www.protocol.http.HttpURLConnection.TunnelState.*;
 
 
 /**
@@ -268,13 +272,6 @@ final class HttpsClient extends HttpClient
             port = getDefaultPort();
         }
         setConnectTimeout(connectTimeout);
-        // get the cookieHandler if there is any
-        cookieHandler = java.security.AccessController.doPrivileged(
-            new java.security.PrivilegedAction<CookieHandler>() {
-                public CookieHandler run() {
-                    return CookieHandler.getDefault();
-                }
-            });
         openServer();
     }
 
@@ -282,15 +279,17 @@ final class HttpsClient extends HttpClient
     // This code largely ripped off from HttpClient.New, and
     // it uses the same keepalive cache.
 
-    static HttpClient New(SSLSocketFactory sf, URL url, HostnameVerifier hv)
+    static HttpClient New(SSLSocketFactory sf, URL url, HostnameVerifier hv,
+                          HttpURLConnection httpuc)
             throws IOException {
-        return HttpsClient.New(sf, url, hv, true);
+        return HttpsClient.New(sf, url, hv, true, httpuc);
     }
 
     /** See HttpClient for the model for this method. */
     static HttpClient New(SSLSocketFactory sf, URL url,
-            HostnameVerifier hv, boolean useCache) throws IOException {
-        return HttpsClient.New(sf, url, hv, (String)null, -1, useCache);
+            HostnameVerifier hv, boolean useCache,
+            HttpURLConnection httpuc) throws IOException {
+        return HttpsClient.New(sf, url, hv, (String)null, -1, useCache, httpuc);
     }
 
     /**
@@ -298,37 +297,74 @@ final class HttpsClient extends HttpClient
      * the specified proxy server.
      */
     static HttpClient New(SSLSocketFactory sf, URL url, HostnameVerifier hv,
-                           String proxyHost, int proxyPort) throws IOException {
-        return HttpsClient.New(sf, url, hv, proxyHost, proxyPort, true);
+                           String proxyHost, int proxyPort,
+                           HttpURLConnection httpuc) throws IOException {
+        return HttpsClient.New(sf, url, hv, proxyHost, proxyPort, true, httpuc);
     }
 
     static HttpClient New(SSLSocketFactory sf, URL url, HostnameVerifier hv,
-                           String proxyHost, int proxyPort, boolean useCache)
+                           String proxyHost, int proxyPort, boolean useCache,
+                           HttpURLConnection httpuc)
         throws IOException {
-        return HttpsClient.New(sf, url, hv, proxyHost, proxyPort, useCache, -1);
+        return HttpsClient.New(sf, url, hv, proxyHost, proxyPort, useCache, -1,
+                               httpuc);
     }
 
     static HttpClient New(SSLSocketFactory sf, URL url, HostnameVerifier hv,
                           String proxyHost, int proxyPort, boolean useCache,
-                          int connectTimeout)
+                          int connectTimeout, HttpURLConnection httpuc)
         throws IOException {
 
         return HttpsClient.New(sf, url, hv,
                                (proxyHost == null? null :
                                 HttpsClient.newHttpProxy(proxyHost, proxyPort)),
-                               useCache, connectTimeout);
+                               useCache, connectTimeout, httpuc);
     }
 
     static HttpClient New(SSLSocketFactory sf, URL url, HostnameVerifier hv,
                           Proxy p, boolean useCache,
-                          int connectTimeout)
-        throws IOException {
+                          int connectTimeout, HttpURLConnection httpuc)
+        throws IOException
+    {
+        if (p == null) {
+            p = Proxy.NO_PROXY;
+        }
         HttpsClient ret = null;
         if (useCache) {
             /* see if one's already around */
             ret = (HttpsClient) kac.get(url, sf);
+            if (ret != null && httpuc != null &&
+                httpuc.streaming() &&
+                httpuc.getRequestMethod() == "POST") {
+                if (!ret.available())
+                    ret = null;
+            }
+
             if (ret != null) {
-                ret.cachedHttpClient = true;
+                if ((ret.proxy != null && ret.proxy.equals(p)) ||
+                    (ret.proxy == null && p == null)) {
+                    synchronized (ret) {
+                        ret.cachedHttpClient = true;
+                        assert ret.inCache;
+                        ret.inCache = false;
+                        if (httpuc != null && ret.needsTunneling())
+                            httpuc.setTunnelState(TUNNELING);
+                        PlatformLogger logger = HttpURLConnection.getHttpLogger();
+                        if (logger.isLoggable(PlatformLogger.Level.FINEST)) {
+                            logger.finest("KeepAlive stream retrieved from the cache, " + ret);
+                        }
+                    }
+                } else {
+                    // We cannot return this connection to the cache as it's
+                    // KeepAliveTimeout will get reset. We simply close the connection.
+                    // This should be fine as it is very rare that a connection
+                    // to the same host will not use the same proxy.
+                    synchronized(ret) {
+                        ret.inCache = false;
+                        ret.closeServer();
+                    }
+                    ret = null;
+                }
             }
         }
         if (ret == null) {
@@ -336,7 +372,11 @@ final class HttpsClient extends HttpClient
         } else {
             SecurityManager security = System.getSecurityManager();
             if (security != null) {
-                security.checkConnect(url.getHost(), url.getPort());
+                if (ret.proxy == Proxy.NO_PROXY || ret.proxy == null) {
+                    security.checkConnect(InetAddress.getByName(url.getHost()).getHostAddress(), url.getPort());
+                } else {
+                    security.checkConnect(url.getHost(), url.getPort());
+                }
             }
             ret.url = url;
         }
@@ -615,6 +655,11 @@ final class HttpsClient extends HttpClient
 
     @Override
     protected void putInKeepAliveCache() {
+        if (inCache) {
+            assert false : "Duplicate put to keep alive cache";
+            return;
+        }
+        inCache = true;
         kac.put(url, sslSocketFactory, this);
     }
 
@@ -623,7 +668,7 @@ final class HttpsClient extends HttpClient
      */
     @Override
     public void closeIdleConnection() {
-        HttpClient http = (HttpClient) kac.get(url, sslSocketFactory);
+        HttpClient http = kac.get(url, sslSocketFactory);
         if (http != null) {
             http.closeServer();
         }
@@ -681,8 +726,7 @@ final class HttpsClient extends HttpClient
             // return the X500Principal of the end-entity cert.
             java.security.cert.Certificate[] certs =
                         session.getPeerCertificates();
-            principal = (X500Principal)
-                ((X509Certificate)certs[0]).getSubjectX500Principal();
+            principal = ((X509Certificate)certs[0]).getSubjectX500Principal();
         }
         return principal;
     }
@@ -703,8 +747,7 @@ final class HttpsClient extends HttpClient
             java.security.cert.Certificate[] certs =
                         session.getLocalCertificates();
             if (certs != null) {
-                principal = (X500Principal)
-                    ((X509Certificate)certs[0]).getSubjectX500Principal();
+                principal = ((X509Certificate)certs[0]).getSubjectX500Principal();
             }
         }
         return principal;

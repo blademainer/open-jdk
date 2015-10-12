@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+// Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
 // DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 //
 // This code is free software; you can redistribute it and/or modify it
@@ -149,23 +149,6 @@
         casx    [%o2], %o3, %o0
         srl     %o0, 0, %o1
         srlx    %o0, 32, %o0
-        .nonvolatile
-        .end
-
-  // Support for jlong Atomic::load and Atomic::store on v8.
-  //
-  // void _Atomic_move_long_v8(volatile jlong* src, volatile jlong* dst)
-  //
-  // Arguments:
-  //      src:  O0
-  //      dest: O1
-  //
-  // Overwrites O2 and O3
-
-        .inline _Atomic_move_long_v8,2
-        .volatile
-        ldd     [%o0], %o2
-        std     %o2, [%o1]
         .nonvolatile
         .end
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,6 +44,7 @@ public class KerberosClientKeyExchange extends HandshakeMessage {
 
     private static final Class<?> implClass = AccessController.doPrivileged(
             new PrivilegedAction<Class<?>>() {
+                @Override
                 public Class<?> run() {
                     try {
                         return Class.forName(IMPL_CLASS, true, null);
@@ -56,7 +57,8 @@ public class KerberosClientKeyExchange extends HandshakeMessage {
     private final KerberosClientKeyExchange impl = createImpl();
 
     private KerberosClientKeyExchange createImpl() {
-        if (getClass() == KerberosClientKeyExchange.class) {
+        if (implClass != null &&
+                getClass() == KerberosClientKeyExchange.class) {
             try {
                 return (KerberosClientKeyExchange)implClass.newInstance();
             } catch (InstantiationException e) {
@@ -68,27 +70,31 @@ public class KerberosClientKeyExchange extends HandshakeMessage {
         return null;
     }
 
-    public KerberosClientKeyExchange() {
-        // empty
+    // This constructor will be called when constructing an instance of its
+    // subclass -- KerberosClientKeyExchangeImpl.  Please won't check the
+    // value of impl variable in this constructor.
+    protected KerberosClientKeyExchange() {
+        // please won't check the value of impl variable
     }
 
-    public KerberosClientKeyExchange(String serverName, boolean isLoopback,
+    public KerberosClientKeyExchange(String serverName,
         AccessControlContext acc, ProtocolVersion protocolVersion,
         SecureRandom rand) throws IOException {
 
         if (impl != null) {
-            init(serverName, isLoopback, acc, protocolVersion, rand);
+            init(serverName, acc, protocolVersion, rand);
         } else {
             throw new IllegalStateException("Kerberos is unavailable");
         }
     }
 
     public KerberosClientKeyExchange(ProtocolVersion protocolVersion,
-        ProtocolVersion clientVersion, SecureRandom rand,
-        HandshakeInStream input, SecretKey[] serverKeys) throws IOException {
+            ProtocolVersion clientVersion, SecureRandom rand,
+            HandshakeInStream input, AccessControlContext acc,
+            Object serverKeys) throws IOException {
 
         if (impl != null) {
-            init(protocolVersion, clientVersion, rand, input, serverKeys);
+            init(protocolVersion, clientVersion, rand, input, acc, serverKeys);
         } else {
             throw new IllegalStateException("Kerberos is unavailable");
         }
@@ -100,7 +106,7 @@ public class KerberosClientKeyExchange extends HandshakeMessage {
     }
 
     @Override
-    public int  messageLength() {
+    public int messageLength() {
         return impl.messageLength();
     }
 
@@ -114,21 +120,23 @@ public class KerberosClientKeyExchange extends HandshakeMessage {
         impl.print(p);
     }
 
-    public void init(String serverName, boolean isLoopback,
+    public void init(String serverName,
         AccessControlContext acc, ProtocolVersion protocolVersion,
         SecureRandom rand) throws IOException {
 
         if (impl != null) {
-            impl.init(serverName, isLoopback, acc, protocolVersion, rand);
+            impl.init(serverName, acc, protocolVersion, rand);
         }
     }
 
     public void init(ProtocolVersion protocolVersion,
-        ProtocolVersion clientVersion, SecureRandom rand,
-        HandshakeInStream input, SecretKey[] serverKeys) throws IOException {
+            ProtocolVersion clientVersion, SecureRandom rand,
+            HandshakeInStream input, AccessControlContext acc,
+            Object ServiceCreds) throws IOException {
 
         if (impl != null) {
-            impl.init(protocolVersion, clientVersion, rand, input, serverKeys);
+            impl.init(protocolVersion, clientVersion,
+                                    rand, input, acc, ServiceCreds);
         }
     }
 

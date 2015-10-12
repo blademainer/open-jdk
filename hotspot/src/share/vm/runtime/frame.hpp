@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,8 +25,7 @@
 #ifndef SHARE_VM_RUNTIME_FRAME_HPP
 #define SHARE_VM_RUNTIME_FRAME_HPP
 
-#include "asm/assembler.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/method.hpp"
 #include "runtime/basicLock.hpp"
 #include "runtime/monitorChunk.hpp"
 #include "runtime/registerMap.hpp"
@@ -135,7 +134,8 @@ class frame VALUE_OBJ_CLASS_SPEC {
   bool is_interpreted_frame()    const;
   bool is_java_frame()           const;
   bool is_entry_frame()          const;             // Java frame called from C?
-  bool is_ricochet_frame()       const;
+  bool is_stub_frame()           const;
+  bool is_ignored_frame()        const;
   bool is_native_frame()         const;
   bool is_runtime_frame()        const;
   bool is_compiled_frame()       const;
@@ -176,7 +176,6 @@ class frame VALUE_OBJ_CLASS_SPEC {
   // Helper methods for better factored code in frame::sender
   frame sender_for_compiled_frame(RegisterMap* map) const;
   frame sender_for_entry_frame(RegisterMap* map) const;
-  frame sender_for_ricochet_frame(RegisterMap* map) const;
   frame sender_for_interpreter_frame(RegisterMap* map) const;
   frame sender_for_native_frame(RegisterMap* map) const;
 
@@ -198,7 +197,7 @@ class frame VALUE_OBJ_CLASS_SPEC {
 
   oop*      obj_at_addr(int offset) const        { return (oop*)     addr_at(offset); }
 
-  oop*      adjusted_obj_at_addr(methodOop method, int index) { return obj_at_addr(adjust_offset(method, index)); }
+  oop*      adjusted_obj_at_addr(Method* method, int index) { return obj_at_addr(adjust_offset(method, index)); }
 
  private:
   jint*    int_at_addr(int offset) const         { return (jint*)    addr_at(offset); }
@@ -221,6 +220,19 @@ class frame VALUE_OBJ_CLASS_SPEC {
   // returns the stack pointer of the calling frame
   intptr_t* sender_sp() const;
 
+  // Returns the real 'frame pointer' for the current frame.
+  // This is the value expected by the platform ABI when it defines a
+  // frame pointer register. It may differ from the effective value of
+  // the FP register when that register is used in the JVM for other
+  // purposes (like compiled frames on some platforms).
+  // On other platforms, it is defined so that the stack area used by
+  // this frame goes from real_fp() to sp().
+  intptr_t* real_fp() const;
+
+  // Deoptimization info, if needed (platform dependent).
+  // Stored in the initial_info field of the unroll info, to be used by
+  // the platform dependent deoptimization blobs.
+  intptr_t *initial_deoptimization_info();
 
   // Interpreter frames:
 
@@ -331,17 +343,19 @@ class frame VALUE_OBJ_CLASS_SPEC {
 
  public:
   // Method & constant pool cache
-  methodOop interpreter_frame_method() const;
-  void interpreter_frame_set_method(methodOop method);
-  methodOop* interpreter_frame_method_addr() const;
-  constantPoolCacheOop* interpreter_frame_cache_addr() const;
+  Method* interpreter_frame_method() const;
+  void interpreter_frame_set_method(Method* method);
+  Method** interpreter_frame_method_addr() const;
+  ConstantPoolCache** interpreter_frame_cache_addr() const;
 #ifdef PPC
   oop* interpreter_frame_mirror_addr() const;
 #endif
 
  public:
   // Entry frames
-  JavaCallWrapper* entry_frame_call_wrapper() const;
+  JavaCallWrapper* entry_frame_call_wrapper() const { return *entry_frame_call_wrapper_addr(); }
+  JavaCallWrapper* entry_frame_call_wrapper_if_safe(JavaThread* thread) const;
+  JavaCallWrapper** entry_frame_call_wrapper_addr() const;
   intptr_t* entry_frame_argument_at(int offset) const;
 
   // tells whether there is another chunk of Delta stack above
@@ -392,6 +406,7 @@ class frame VALUE_OBJ_CLASS_SPEC {
   void print_on(outputStream* st) const;
   void interpreter_frame_print_on(outputStream* st) const;
   void print_on_error(outputStream* st, char* buf, int buflen, bool verbose = false) const;
+  static void print_C_frame(outputStream* st, char* buf, int buflen, address pc);
 
   // Add annotated descriptions of memory locations belonging to this frame to values
   void describe(FrameValues& values, int frame_no);
@@ -400,22 +415,24 @@ class frame VALUE_OBJ_CLASS_SPEC {
   oop* oopmapreg_to_location(VMReg reg, const RegisterMap* regmap) const;
 
   // Oops-do's
-  void oops_compiled_arguments_do(Symbol* signature, bool has_receiver, const RegisterMap* reg_map, OopClosure* f);
-  void oops_interpreted_do(OopClosure* f, const RegisterMap* map, bool query_oop_map_cache = true);
-  void oops_ricochet_do(OopClosure* f, const RegisterMap* map);
+  void oops_compiled_arguments_do(Symbol* signature, bool has_receiver, bool has_appendix, const RegisterMap* reg_map, OopClosure* f);
+  void oops_interpreted_do(OopClosure* f, CLDToOopClosure* cld_f, const RegisterMap* map, bool query_oop_map_cache = true);
 
  private:
   void oops_interpreted_arguments_do(Symbol* signature, bool has_receiver, OopClosure* f);
 
   // Iteration of oops
-  void oops_do_internal(OopClosure* f, CodeBlobClosure* cf, RegisterMap* map, bool use_interpreter_oop_map_cache);
+  void oops_do_internal(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf, RegisterMap* map, bool use_interpreter_oop_map_cache);
   void oops_entry_do(OopClosure* f, const RegisterMap* map);
   void oops_code_blob_do(OopClosure* f, CodeBlobClosure* cf, const RegisterMap* map);
-  int adjust_offset(methodOop method, int index); // helper for above fn
+  int adjust_offset(Method* method, int index); // helper for above fn
  public:
   // Memory management
-  void oops_do(OopClosure* f, CodeBlobClosure* cf, RegisterMap* map) { oops_do_internal(f, cf, map, true); }
+  void oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf, RegisterMap* map) { oops_do_internal(f, cld_f, cf, map, true); }
   void nmethods_do(CodeBlobClosure* cf);
+
+  // RedefineClasses support for finding live interpreted methods on the stack
+  void metadata_do(void f(Metadata*));
 
   void gc_prologue();
   void gc_epilogue();
@@ -481,7 +498,7 @@ class frame VALUE_OBJ_CLASS_SPEC {
 
 };
 
-#ifdef ASSERT
+#ifndef PRODUCT
 // A simple class to describe a location on the stack
 class FrameValue VALUE_OBJ_CLASS_SPEC {
  public:
@@ -511,8 +528,10 @@ class FrameValues {
   // Used by frame functions to describe locations.
   void describe(int owner, intptr_t* location, const char* description, int priority = 0);
 
+#ifdef ASSERT
   void validate();
-  void print();
+#endif
+  void print(JavaThread* thread);
 };
 
 #endif

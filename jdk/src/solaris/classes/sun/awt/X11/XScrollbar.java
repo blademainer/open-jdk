@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -118,7 +118,9 @@ abstract class XScrollbar {
     abstract protected void rebuildArrows();
 
     public void setSize(int width, int height) {
-        if (log.isLoggable(PlatformLogger.FINER)) log.finer("Setting scroll bar " + this + " size to " + width + "x" + height);
+        if (log.isLoggable(PlatformLogger.Level.FINER)) {
+            log.finer("Setting scroll bar " + this + " size to " + width + "x" + height);
+        }
         this.width = width;
         this.height = height;
     }
@@ -164,7 +166,9 @@ abstract class XScrollbar {
      * @param paintAll paint the whole scrollbar if true, just the thumb is false
      */
     void paint(Graphics g, Color colors[], boolean paintAll) {
-        if (log.isLoggable(PlatformLogger.FINER)) log.finer("Painting scrollbar " + this);
+        if (log.isLoggable(PlatformLogger.Level.FINER)) {
+            log.finer("Painting scrollbar " + this);
+        }
 
         boolean useBufferedImage = false;
         Graphics2D g2 = null;
@@ -335,7 +339,9 @@ abstract class XScrollbar {
      * Tell the scroller to start scrolling.
      */
     void startScrolling() {
-        log.finer("Start scrolling on " + this);
+        if (log.isLoggable(PlatformLogger.Level.FINER)) {
+            log.finer("Start scrolling on " + this);
+        }
         // Make sure that we scroll at least once
         scroll();
 
@@ -355,7 +361,9 @@ abstract class XScrollbar {
      * See 6243382 for more information
      */
     void startScrollingInstance() {
-        log.finer("Start scrolling on " + this);
+        if (log.isLoggable(PlatformLogger.Level.FINER)) {
+            log.finer("Start scrolling on " + this);
+        }
         // Make sure that we scroll at least once
         scroll();
 
@@ -368,7 +376,9 @@ abstract class XScrollbar {
      * See 6243382 for more information
      */
     void stopScrollingInstance() {
-        log.finer("Stop scrolling on " + this);
+        if (log.isLoggable(PlatformLogger.Level.FINER)) {
+            log.finer("Stop scrolling on " + this);
+        }
 
         i_scroller.stop();
     }
@@ -454,7 +464,7 @@ abstract class XScrollbar {
             return;
         }
 
-        if (log.isLoggable(PlatformLogger.FINER)) {
+        if (log.isLoggable(PlatformLogger.Level.FINER)) {
              String type;
              switch (id) {
                 case MouseEvent.MOUSE_PRESSED:
@@ -554,7 +564,7 @@ abstract class XScrollbar {
      * This method enforces the same constraints as in java.awt.Scrollbar:
      * <UL>
      * <LI> The maximum must be greater than the minimum </LI>
-     * <LI> The value must be greater than or equal to the minumum
+     * <LI> The value must be greater than or equal to the minimum
      *      and less than or equal to the maximum minus the
      *      visible amount </LI>
      * <LI> The visible amount must be greater than 1 and less than or equal
@@ -845,7 +855,7 @@ abstract class XScrollbar {
         }
 
         // There was one final adjustment here in the Motif function, which was
-        // noted to be for backward-compatiblity.  It has been left out for now.
+        // noted to be for backward-compatibility.  It has been left out for now.
 
         return retVal;
     }

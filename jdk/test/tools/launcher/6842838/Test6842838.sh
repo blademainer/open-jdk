@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -48,16 +48,16 @@ case "$OS" in
     NULL=/dev/null
     PS=":"
     FS="/"
-    JAVA_EXE=${TESTJAVA}${FS}bin${FS}sparcv9${FS}java
+    JAVA_EXE=${TESTJAVA}${FS}bin${FS}java
     ;;
   * )
-    printf "Only testing on sparcv9 (use libumem to reliably catch buffer overrun)\n"
+    printf "Only testing on solaris 64-bit (use libumem to reliably catch buffer overrun)\n"
     exit 0;
     ;;
 esac
 
 if [ ! -x ${JAVA_EXE} ]; then
-    printf "Warning: sparcv9 components not installed - skipping test.\n"
+    printf "Warning: 64-bit components not installed - skipping test.\n"
     exit 0
 fi
 
@@ -68,8 +68,8 @@ if [ ! -x ${LIBUMEM} ]; then
 fi
 
 BADFILE=newbadjar.jar
-${JAVA_EXE} -version
-${JAVA_EXE} -cp ${TESTCLASSES} CreateBadJar ${BADFILE} "META-INF/MANIFEST.MF"
+${JAVA_EXE} ${TESTVMOPTS} -version
+${JAVA_EXE} ${TESTVMOPTS} -cp ${TESTCLASSES} CreateBadJar ${BADFILE} "META-INF/MANIFEST.MF"
 LD_PRELOAD=${LIBUMEM} ${JAVA_EXE} -jar ${BADFILE} > test.out 2>&1
 
 grep "Invalid or corrupt jarfile" test.out

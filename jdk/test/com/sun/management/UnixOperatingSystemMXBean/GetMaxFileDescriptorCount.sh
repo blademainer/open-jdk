@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -30,20 +30,20 @@
 # @run shell GetMaxFileDescriptorCount.sh
 #
 
-#Set appropriate jdk
-
-if [ ! -z "${TESTJAVA}" ] ; then
-     jdk="$TESTJAVA"
-else
+if [ "${TESTJAVA}" = "" ] ; then
      echo "--Error: TESTJAVA must be defined as the pathname of a jdk to test."
      exit 1
+fi
+if [ "${COMPILEJAVA}" = "" ]; then
+    COMPILEJAVA="${TESTJAVA}"
 fi
 
 runOne()
 { 
    echo "runOne $@"
-   $TESTJAVA/bin/javac -d $TESTCLASSES $TESTSRC/$@.java || exit 2
-   $TESTJAVA/bin/java -classpath $TESTCLASSES $@        || exit 3
+   $COMPILEJAVA/bin/javac ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} -d $TESTCLASSES \
+       $TESTSRC/$@.java || exit 2
+   $TESTJAVA/bin/java ${TESTVMOPTS} -classpath $TESTCLASSES $@        || exit 3
 }
 
 # Test GetMaxFileDescriptorCount if we are running on Unix

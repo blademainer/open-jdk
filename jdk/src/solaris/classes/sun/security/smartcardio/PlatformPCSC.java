@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -50,6 +50,7 @@ class PlatformPCSC {
 
     private final static String LIB1 = "/usr/$LIBISA/libpcsclite.so";
     private final static String LIB2 = "/usr/local/$LIBISA/libpcsclite.so";
+    private final static String PCSC_FRAMEWORK = "/System/Library/Frameworks/PCSC.framework/Versions/Current/PCSC";
 
     PlatformPCSC() {
         // empty
@@ -111,6 +112,11 @@ class PlatformPCSC {
         lib = expand(LIB2);
         if (new File(lib).isFile()) {
             // if LIB2 exists, use that
+            return lib;
+        }
+        lib = PCSC_FRAMEWORK;
+        if (new File(lib).isFile()) {
+            // if PCSC.framework exists, use that
             return lib;
         }
         throw new IOException("No PC/SC library found on this system");

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,8 +26,9 @@
 #include "interpreter/interpreter.hpp"
 #include "memory/resourceArea.hpp"
 #include "oops/markOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/method.hpp"
 #include "oops/oop.inline.hpp"
+#include "prims/methodHandles.hpp"
 #include "runtime/frame.inline.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/javaCalls.hpp"
@@ -215,6 +216,11 @@ bool frame::safe_for_sender(JavaThread *thread) {
       }
     }
 
+    // Could just be some random pointer within the codeBlob
+    if (!_cb->code_contains(_pc)) {
+      return false;
+    }
+
     // Entry frame checks
     if (is_entry_frame()) {
       // an entry frame must have a valid fp.
@@ -243,6 +249,11 @@ bool frame::safe_for_sender(JavaThread *thread) {
     // We must always be able to find a recognizable pc
     CodeBlob* sender_blob = CodeCache::find_blob_unsafe(sender_pc);
     if (sender_pc == NULL ||  sender_blob == NULL) {
+      return false;
+    }
+
+    // Could be a zombie method
+    if (sender_blob->is_zombie() || sender_blob->is_unloaded()) {
       return false;
     }
 
@@ -288,17 +299,17 @@ bool frame::safe_for_sender(JavaThread *thread) {
       return jcw_safe;
     }
 
-    // If the frame size is 0 something is bad because every nmethod has a non-zero frame size
+    // If the frame size is 0 something (or less) is bad because every nmethod has a non-zero frame size
     // because you must allocate window space
 
-    if (sender_blob->frame_size() == 0) {
+    if (sender_blob->frame_size() <= 0) {
       assert(!sender_blob->is_nmethod(), "should count return address at least");
       return false;
     }
 
     // The sender should positively be an nmethod or call_stub. On sparc we might in fact see something else.
     // The cause of this is because at a save instruction the O7 we get is a leftover from an earlier
-    // window use. So if a runtime stub creates two frames (common in fastdebug/jvmg) then we see the
+    // window use. So if a runtime stub creates two frames (common in fastdebug/debug) then we see the
     // stale pc. So if the sender blob is not something we'd expect we have little choice but to declare
     // the stack unwalkable. pd_get_top_frame_for_signal_handler tries to recover from this by unwinding
     // that initial frame and retrying.
@@ -513,7 +524,6 @@ frame frame::sender(RegisterMap* map) const {
   // interpreted but its pc is in the code cache (for c1 -> osr_frame_return_id stub), so it must be
   // explicitly recognized.
 
-  if (is_ricochet_frame())    return sender_for_ricochet_frame(map);
 
   bool frame_is_interpreted = is_interpreted_frame();
   if (frame_is_interpreted) {
@@ -612,7 +622,7 @@ bool frame::interpreter_frame_equals_unpacked_fp(intptr_t* fp) {
 void frame::pd_gc_epilog() {
   if (is_interpreted_frame()) {
     // set constant pool cache entry for interpreter
-    methodOop m = interpreter_frame_method();
+    Method* m = interpreter_frame_method();
 
     *interpreter_frame_cpoolcache_addr() = m->constants()->cache();
   }
@@ -645,10 +655,10 @@ bool frame::is_interpreted_frame_valid(JavaThread* thread) const {
 
   // first the method
 
-  methodOop m = *interpreter_frame_method_addr();
+  Method* m = *interpreter_frame_method_addr();
 
   // validate the method we'd find in this potential sender
-  if (!Universe::heap()->is_valid_method(m)) return false;
+  if (!m->is_valid_method()) return false;
 
   // stack frames shouldn't be much larger than max_stack elements
 
@@ -663,13 +673,9 @@ bool frame::is_interpreted_frame_valid(JavaThread* thread) const {
     return false;
   }
 
-  // validate constantPoolCacheOop
-
-  constantPoolCacheOop cp = *interpreter_frame_cache_addr();
-
-  if (cp == NULL ||
-      !Space::is_aligned(cp) ||
-      !Universe::heap()->is_permanent((void*)cp)) return false;
+  // validate ConstantPoolCache*
+  ConstantPoolCache* cp = *interpreter_frame_cache_addr();
+  if (cp == NULL || !cp->is_metaspace_object()) return false;
 
   // validate locals
 
@@ -729,7 +735,7 @@ intptr_t* frame::entry_frame_argument_at(int offset) const {
 
 BasicType frame::interpreter_frame_result(oop* oop_result, jvalue* value_result) {
   assert(is_interpreted_frame(), "interpreted frame expected");
-  methodOop method = interpreter_frame_method();
+  Method* method = interpreter_frame_method();
   BasicType type = method->result_type();
 
   if (method->is_native()) {
@@ -758,7 +764,7 @@ BasicType frame::interpreter_frame_result(oop* oop_result, jvalue* value_result)
 #ifdef CC_INTERP
         *oop_result = istate->_oop_temp;
 #else
-        oop obj = (oop) at(interpreter_frame_oop_temp_offset);
+        oop obj = cast_to_oop(at(interpreter_frame_oop_temp_offset));
         assert(obj == NULL || Universe::heap()->is_in(obj), "sanity check");
         *oop_result = obj;
 #endif // CC_INTERP
@@ -782,7 +788,7 @@ BasicType frame::interpreter_frame_result(oop* oop_result, jvalue* value_result)
     switch(type) {
       case T_OBJECT:
       case T_ARRAY: {
-        oop obj = (oop)*tos_addr;
+        oop obj = cast_to_oop(*tos_addr);
         assert(obj == NULL || Universe::heap()->is_in(obj), "sanity check");
         *oop_result = obj;
         break;
@@ -810,7 +816,7 @@ intptr_t* frame::interpreter_frame_tos_at(jint offset) const {
 }
 
 
-#ifdef ASSERT
+#ifndef PRODUCT
 
 #define DESCRIBE_FP_OFFSET(name) \
   values.describe(frame_no, fp() + frame::name##_offset, #name)
@@ -825,6 +831,12 @@ void frame::describe_pd(FrameValues& values, int frame_no) {
     DESCRIBE_FP_OFFSET(interpreter_frame_l_scratch_fp);
     DESCRIBE_FP_OFFSET(interpreter_frame_padding);
     DESCRIBE_FP_OFFSET(interpreter_frame_oop_temp);
+
+    // esp, according to Lesp (e.g. not depending on bci), if seems valid
+    intptr_t* esp = *interpreter_frame_esp_addr();
+    if ((esp >= sp()) && (esp < fp())) {
+      values.describe(-1, esp, "*Lesp");
+    }
   }
 
   if (!is_compiled_frame()) {
@@ -839,3 +851,8 @@ void frame::describe_pd(FrameValues& values, int frame_no) {
 }
 
 #endif
+
+intptr_t *frame::initial_deoptimization_info() {
+  // unused... but returns fp() to minimize changes introduced by 7087445
+  return fp();
+}

@@ -29,6 +29,15 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
+
 import java.nio.ByteBuffer;
 import java.nio.channels.CompletionHandler;
 
@@ -49,7 +58,7 @@ class ClientReader {
     }
 
     /**
-     * Runs a cycle of doing a beforeRead action and then enqueing a new
+     * Runs a cycle of doing a beforeRead action and then enqueuing a new
      * read on the client. Handles closed channels and errors while reading.
      * If the client is still connected a new round of actions are called.
      */

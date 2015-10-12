@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,6 +41,7 @@ import sun.security.rsa.RSAPadding;
 
 import sun.security.pkcs11.wrapper.*;
 import static sun.security.pkcs11.wrapper.PKCS11Constants.*;
+import sun.security.util.KeyUtil;
 
 /**
  * Signature implementation class. This class currently supports the
@@ -53,12 +54,14 @@ import static sun.security.pkcs11.wrapper.PKCS11Constants.*;
  *   . MD2withRSA
  *   . MD5withRSA
  *   . SHA1withRSA
+ *   . SHA224withRSA
  *   . SHA256withRSA
  *   . SHA384withRSA
  *   . SHA512withRSA
  * . ECDSA
  *   . NONEwithECDSA
  *   . SHA1withECDSA
+ *   . SHA224withECDSA
  *   . SHA256withECDSA
  *   . SHA384withECDSA
  *   . SHA512withECDSA
@@ -143,6 +146,7 @@ final class P11Signature extends SignatureSpi {
         case (int)CKM_MD2_RSA_PKCS:
         case (int)CKM_MD5_RSA_PKCS:
         case (int)CKM_SHA1_RSA_PKCS:
+        case (int)CKM_SHA224_RSA_PKCS:
         case (int)CKM_SHA256_RSA_PKCS:
         case (int)CKM_SHA384_RSA_PKCS:
         case (int)CKM_SHA512_RSA_PKCS:
@@ -181,6 +185,8 @@ final class P11Signature extends SignatureSpi {
                 String digestAlg;
                 if (algorithm.equals("SHA1withECDSA")) {
                     digestAlg = "SHA-1";
+                } else if (algorithm.equals("SHA224withECDSA")) {
+                    digestAlg = "SHA-224";
                 } else if (algorithm.equals("SHA256withECDSA")) {
                     digestAlg = "SHA-256";
                 } else if (algorithm.equals("SHA384withECDSA")) {
@@ -207,6 +213,9 @@ final class P11Signature extends SignatureSpi {
             } else if (algorithm.equals("MD2withRSA")) {
                 md = MessageDigest.getInstance("MD2");
                 digestOID = AlgorithmId.MD2_oid;
+            } else if (algorithm.equals("SHA224withRSA")) {
+                md = MessageDigest.getInstance("SHA-224");
+                digestOID = AlgorithmId.SHA224_oid;
             } else if (algorithm.equals("SHA256withRSA")) {
                 md = MessageDigest.getInstance("SHA-256");
                 digestOID = AlgorithmId.SHA256_oid;
@@ -272,7 +281,7 @@ final class P11Signature extends SignatureSpi {
                 if (keyAlgorithm.equals("DSA")) {
                     signature = new byte[40];
                 } else {
-                    signature = new byte[(p11Key.keyLength() + 7) >> 3];
+                    signature = new byte[(p11Key.length() + 7) >> 3];
                 }
                 if (type == T_UPDATE) {
                     token.p11.C_VerifyFinal(session.id(), signature);
@@ -317,6 +326,48 @@ final class P11Signature extends SignatureSpi {
         }
     }
 
+    private void checkKeySize(String keyAlgo, Key key)
+        throws InvalidKeyException {
+        CK_MECHANISM_INFO mechInfo = null;
+        try {
+            mechInfo = token.getMechanismInfo(mechanism);
+        } catch (PKCS11Exception e) {
+            // should not happen, ignore for now.
+        }
+        if (mechInfo == null) {
+            // skip the check if no native info available
+            return;
+        }
+        int minKeySize = (int) mechInfo.ulMinKeySize;
+        int maxKeySize = (int) mechInfo.ulMaxKeySize;
+
+        int keySize = 0;
+        if (key instanceof P11Key) {
+            keySize = ((P11Key) key).length();
+        } else {
+            if (keyAlgo.equals("RSA")) {
+                keySize = ((RSAKey) key).getModulus().bitLength();
+            } else if (keyAlgo.equals("DSA")) {
+                keySize = ((DSAKey) key).getParams().getP().bitLength();
+            } else if (keyAlgo.equals("EC")) {
+                keySize = ((ECKey) key).getParams().getCurve().getField().getFieldSize();
+            } else {
+                throw new ProviderException("Error: unsupported algo " + keyAlgo);
+            }
+        }
+        if ((minKeySize != -1) && (keySize < minKeySize)) {
+            throw new InvalidKeyException(keyAlgo +
+                " key must be at least " + minKeySize + " bits");
+        }
+        if ((maxKeySize != -1) && (keySize > maxKeySize)) {
+            throw new InvalidKeyException(keyAlgo +
+                " key must be at most " + maxKeySize + " bits");
+        }
+        if (keyAlgo.equals("RSA")) {
+            checkRSAKeyLength(keySize);
+        }
+    }
+
     private void checkRSAKeyLength(int len) throws InvalidKeyException {
         RSAPadding padding;
         try {
@@ -332,6 +383,8 @@ final class P11Signature extends SignatureSpi {
             encodedLength = 34;
         } else if (algorithm.equals("SHA1withRSA")) {
             encodedLength = 35;
+        } else if (algorithm.equals("SHA224withRSA")) {
+            encodedLength = 47;
         } else if (algorithm.equals("SHA256withRSA")) {
             encodedLength = 51;
         } else if (algorithm.equals("SHA384withRSA")) {
@@ -353,15 +406,9 @@ final class P11Signature extends SignatureSpi {
         if (publicKey == null) {
             throw new InvalidKeyException("Key must not be null");
         }
-        // Need to check RSA key length whenever a new key is set
-        if (keyAlgorithm.equals("RSA") && publicKey != p11Key) {
-            int keyLen;
-            if (publicKey instanceof P11Key) {
-                keyLen = ((P11Key) publicKey).keyLength();
-            } else {
-                keyLen = ((RSAKey) publicKey).getModulus().bitLength();
-            }
-            checkRSAKeyLength(keyLen);
+        // Need to check key length whenever a new key is set
+        if (publicKey != p11Key) {
+            checkKeySize(keyAlgorithm, publicKey);
         }
         cancelOperation();
         mode = M_VERIFY;
@@ -376,14 +423,8 @@ final class P11Signature extends SignatureSpi {
             throw new InvalidKeyException("Key must not be null");
         }
         // Need to check RSA key length whenever a new key is set
-        if (keyAlgorithm.equals("RSA") && privateKey != p11Key) {
-            int keyLen;
-            if (privateKey instanceof P11Key) {
-                keyLen = ((P11Key) privateKey).keyLength;
-            } else {
-                keyLen = ((RSAKey) privateKey).getModulus().bitLength();
-            }
-            checkRSAKeyLength(keyLen);
+        if (privateKey != p11Key) {
+            checkKeySize(keyAlgorithm, privateKey);
         }
         cancelOperation();
         mode = M_SIGN;
@@ -396,7 +437,7 @@ final class P11Signature extends SignatureSpi {
         ensureInitialized();
         switch (type) {
         case T_UPDATE:
-            buffer[0] = (byte)b;
+            buffer[0] = b;
             engineUpdate(buffer, 0, 1);
             break;
         case T_DIGEST:
@@ -618,7 +659,7 @@ final class P11Signature extends SignatureSpi {
 
     private byte[] pkcs1Pad(byte[] data) {
         try {
-            int len = (p11Key.keyLength() + 7) >> 3;
+            int len = (p11Key.length() + 7) >> 3;
             RSAPadding padding = RSAPadding.getInstance
                                         (RSAPadding.PAD_BLOCKTYPE_1, len);
             byte[] padded = padding.pad(data);
@@ -687,8 +728,8 @@ final class P11Signature extends SignatureSpi {
             BigInteger r = values[0].getPositiveBigInteger();
             BigInteger s = values[1].getPositiveBigInteger();
             // trim leading zeroes
-            byte[] br = P11Util.trimZeroes(r.toByteArray());
-            byte[] bs = P11Util.trimZeroes(s.toByteArray());
+            byte[] br = KeyUtil.trimZeroes(r.toByteArray());
+            byte[] bs = KeyUtil.trimZeroes(s.toByteArray());
             int k = Math.max(br.length, bs.length);
             // r and s each occupy half the array
             byte[] res = new byte[k << 1];

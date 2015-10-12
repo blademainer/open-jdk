@@ -1,5 +1,5 @@
 # 
-# Copyright (c) 2007, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2007, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 # 
 # This code is free software; you can redistribute it and/or modify it
@@ -50,7 +50,7 @@ chmod 000 $UNREADABLE
 : ${TESTCLASS:=.}
 : ${TESTSRC:=.}
 
-${TESTJAVA}/bin/java -esa -cp ${TESTCLASS}${DEL}${TESTSRC} MissingResourceCauseTest
+${TESTJAVA}/bin/java ${TESTVMOPTS} -esa -cp ${TESTCLASS}${DEL}${TESTSRC} MissingResourceCauseTest
 STATUS=$?
 chmod 666 $UNREADABLE
 rm -f $UNREADABLE

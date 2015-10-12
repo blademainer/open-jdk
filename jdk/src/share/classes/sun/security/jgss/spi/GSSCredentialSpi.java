@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -96,4 +96,13 @@ public interface GSSCredentialSpi {
      * @exception GSSException may be thrown
      */
     public Oid getMechanism();
+
+    /**
+     * Impersonates another client.
+     *
+     * @param name the client to impersonate
+     * @return the new credential
+     * @exception GSSException may be thrown
+     */
+    public GSSCredentialSpi impersonate(GSSNameSpi name) throws GSSException;
 }

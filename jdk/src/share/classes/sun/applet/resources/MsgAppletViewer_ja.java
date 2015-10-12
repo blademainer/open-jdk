@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,7 +38,7 @@ public class MsgAppletViewer_ja extends ListResourceBundle {
             {"appletviewer.menuitem.stop", "\u505C\u6B62"},
             {"appletviewer.menuitem.save", "\u4FDD\u5B58..."},
             {"appletviewer.menuitem.start", "\u958B\u59CB"},
-            {"appletviewer.menuitem.clone", "\u30AF\u30ED\u30FC\u30F3\u306E\u4F5C\u6210..."},
+            {"appletviewer.menuitem.clone", "\u30AF\u30ED\u30FC\u30F3..."},
             {"appletviewer.menuitem.tag", "\u30BF\u30B0..."},
             {"appletviewer.menuitem.info", "\u60C5\u5831..."},
             {"appletviewer.menuitem.edit", "\u7DE8\u96C6"},

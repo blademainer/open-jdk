@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,16 +23,13 @@
 
 /* @test
  * @bug 4115296
- *
  * @summary synopsis: NoSuchObjectException not thrown for non-existent
  * activatable objects
  * @author Ann Wollrath
  *
  * @library ../../../testlibrary
  * @build TestLibrary RMID ActivationLibrary
- * @build ActivateMe
- * @build NonExistentActivatable
- * @build NonExistentActivatable_Stub
+ *     ActivateMe NonExistentActivatable_Stub
  * @run main/othervm/policy=security.policy/timeout=240 NonExistentActivatable
  */
 

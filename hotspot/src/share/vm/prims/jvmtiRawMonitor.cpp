@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,7 @@
 #include "runtime/interfaceSupport.hpp"
 #include "runtime/thread.hpp"
 
-GrowableArray<JvmtiRawMonitor*> *JvmtiPendingMonitors::_monitors = new (ResourceObj::C_HEAP) GrowableArray<JvmtiRawMonitor*>(1,true);
+GrowableArray<JvmtiRawMonitor*> *JvmtiPendingMonitors::_monitors = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<JvmtiRawMonitor*>(1,true);
 
 void JvmtiPendingMonitors::transition_raw_monitors() {
   assert((Threads::number_of_threads()==1),
@@ -53,7 +53,7 @@ is running. Raw monitor transition will not work");
 
 JvmtiRawMonitor::JvmtiRawMonitor(const char *name) {
 #ifdef ASSERT
-  _name = strcpy(NEW_C_HEAP_ARRAY(char, strlen(name) + 1), name);
+  _name = strcpy(NEW_C_HEAP_ARRAY(char, strlen(name) + 1, mtInternal), name);
 #else
   _name = NULL;
 #endif

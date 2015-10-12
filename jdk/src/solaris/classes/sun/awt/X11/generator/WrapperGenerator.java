@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -678,7 +678,7 @@ public class WrapperGenerator {
     public void writeToString(StructType stp, PrintWriter pw) {
         int type;
         pw.println("\n\n\tString getName() {\n\t\treturn \"" + stp.getName()+ "\"; \n\t}");
-        pw.println("\n\n\tString getFieldsAsString() {\n\t\tString ret=\"\";\n");
+        pw.println("\n\n\tString getFieldsAsString() {\n\t\tStringBuilder ret = new StringBuilder(" + stp.getNumFields() * 40 + ");\n");
 
         for (Enumeration e = stp.getMembers() ; e.hasMoreElements() ;) {
             AtomicType tp = (AtomicType) e.nextElement();
@@ -688,24 +688,24 @@ public class WrapperGenerator {
             if ((name != null) && (name.length() > 0))
             {
                 if (type == AtomicType.TYPE_ATOM) {
-                    pw.println("\t\tret += \"\"+\"" + name + " = \" + XAtom.get(get_" + name + "()) +\", \";");
+                    pw.println("\t\tret.append(\"" + name + " = \" ).append( XAtom.get(get_" + name + "()) ).append(\", \");");
                 } else if (name.equals("type")) {
-                    pw.println("\t\tret += \"\"+\"type = \" + XlibWrapper.eventToString[get_type()] +\", \";");
+                    pw.println("\t\tret.append(\"type = \").append( XlibWrapper.eventToString[get_type()] ).append(\", \");");
                 } else if (name.equals("window")){
-                    pw.println("\t\tret += \"\"+\"window = \" + getWindow(get_window()) + \", \";");
+                    pw.println("\t\tret.append(\"window = \" ).append( getWindow(get_window()) ).append(\", \");");
                 } else if (type == AtomicType.TYPE_ARRAY) {
-                    pw.print("\t\tret += \"{\"");
+                    pw.print("\t\tret.append(\"{\")");
                     for (int i = 0; i < tp.getArrayLength(); i++) {
-                        pw.print(" + get_" + name + "(" + i + ") + \" \"");
+                        pw.print("\n\t\t.append( get_" + name + "(" + i + ") ).append(\" \")");
                     }
-                    pw.println(" + \"}\";");
+                    pw.println(".append( \"}\");");
                 } else {
-                    pw.println("\t\tret += \"\"+\"" + name +" = \" + get_"+ name+"() +\", \";");
+                    pw.println("\t\tret.append(\"" + name +" = \").append( get_"+ name+"() ).append(\", \");");
                 }
             }
 
         }
-        pw.println("\t\treturn ret;\n\t}\n\n");
+        pw.println("\t\treturn ret.toString();\n\t}\n\n");
     }
 
     public void writeStubs(StructType stp, PrintWriter pw) {
@@ -806,11 +806,15 @@ public class WrapperGenerator {
             }
         }
         if (s_size_32 != null && !s_size_32.equals(Integer.toString(acc_size_32))) {
-            log.fine("32 bits: The size of the structure " + stp.getName() + " " + s_size_32 +
+            if (log.isLoggable(Level.FINE)) {
+                log.fine("32 bits: The size of the structure " + stp.getName() + " " + s_size_32 +
                         " is not equal to the accumulated size " +acc_size_32 + " of the fields");
+            }
         } else if (s_size_64 != null && !s_size_64.equals(Integer.toString(acc_size_64))) {
-            log.fine("64 bits: The size of the structure " + stp.getName() + " " +s_size_64+
+            if (log.isLoggable(Level.FINE)) {
+                log.fine("64 bits: The size of the structure " + stp.getName() + " " +s_size_64+
                         " is not equal to the accumulated size " +acc_size_64+" of the fields");
+            }
         }
     }
 
@@ -992,7 +996,7 @@ public class WrapperGenerator {
             pw.println("\t\t\t}");
             pw.println("\t\t\t__executed = true;");
             pw.println("\t\t\tif (errorHandler != null) {");
-            pw.println("\t\t\t    XToolkit.WITH_XERROR_HANDLER(errorHandler);");
+            pw.println("\t\t\t    XErrorHandlerUtil.WITH_XERROR_HANDLER(errorHandler);");
             pw.println("\t\t\t}");
             iter = ft.getArguments().iterator();
             while (iter.hasNext()) {
@@ -1021,7 +1025,7 @@ public class WrapperGenerator {
             }
             pw.println("\t\t\t);");
             pw.println("\t\t\tif (errorHandler != null) {");
-            pw.println("\t\t\t    XToolkit.RESTORE_XERROR_HANDLER();");
+            pw.println("\t\t\t    XErrorHandlerUtil.RESTORE_XERROR_HANDLER();");
             pw.println("\t\t\t}");
             if (!ft.isVoid()) {
                 pw.println("\t\t\treturn status;");

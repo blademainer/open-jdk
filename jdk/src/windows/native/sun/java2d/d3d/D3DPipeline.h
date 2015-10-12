@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,11 @@
 #ifdef DEBUG
 #define D3D_DEBUG_INFO
 #endif // DEBUG
+
+/* Use THIS_FILE when it is available. */
+#ifndef THIS_FILE
+    #define THIS_FILE THIS_FILE
+#endif
 
 #ifdef D3D_PPL_DLL
 
@@ -104,7 +109,7 @@ do {                      \
 #define ACT_IF_NULL(ACTION, value)         \
     if ((value) == NULL) {                 \
         J2dTraceLn3(J2D_TRACE_ERROR,       \
-                    "%s is null in %s:%d", #value, __FILE__, __LINE__); \
+                    "%s is null in %s:%d", #value, THIS_FILE, __LINE__); \
         ACTION;                            \
     } else do { } while (0)
 #define RETURN_IF_NULL(value)   ACT_IF_NULL(return, value)
@@ -114,12 +119,12 @@ do {                      \
 
 #define RETURN_STATUS_IF_EXP_FAILED(EXPR) \
     if (FAILED(res = (EXPR))) {                    \
-        DebugPrintD3DError(res, " " ## #EXPR ## " failed in " ## __FILE__); \
+        DebugPrintD3DError(res, " " ## #EXPR ## " failed in " ## THIS_FILE); \
         return res;                   \
     } else do { } while (0)
 
 #define RETURN_STATUS_IF_FAILED(status) \
     if (FAILED((status))) {                    \
-        DebugPrintD3DError((status), " failed in " ## __FILE__ ## ", return;");\
+        DebugPrintD3DError((status), " failed in " ## THIS_FILE ## ", return;");\
         return (status);                   \
     } else do { } while (0)

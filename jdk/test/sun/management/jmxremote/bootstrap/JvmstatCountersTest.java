@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,10 +29,10 @@
  * @author Luis-Miguel Alventosa
  * @run clean JvmstatCountersTest
  * @run build JvmstatCountersTest
- * @run main/othervm JvmstatCountersTest 1
- * @run main/othervm -Dcom.sun.management.jmxremote JvmstatCountersTest 2
- * @run main/othervm -Dcom.sun.management.jmxremote.port=0 -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false JvmstatCountersTest 3
- * @run main/othervm JvmstatCountersTest 4
+ * @run main/othervm/timeout=600 JvmstatCountersTest 1
+ * @run main/othervm/timeout=600 -Dcom.sun.management.jmxremote JvmstatCountersTest 2
+ * @run main/othervm/timeout=600 -Dcom.sun.management.jmxremote.port=0 -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false JvmstatCountersTest 3
+ * @run main/othervm/timeout=600 JvmstatCountersTest 4
  */
 
 import java.io.*;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -247,7 +247,7 @@ public class ScrollPane extends Container implements Accessible {
      * component is removed and the new one is added.
      * @param comp the component to be added
      * @param constraints  not applicable
-     * @param index position of child component (must be <= 0)
+     * @param index position of child component (must be &lt;= 0)
      */
     protected final void addImpl(Component comp, Object constraints, int index) {
         synchronized (getTreeLock()) {
@@ -425,8 +425,8 @@ public class ScrollPane extends Container implements Accessible {
 
     /**
      * Determine the size to allocate the child component.
-     * If the viewport area is bigger than the childs
-     * preferred size then the child is allocated enough
+     * If the viewport area is bigger than the preferred size
+     * of the child then the child is allocated enough
      * to fill the viewport, otherwise the child is given
      * it's preferred size.
      */

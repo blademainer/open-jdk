@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,6 +45,7 @@ import java.security.PrivilegedActionException;
 import javax.crypto.Cipher;
 import javax.security.auth.Subject;
 import javax.security.auth.kerberos.*;
+import sun.security.krb5.internal.Ticket;
 
 /**
  * Implements the mechanism specific context class for the Kerberos v5
@@ -67,12 +68,16 @@ class Krb5Context implements GSSContextSpi {
 
     private int state = STATE_NEW;
 
+    public static final int SESSION_KEY = 0;
+    public static final int INITIATOR_SUBKEY = 1;
+    public static final int ACCEPTOR_SUBKEY = 2;
+
     /*
      * Optional features that the application can set and their default
      * values.
      */
 
-    private boolean credDelegState  = false;
+    private boolean credDelegState  = false;    // now only useful at client
     private boolean mutualAuthState  = true;
     private boolean replayDetState  = true;
     private boolean sequenceDetState  = true;
@@ -80,8 +85,11 @@ class Krb5Context implements GSSContextSpi {
     private boolean integState  = true;
     private boolean delegPolicyState = false;
 
+    private boolean isConstrainedDelegationTried = false;
+
     private int mySeqNumber;
     private int peerSeqNumber;
+    private int keySrc;
     private TokenTracker peerTokenTracker;
 
     private CipherHelper cipherHelper = null;
@@ -108,13 +116,11 @@ class Krb5Context implements GSSContextSpi {
     private Krb5CredElement myCred;
     private Krb5CredElement delegatedCred; // Set only on acceptor side
 
-    /* DESCipher instance used by the corresponding GSSContext */
-    private Cipher desCipher = null;
-
     // XXX See if the required info from these can be extracted and
     // stored elsewhere
     private Credentials serviceCreds;
     private KrbApReq apReq;
+    Ticket serviceTicket;
     final private GSSCaller caller;
     private static final boolean DEBUG = Krb5Util.DEBUG;
 
@@ -243,7 +249,14 @@ class Krb5Context implements GSSContextSpi {
      * Is credential delegation enabled?
      */
     public final boolean getCredDelegState() {
-        return credDelegState;
+        if (isInitiator()) {
+            return credDelegState;
+        } else {
+            // Server side deleg state is not flagged by credDelegState.
+            // It can use constrained delegation.
+            tryConstrainedDelegation();
+            return delegatedCred != null;
+        }
     }
 
     /**
@@ -384,10 +397,15 @@ class Krb5Context implements GSSContextSpi {
         }
     }
 
-    final void setKey(EncryptionKey key) throws GSSException {
+    final void setKey(int keySrc, EncryptionKey key) throws GSSException {
         this.key = key;
+        this.keySrc = keySrc;
         // %%% to do: should clear old cipherHelper first
         cipherHelper = new CipherHelper(key);  // Need to use new key
+    }
+
+    public final int getKeySrc() {
+        return keySrc;
     }
 
     private final EncryptionKey getKey() {
@@ -488,7 +506,8 @@ class Krb5Context implements GSSContextSpi {
      * Returns the delegated credential for the context. This
      * is an optional feature of contexts which not all
      * mechanisms will support. A context can be requested to
-     * support credential delegation by using the <b>CRED_DELEG</b>.
+     * support credential delegation by using the <b>CRED_DELEG</b>,
+     * or it can request for a constrained delegation.
      * This is only valid on the acceptor side of the context.
      * @return GSSCredentialSpi object for the delegated credential
      * @exception GSSException
@@ -497,11 +516,41 @@ class Krb5Context implements GSSContextSpi {
     public final GSSCredentialSpi getDelegCred() throws GSSException {
         if (state != STATE_IN_PROCESS && state != STATE_DONE)
             throw new GSSException(GSSException.NO_CONTEXT);
-        if (delegatedCred == null)
+        if (isInitiator()) {
             throw new GSSException(GSSException.NO_CRED);
+        }
+        tryConstrainedDelegation();
+        if (delegatedCred == null) {
+            throw new GSSException(GSSException.NO_CRED);
+        }
         return delegatedCred;
     }
 
+    private void tryConstrainedDelegation() {
+        if (state != STATE_IN_PROCESS && state != STATE_DONE) {
+            return;
+        }
+        // We will only try constrained delegation once (if necessary).
+        if (!isConstrainedDelegationTried) {
+            if (delegatedCred == null) {
+                if (DEBUG) {
+                    System.out.println(">>> Constrained deleg from " + caller);
+                }
+                // The constrained delegation part. The acceptor needs to have
+                // isInitiator=true in order to get a TGT, either earlier at
+                // logon stage, if useSubjectCredsOnly, or now.
+                try {
+                    delegatedCred = new Krb5ProxyCredential(
+                        Krb5InitCredential.getInstance(
+                            GSSCaller.CALLER_ACCEPT, myName, lifetime),
+                        peerName, serviceTicket);
+                } catch (GSSException gsse) {
+                    // OK, delegatedCred is null then
+                }
+            }
+            isConstrainedDelegationTried = true;
+        }
+    }
     /**
      * Tests if this is the initiator side of the context.
      *
@@ -567,8 +616,15 @@ class Krb5Context implements GSSContextSpi {
                                            "No TGT available");
                     }
                     myName = (Krb5NameElement) myCred.getName();
-                    Credentials tgt =
-                    ((Krb5InitCredential) myCred).getKrb5Credentials();
+                    Credentials tgt;
+                    final Krb5ProxyCredential second;
+                    if (myCred instanceof Krb5InitCredential) {
+                        second = null;
+                        tgt = ((Krb5InitCredential) myCred).getKrb5Credentials();
+                    } else {
+                        second = (Krb5ProxyCredential) myCred;
+                        tgt = second.self.getKrb5Credentials();
+                    }
 
                     checkPermission(peerName.getKrb5PrincipalName().getName(),
                                     "initiate");
@@ -597,7 +653,9 @@ class Krb5Context implements GSSContextSpi {
                                         GSSCaller.CALLER_UNKNOWN,
                                         // since it's useSubjectCredsOnly here,
                                         // don't worry about the null
-                                        myName.getKrb5PrincipalName().getName(),
+                                        second == null ?
+                                            myName.getKrb5PrincipalName().getName():
+                                            second.getName().getKrb5PrincipalName().getName(),
                                         peerName.getKrb5PrincipalName().getName(),
                                         acc);
                                 }});
@@ -628,9 +686,17 @@ class Krb5Context implements GSSContextSpi {
                                                "the subject");
                         }
                         // Get Service ticket using the Kerberos protocols
-                        serviceCreds = Credentials.acquireServiceCreds(
+                        if (second == null) {
+                            serviceCreds = Credentials.acquireServiceCreds(
                                      peerName.getKrb5PrincipalName().getName(),
                                      tgt);
+                        } else {
+                            serviceCreds = Credentials.acquireS4U2proxyCreds(
+                                    peerName.getKrb5PrincipalName().getName(),
+                                    second.tkt,
+                                    second.getName().getKrb5PrincipalName(),
+                                    tgt);
+                        }
                         if (GSSUtil.useSubjectCredsOnly(caller)) {
                             final Subject subject =
                                 AccessController.doPrivileged(
@@ -752,20 +818,28 @@ class Krb5Context implements GSSContextSpi {
                 }
                 myName = (Krb5NameElement) myCred.getName();
 
-                checkPermission(myName.getKrb5PrincipalName().getName(),
-                                "accept");
-
-                EncryptionKey[] secretKeys =
-                 ((Krb5AcceptCredential) myCred).getKrb5EncryptionKeys();
+                // If there is already a bound name, check now
+                if (myName != null) {
+                    Krb5MechFactory.checkAcceptCredPermission(myName, myName);
+                }
 
                 InitSecContextToken token = new InitSecContextToken(this,
-                                                    secretKeys, is);
+                                                    (Krb5AcceptCredential) myCred, is);
                 PrincipalName clientName = token.getKrbApReq().getClient();
                 peerName = Krb5NameElement.getInstance(clientName);
+
+                // If unbound, check after the bound name is found
+                if (myName == null) {
+                    myName = Krb5NameElement.getInstance(
+                        token.getKrbApReq().getCreds().getServer());
+                    Krb5MechFactory.checkAcceptCredPermission(myName, myName);
+                }
+
                 if (getMutualAuthState()) {
                         retVal = new AcceptSecContextToken(this,
                                           token.getKrbApReq()).encode();
                 }
+                serviceTicket = token.getKrbApReq().getCreds().getTicket();
                 myCred = null;
                 state = STATE_DONE;
             } else  {
@@ -792,10 +866,8 @@ class Krb5Context implements GSSContextSpi {
         return retVal;
     }
 
-
-
     /**
-     * Queries the context for largest data size to accomodate
+     * Queries the context for largest data size to accommodate
      * the specified protection and be <= maxTokSize.
      *
      * @param qop the quality of protection that the context will be
@@ -1310,6 +1382,8 @@ class Krb5Context implements GSSContextSpi {
      * The session key returned by inquireSecContext(KRB5_INQ_SSPI_SESSION_KEY)
      */
     static class KerberosSessionKey implements Key {
+        private static final long serialVersionUID = 699307378954123869L;
+
         private final EncryptionKey key;
 
         KerberosSessionKey(EncryptionKey key) {

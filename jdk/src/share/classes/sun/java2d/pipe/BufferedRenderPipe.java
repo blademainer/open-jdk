@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -224,7 +224,7 @@ public abstract class BufferedRenderPipe
                 buf.put(xPoints, 0, nPoints);
                 buf.put(yPoints, 0, nPoints);
             } else {
-                // queue is too small to accomodate all points; perform the
+                // queue is too small to accommodate all points; perform the
                 // operation directly on the queue flushing thread
                 rq.flushAndInvokeNow(new Runnable() {
                     public void run() {
@@ -508,9 +508,9 @@ public abstract class BufferedRenderPipe
     }
 
     public void draw(SunGraphics2D sg2d, Shape s) {
-        if (sg2d.strokeState == sg2d.STROKE_THIN) {
+        if (sg2d.strokeState == SunGraphics2D.STROKE_THIN) {
             if (s instanceof Polygon) {
-                if (sg2d.transformState < sg2d.TRANSFORM_TRANSLATESCALE) {
+                if (sg2d.transformState < SunGraphics2D.TRANSFORM_TRANSLATESCALE) {
                     Polygon p = (Polygon)s;
                     drawPolygon(sg2d, p.xpoints, p.ypoints, p.npoints);
                     return;
@@ -518,7 +518,7 @@ public abstract class BufferedRenderPipe
             }
             Path2D.Float p2df;
             int transx, transy;
-            if (sg2d.transformState <= sg2d.TRANSFORM_INT_TRANSLATE) {
+            if (sg2d.transformState <= SunGraphics2D.TRANSFORM_INT_TRANSLATE) {
                 if (s instanceof Path2D.Float) {
                     p2df = (Path2D.Float)s;
                 } else {
@@ -532,7 +532,7 @@ public abstract class BufferedRenderPipe
                 transy = 0;
             }
             drawPath(sg2d, p2df, transx, transy);
-        } else if (sg2d.strokeState < sg2d.STROKE_CUSTOM) {
+        } else if (sg2d.strokeState < SunGraphics2D.STROKE_CUSTOM) {
             ShapeSpanIterator si = LoopPipe.getStrokeSpans(sg2d, s);
             try {
                 fillSpans(sg2d, si, 0, 0);
@@ -547,11 +547,11 @@ public abstract class BufferedRenderPipe
     public void fill(SunGraphics2D sg2d, Shape s) {
         int transx, transy;
 
-        if (sg2d.strokeState == sg2d.STROKE_THIN) {
+        if (sg2d.strokeState == SunGraphics2D.STROKE_THIN) {
             // Here we are able to use fillPath() for
             // high-quality fills.
             Path2D.Float p2df;
-            if (sg2d.transformState <= sg2d.TRANSFORM_INT_TRANSLATE) {
+            if (sg2d.transformState <= SunGraphics2D.TRANSFORM_INT_TRANSLATE) {
                 if (s instanceof Path2D.Float) {
                     p2df = (Path2D.Float)s;
                 } else {
@@ -569,7 +569,7 @@ public abstract class BufferedRenderPipe
         }
 
         AffineTransform at;
-        if (sg2d.transformState <= sg2d.TRANSFORM_INT_TRANSLATE) {
+        if (sg2d.transformState <= SunGraphics2D.TRANSFORM_INT_TRANSLATE) {
             // Transform (translation) will be done by FillSpans (we could
             // delegate to fillPolygon() here, but most hardware accelerated
             // libraries cannot handle non-convex polygons, so we will use

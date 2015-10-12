@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,7 @@ import java.util.*;
  * Note. This implies that any caching of credentials or other authentication
  * information must be done outside of this class.
  */
+@jdk.Exported
 public abstract class Authenticator {
 
     /**
@@ -47,6 +48,7 @@ public abstract class Authenticator {
      * Indicates an authentication failure. The authentication
      * attempt has completed.
      */
+    @jdk.Exported
     public static class Failure extends Result {
 
         private int responseCode;
@@ -68,6 +70,7 @@ public abstract class Authenticator {
      * authenticated user principal can be acquired by calling
      * getPrincipal().
      */
+    @jdk.Exported
     public static class Success extends Result {
         private HttpPrincipal principal;
 
@@ -89,6 +92,7 @@ public abstract class Authenticator {
      * set any necessary response headers in the given HttpExchange
      * before returning this Retry object.
      */
+    @jdk.Exported
     public static class Retry extends Result {
 
         private int responseCode;

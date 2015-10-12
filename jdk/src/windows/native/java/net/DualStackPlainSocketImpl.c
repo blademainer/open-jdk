@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,6 +43,7 @@ JNIEXPORT void JNICALL Java_java_net_DualStackPlainSocketImpl_initIDs
   (JNIEnv *env, jclass clazz) {
 
     jclass cls = (*env)->FindClass(env, "java/net/InetSocketAddress");
+    CHECK_NULL(cls);
     isa_class = (*env)->NewGlobalRef(env, cls);
     isa_ctorID = (*env)->GetMethodID(env, cls, "<init>",
                                      "(Ljava/net/InetAddress;I)V");
@@ -82,7 +83,9 @@ JNIEXPORT jint JNICALL Java_java_net_DualStackPlainSocketImpl_socket0
  * Signature: (ILjava/net/InetAddress;I)V
  */
 JNIEXPORT void JNICALL Java_java_net_DualStackPlainSocketImpl_bind0
-  (JNIEnv *env, jclass clazz, jint fd, jobject iaObj, jint port) {
+  (JNIEnv *env, jclass clazz, jint fd, jobject iaObj, jint port,
+   jboolean exclBind)
+{
     SOCKETADDRESS sa;
     int rv;
     int sa_len = sizeof(sa);
@@ -92,7 +95,7 @@ JNIEXPORT void JNICALL Java_java_net_DualStackPlainSocketImpl_bind0
       return;
     }
 
-    rv = NET_Bind(fd, (struct sockaddr *)&sa, sa_len);
+    rv = NET_WinBind(fd, (struct sockaddr *)&sa, sa_len, exclBind);
 
     if (rv == SOCKET_ERROR)
         NET_ThrowNew(env, WSAGetLastError(), "JVM_Bind");
@@ -169,7 +172,7 @@ JNIEXPORT void JNICALL Java_java_net_DualStackPlainSocketImpl_waitForConnect
     }
 
     /*
-     * Socket is writable or error occured. On some Windows editions
+     * Socket is writable or error occurred. On some Windows editions
      * the socket will appear writable when the connect fails so we
      * check for error rather than writable.
      */

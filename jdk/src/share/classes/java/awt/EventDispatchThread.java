@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,17 +25,11 @@
 
 package java.awt;
 
-import java.awt.event.InputEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.ActionEvent;
 import java.awt.event.WindowEvent;
-import java.lang.reflect.Method;
-import java.security.AccessController;
-import sun.security.action.GetPropertyAction;
-import sun.awt.AWTAutoShutdown;
-import sun.awt.SunToolkit;
 
-import java.util.Vector;
+import java.util.ArrayList;
 import sun.util.logging.PlatformLogger;
 
 import sun.awt.dnd.SunDragSourceContextPeer;
@@ -65,12 +59,11 @@ class EventDispatchThread extends Thread {
     private static final PlatformLogger eventLog = PlatformLogger.getLogger("java.awt.event.EventDispatchThread");
 
     private EventQueue theQueue;
-    private boolean doDispatch = true;
-    private boolean threadDeathCaught = false;
+    private volatile boolean doDispatch = true;
 
     private static final int ANY_EVENT = -1;
 
-    private Vector<EventFilter> eventFilters = new Vector<EventFilter>();
+    private ArrayList<EventFilter> eventFilters = new ArrayList<EventFilter>();
 
     EventDispatchThread(ThreadGroup group, String name, EventQueue queue) {
         super(group, name);
@@ -85,19 +78,14 @@ class EventDispatchThread extends Thread {
     }
 
     public void run() {
-        while (true) {
-            try {
-                pumpEvents(new Conditional() {
-                    public boolean evaluate() {
-                        return true;
-                    }
-                });
-            } finally {
-                EventQueue eq = getEventQueue();
-                if (eq.detachDispatchThread(this) || threadDeathCaught) {
-                    break;
+        try {
+            pumpEvents(new Conditional() {
+                public boolean evaluate() {
+                    return true;
                 }
-            }
+            });
+        } finally {
+            getEventQueue().detachDispatchThread(this);
         }
     }
 
@@ -124,16 +112,16 @@ class EventDispatchThread extends Thread {
     void pumpEventsForFilter(int id, Conditional cond, EventFilter filter) {
         addEventFilter(filter);
         doDispatch = true;
-        while (doDispatch && cond.evaluate()) {
-            if (isInterrupted() || !pumpOneEventForFilters(id)) {
-                doDispatch = false;
-            }
+        while (doDispatch && !isInterrupted() && cond.evaluate()) {
+            pumpOneEventForFilters(id);
         }
         removeEventFilter(filter);
     }
 
     void addEventFilter(EventFilter filter) {
-        eventLog.finest("adding the event filter: " + filter);
+        if (eventLog.isLoggable(PlatformLogger.Level.FINEST)) {
+            eventLog.finest("adding the event filter: " + filter);
+        }
         synchronized (eventFilters) {
             if (!eventFilters.contains(filter)) {
                 if (filter instanceof ModalEventFilter) {
@@ -157,13 +145,15 @@ class EventDispatchThread extends Thread {
     }
 
     void removeEventFilter(EventFilter filter) {
-        eventLog.finest("removing the event filter: " + filter);
+        if (eventLog.isLoggable(PlatformLogger.Level.FINEST)) {
+            eventLog.finest("removing the event filter: " + filter);
+        }
         synchronized (eventFilters) {
             eventFilters.remove(filter);
         }
     }
 
-    boolean pumpOneEventForFilters(int id) {
+    void pumpOneEventForFilters(int id) {
         AWTEvent event = null;
         boolean eventOK = false;
         try {
@@ -200,7 +190,7 @@ class EventDispatchThread extends Thread {
             }
             while (eventOK == false);
 
-            if (eventLog.isLoggable(PlatformLogger.FINEST)) {
+            if (eventLog.isLoggable(PlatformLogger.Level.FINEST)) {
                 eventLog.finest("Dispatching: " + event);
             }
 
@@ -212,28 +202,22 @@ class EventDispatchThread extends Thread {
             if (delegate != null) {
                 delegate.afterDispatch(event, handle);
             }
-
-            return true;
         }
         catch (ThreadDeath death) {
-            threadDeathCaught = true;
-            return false;
-
+            doDispatch = false;
+            throw death;
         }
         catch (InterruptedException interruptedException) {
-            return false; // AppContext.dispose() interrupts all
-                          // Threads in the AppContext
-
+            doDispatch = false; // AppContext.dispose() interrupts all
+                                // Threads in the AppContext
         }
         catch (Throwable e) {
             processException(e);
         }
-
-        return true;
     }
 
     private void processException(Throwable e) {
-        if (eventLog.isLoggable(PlatformLogger.FINE)) {
+        if (eventLog.isLoggable(PlatformLogger.Level.FINE)) {
             eventLog.fine("Processing exception: " + e);
         }
         getUncaughtExceptionHandler().uncaughtException(this, e);

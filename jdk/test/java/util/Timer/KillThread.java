@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,21 +31,26 @@
 import java.util.*;
 
 public class KillThread {
+    static volatile Thread tdThread;
     public static void main (String[] args) throws Exception  {
         Timer t = new Timer();
 
         // Start a mean event that kills the timer thread
         t.schedule(new TimerTask() {
             public void run() {
+                tdThread = Thread.currentThread();
                 throw new ThreadDeath();
             }
         }, 0);
 
         // Wait for mean event to do the deed and thread to die.
         try {
-            Thread.sleep(100);
+            do {
+                Thread.sleep(100);
+            } while(tdThread == null);
         } catch(InterruptedException e) {
         }
+        tdThread.join();
 
         // Try to start another event
         try {

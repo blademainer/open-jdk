@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,7 +40,7 @@ import javax.accessibility.*;
  * You can find task-oriented documentation about using <code>JFrame</code>
  * in <em>The Java Tutorial</em>, in the section
  * <a
- href="http://java.sun.com/docs/books/tutorial/uiswing/components/frame.html">How to Make Frames</a>.
+ href="http://docs.oracle.com/javase/tutorial/uiswing/components/frame.html">How to Make Frames</a>.
  *
  * <p>
  * The <code>JFrame</code> class is slightly incompatible with <code>Frame</code>.
@@ -50,9 +50,10 @@ import javax.accessibility.*;
  * as a rule, contain
  * all the non-menu components displayed by the <code>JFrame</code>.
  * This is different from the AWT <code>Frame</code> case.
- * As a conveniance <code>add</code> and its variants, <code>remove</code> and
- * <code>setLayout</code> have been overridden to forward to the
- * <code>contentPane</code> as necessary. This means you can write:
+ * As a convenience, the {@code add}, {@code remove}, and {@code setLayout}
+ * methods of this class are overridden, so that they delegate calls
+ * to the corresponding methods of the {@code ContentPane}.
+ * For example, you can add a child component to a frame as follows:
  * <pre>
  *       frame.add(child);
  * </pre>
@@ -77,7 +78,7 @@ import javax.accessibility.*;
  * For more information on content panes
  * and other features that root panes provide,
  * see <a
- href="http://java.sun.com/docs/books/tutorial/uiswing/components/toplevel.html">Using Top-Level Containers</a> in <em>The Java Tutorial</em>.
+ href="http://docs.oracle.com/javase/tutorial/uiswing/components/toplevel.html">Using Top-Level Containers</a> in <em>The Java Tutorial</em>.
  * <p>
  * In a multi-screen environment, you can create a <code>JFrame</code>
  * on a different screen device.  See {@link java.awt.Frame} for more
@@ -93,7 +94,7 @@ import javax.accessibility.*;
  * future Swing releases. The current serialization support is
  * appropriate for short term storage or RMI between applications running
  * the same version of Swing.  As of 1.4, support for long term storage
- * of all JavaBeans<sup><font size="-2">TM</font></sup>
+ * of all JavaBeans&trade;
  * has been added to the <code>java.beans</code> package.
  * Please see {@link java.beans.XMLEncoder}.
  *
@@ -266,7 +267,7 @@ public class JFrame  extends Frame implements WindowConstants,
                 getRootPane().setWindowDecorationStyle(JRootPane.FRAME);
             }
         }
-        sun.awt.SunToolkit.checkAndSetPolicy(this, true);
+        sun.awt.SunToolkit.checkAndSetPolicy(this);
     }
 
     /**
@@ -323,7 +324,7 @@ public class JFrame  extends Frame implements WindowConstants,
      * Sets the operation that will happen by default when
      * the user initiates a "close" on this frame.
      * You must specify one of the following choices:
-     * <p>
+     * <br><br>
      * <ul>
      * <li><code>DO_NOTHING_ON_CLOSE</code>
      * (defined in <code>WindowConstants</code>):
@@ -387,13 +388,14 @@ public class JFrame  extends Frame implements WindowConstants,
             operation != EXIT_ON_CLOSE) {
             throw new IllegalArgumentException("defaultCloseOperation must be one of: DO_NOTHING_ON_CLOSE, HIDE_ON_CLOSE, DISPOSE_ON_CLOSE, or EXIT_ON_CLOSE");
         }
-        if (this.defaultCloseOperation != operation) {
-            if (operation == EXIT_ON_CLOSE) {
-                SecurityManager security = System.getSecurityManager();
-                if (security != null) {
-                    security.checkExit(0);
-                }
+
+        if (operation == EXIT_ON_CLOSE) {
+            SecurityManager security = System.getSecurityManager();
+            if (security != null) {
+                security.checkExit(0);
             }
+        }
+        if (this.defaultCloseOperation != operation) {
             int oldValue = this.defaultCloseOperation;
             this.defaultCloseOperation = operation;
             firePropertyChange("defaultCloseOperation", oldValue, operation);
@@ -429,7 +431,7 @@ public class JFrame  extends Frame implements WindowConstants,
      * are currently typed to {@code JComponent}.
      * <p>
      * Please see
-     * <a href="http://java.sun.com/docs/books/tutorial/uiswing/misc/dnd.html">
+     * <a href="http://docs.oracle.com/javase/tutorial/uiswing/dnd/index.html">
      * How to Use Drag and Drop and Data Transfer</a>, a section in
      * <em>The Java Tutorial</em>, for more information.
      *
@@ -504,7 +506,7 @@ public class JFrame  extends Frame implements WindowConstants,
      * <code>setLayout</code> are forwarded to the <code>contentPane</code>.
      *
      * @return true if <code>add</code> and <code>setLayout</code>
-     *         are fowarded; false otherwise
+     *         are forwarded; false otherwise
      *
      * @see #addImpl
      * @see #setLayout
@@ -672,7 +674,7 @@ public class JFrame  extends Frame implements WindowConstants,
      * This method is called by the constructor.
      * <p>
      * Swing's painting architecture requires an opaque <code>JComponent</code>
-     * in the containment hiearchy. This is typically provided by the
+     * in the containment hierarchy. This is typically provided by the
      * content pane. If you replace the content pane it is recommended you
      * replace it with an opaque <code>JComponent</code>.
      *

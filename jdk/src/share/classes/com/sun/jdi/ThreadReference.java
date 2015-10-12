@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,8 +36,8 @@ import java.util.List;
  * @author James McIlree
  * @since  1.3
  */
-public interface ThreadReference extends ObjectReference
-{
+@jdk.Exported
+public interface ThreadReference extends ObjectReference {
     /** Thread status is unknown */
     public final int THREAD_STATUS_UNKNOWN  =-1;
     /** Thread has completed execution */

@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -26,8 +26,8 @@
 #
 
 # Get clones of all nested repositories
-sh ./make/scripts/hgforest.sh clone
+sh ./common/bin/hgforest.sh clone "$@" || exit 1
 
 # Update all existing repositories to the latest sources
-sh ./make/scripts/hgforest.sh pull -u
+sh ./common/bin/hgforest.sh pull -u
 

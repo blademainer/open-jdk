@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -117,22 +117,18 @@ public abstract class RenderingEngine {
             return reImpl;
         }
 
-        reImpl = (RenderingEngine)
-            AccessController.doPrivileged(new PrivilegedAction() {
-                public Object run() {
+        reImpl =
+            AccessController.doPrivileged(new PrivilegedAction<RenderingEngine>() {
+                public RenderingEngine run() {
                     final String ductusREClass = "sun.dc.DuctusRenderingEngine";
                     String reClass =
                         System.getProperty("sun.java2d.renderer", ductusREClass);
                     if (reClass.equals(ductusREClass)) {
                         try {
-                            Class cls = Class.forName(ductusREClass);
-                            return cls.newInstance();
-                        } catch (ClassNotFoundException x) {
+                            Class<?> cls = Class.forName(ductusREClass);
+                            return (RenderingEngine) cls.newInstance();
+                        } catch (ReflectiveOperationException ignored) {
                             // not found
-                        } catch (IllegalAccessException x) {
-                            // should not reach here
-                        } catch (InstantiationException x) {
-                            // should not reach here
                         }
                     }
 
@@ -157,7 +153,7 @@ public abstract class RenderingEngine {
 
         GetPropertyAction gpa =
             new GetPropertyAction("sun.java2d.renderer.trace");
-        String reTrace = (String) AccessController.doPrivileged(gpa);
+        String reTrace = AccessController.doPrivileged(gpa);
         if (reTrace != null) {
             reImpl = new Tracer(reImpl);
         }
@@ -348,7 +344,7 @@ public abstract class RenderingEngine {
 
     /**
      * Returns the minimum pen width that the antialiasing rasterizer
-     * can represent without dropouts occuring.
+     * can represent without dropouts occurring.
      * @since 1.7
      */
     public abstract float getMinimumAAPenSize();

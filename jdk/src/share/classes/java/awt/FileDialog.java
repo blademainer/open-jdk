@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -147,8 +147,8 @@ public class FileDialog extends Dialog {
     static {
         AWTAccessor.setFileDialogAccessor(
             new AWTAccessor.FileDialogAccessor() {
-                public void setFiles(FileDialog fileDialog, String directory, String files[]) {
-                    fileDialog.setFiles(directory, files);
+                public void setFiles(FileDialog fileDialog, File files[]) {
+                    fileDialog.setFiles(files);
                 }
                 public void setFile(FileDialog fileDialog, String file) {
                     fileDialog.file = ("".equals(file)) ? null : file;
@@ -439,20 +439,15 @@ public class FileDialog extends Dialog {
      * Note that the method is private and it's intended to be used
      * by the peers through the AWTAccessor API.
      *
-     * @param directory the current directory
      * @param files     the array that contains the short names of
      *                  all the files that the user selects.
      *
      * @see #getFiles
      * @since 1.7
      */
-    private void setFiles(String directory, String files[]) {
+    private void setFiles(File files[]) {
         synchronized (getObjectLock()) {
-            int filesNumber = (files != null) ? files.length : 0;
-            this.files = new File[filesNumber];
-            for (int i = 0; i < filesNumber; i++) {
-                this.files[i] = new File(directory, files[i]);
-            }
+            this.files = files;
         }
     }
 
@@ -461,9 +456,16 @@ public class FileDialog extends Dialog {
      * specified file. This file becomes the default file if it is set
      * before the file dialog window is first shown.
      * <p>
+     * When the dialog is shown, the specified file is selected. The kind of
+     * selection depends on the file existence, the dialog type, and the native
+     * platform. E.g., the file could be highlighted in the file list, or a
+     * file name editbox could be populated with the file name.
+     * <p>
+     * This method accepts either a full file path, or a file name with an
+     * extension if used together with the {@code setDirectory} method.
+     * <p>
      * Specifying "" as the file is exactly equivalent to specifying
-     * <code>null</code>
-     * as the file.
+     * {@code null} as the file.
      *
      * @param    file   the file being set
      * @see      #getFile

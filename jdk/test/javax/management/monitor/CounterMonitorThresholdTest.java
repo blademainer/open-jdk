@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
 
 /*
  * @test
- * @bug 6229368
+ * @bug 6229368 8025207
  * @summary Wrong threshold value in CounterMonitor with offset and modulus.
  * @author Luis-Miguel Alventosa
  * @run clean CounterMonitorThresholdTest
@@ -144,16 +144,14 @@ public class CounterMonitorThresholdTest {
         for (int i = 0; i < counter.length; i++) {
             mbean.setCounter(counter[i]);
             System.out.println("\nCounter = " + mbean.getCounter());
-            Thread.sleep(300);
-            Integer derivedGaugeValue = (Integer) cm.getDerivedGauge(name);
-            System.out.println("Derived Gauge = " + derivedGaugeValue);
-            if (derivedGaugeValue.intValue() != derivedGauge[i]) {
-                System.out.println("Wrong derived gauge! Current value = " +
-                    derivedGaugeValue + " Expected value = " + derivedGauge[i]);
-                System.out.println("\nStop monitoring...");
-                cm.stop();
-                throw new IllegalArgumentException("wrong derived gauge");
-            }
+            Integer derivedGaugeValue;
+            // either pass or test timeout (killed by test harness)
+            // see 8025207
+            do {
+                Thread.sleep(150);
+                derivedGaugeValue = (Integer) cm.getDerivedGauge(name);
+            } while (derivedGaugeValue.intValue() != derivedGauge[i]);
+
             Number thresholdValue = cm.getThreshold(name);
             System.out.println("Threshold = " + thresholdValue);
             if (thresholdValue.intValue() != threshold[i]) {
@@ -163,7 +161,6 @@ public class CounterMonitorThresholdTest {
                 cm.stop();
                 throw new IllegalArgumentException("wrong threshold");
             }
-            Thread.sleep(300);
         }
 
         // Stop the monitor

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,12 +53,10 @@ public class KrbApRep {
      */
      // Used in AcceptSecContextToken
     public KrbApRep(KrbApReq incomingReq,
-                    boolean useSeqNumber,
-        boolean useSubKey) throws KrbException, IOException {
+                     boolean useSeqNumber,
+                     EncryptionKey subKey)
+            throws KrbException, IOException {
 
-        EncryptionKey subKey =
-            (useSubKey?
-             new EncryptionKey(incomingReq.getCreds().getSessionKey()):null);
         SeqNumber seqNum = new LocalSeqNumber();
 
         init(incomingReq, subKey, seqNum);

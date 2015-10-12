@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,7 @@
 #define THD "Ljava/lang/Thread;"
 #define OBJ "Ljava/lang/Object;"
 #define STE "Ljava/lang/StackTraceElement;"
+#define STR "Ljava/lang/String;"
 
 #define ARRAY_LENGTH(a) (sizeof(a)/sizeof(a[0]))
 
@@ -55,11 +56,13 @@ static JNINativeMethod methods[] = {
     {"holdsLock",        "(" OBJ ")Z", (void *)&JVM_HoldsLock},
     {"getThreads",        "()[" THD,   (void *)&JVM_GetAllThreads},
     {"dumpThreads",      "([" THD ")[[" STE, (void *)&JVM_DumpThreads},
+    {"setNativeName",    "(" STR ")V", (void *)&JVM_SetNativeThreadName},
 };
 
 #undef THD
 #undef OBJ
 #undef STE
+#undef STR
 
 JNIEXPORT void JNICALL
 Java_java_lang_Thread_registerNatives(JNIEnv *env, jclass cls)

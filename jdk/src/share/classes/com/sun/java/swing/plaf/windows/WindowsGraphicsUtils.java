@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,7 +45,7 @@ public class WindowsGraphicsUtils {
 
     /**
      * Renders a text String in Windows without the mnemonic.
-     * This is here because the WindowsUI hiearchy doesn't match the Component heirarchy. All
+     * This is here because the WindowsUI hierarchy doesn't match the Component hierarchy. All
      * the overriden paintText methods of the ButtonUI delegates will call this static method.
      * <p>
      * @param g Graphics context

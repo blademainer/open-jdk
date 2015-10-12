@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -92,7 +92,13 @@ class GTKStyleFactory extends SynthStyleFactory {
                 boolean defaultCapable = btn.isDefaultCapable();
                 key = new ComplexKey(wt, toolButton, defaultCapable);
             }
+        } else if (id == Region.MENU) {
+            if (c instanceof JMenu && ((JMenu) c).isTopLevelMenu() &&
+                    UIManager.getBoolean("Menu.useMenuBarForTopLevelMenus")) {
+                wt = WidgetType.MENU_BAR;
+            }
         }
+
         if (key == null) {
             // Otherwise, just use the WidgetType as the key.
             key = wt;

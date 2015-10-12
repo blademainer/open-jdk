@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,7 +33,7 @@
 // Invariant: bottom() and end() are on page_size boundaries and
 // bottom() <= end()
 
-class ImmutableSpace: public CHeapObj {
+class ImmutableSpace: public CHeapObj<mtGC> {
   friend class VMStructs;
  protected:
   HeapWord* _bottom;
@@ -59,13 +59,13 @@ class ImmutableSpace: public CHeapObj {
   virtual size_t capacity_in_words(Thread*) const { return capacity_in_words(); }
 
   // Iteration.
-  virtual void oop_iterate(OopClosure* cl);
+  virtual void oop_iterate(ExtendedOopClosure* cl);
   virtual void object_iterate(ObjectClosure* cl);
 
   // Debugging
   virtual void print() const            PRODUCT_RETURN;
   virtual void print_short() const      PRODUCT_RETURN;
-  virtual void verify(bool allow_dirty);
+  virtual void verify();
 };
 
 #endif // SHARE_VM_GC_IMPLEMENTATION_SHARED_IMMUTABLESPACE_HPP

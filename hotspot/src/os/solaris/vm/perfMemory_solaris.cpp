@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,6 +30,7 @@
 #include "os_solaris.inline.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/perfMemory.hpp"
+#include "services/memTracker.hpp"
 #include "utilities/exceptions.hpp"
 
 // put OS-includes here
@@ -61,7 +62,7 @@ static char* create_standard_memory(size_t size) {
   }
 
   // commit memory
-  if (!os::commit_memory(mapAddress, size)) {
+  if (!os::commit_memory(mapAddress, size, !ExecMem)) {
     if (PrintMiscellaneous && Verbose) {
       warning("Could not commit PerfData memory\n");
     }
@@ -121,14 +122,14 @@ static void save_memory_to_file(char* addr, size_t size) {
       addr += result;
     }
 
-    RESTARTABLE(::close(fd), result);
+    result = ::close(fd);
     if (PrintMiscellaneous && Verbose) {
       if (result == OS_ERR) {
         warning("Could not close %s: %s\n", destfile, strerror(errno));
       }
     }
   }
-  FREE_C_HEAP_ARRAY(char, destfile);
+  FREE_C_HEAP_ARRAY(char, destfile, mtInternal);
 }
 
 
@@ -155,7 +156,7 @@ static char* get_user_tmp_dir(const char* user) {
   const char* tmpdir = os::get_temp_directory();
   const char* perfdir = PERFDATA_NAME;
   size_t nbytes = strlen(tmpdir) + strlen(perfdir) + strlen(user) + 3;
-  char* dirname = NEW_C_HEAP_ARRAY(char, nbytes);
+  char* dirname = NEW_C_HEAP_ARRAY(char, nbytes, mtInternal);
 
   // construct the path name to user specific tmp directory
   snprintf(dirname, nbytes, "%s/%s_%s", tmpdir, perfdir, user);
@@ -248,7 +249,7 @@ static char* get_user_name(uid_t uid) {
   if (bufsize == -1)
     bufsize = 1024;
 
-  char* pwbuf = NEW_C_HEAP_ARRAY(char, bufsize);
+  char* pwbuf = NEW_C_HEAP_ARRAY(char, bufsize, mtInternal);
 
 #ifdef _GNU_SOURCE
   struct passwd* p = NULL;
@@ -269,14 +270,14 @@ static char* get_user_name(uid_t uid) {
                                      "pw_name zero length");
       }
     }
-    FREE_C_HEAP_ARRAY(char, pwbuf);
+    FREE_C_HEAP_ARRAY(char, pwbuf, mtInternal);
     return NULL;
   }
 
-  char* user_name = NEW_C_HEAP_ARRAY(char, strlen(p->pw_name) + 1);
+  char* user_name = NEW_C_HEAP_ARRAY(char, strlen(p->pw_name) + 1, mtInternal);
   strcpy(user_name, p->pw_name);
 
-  FREE_C_HEAP_ARRAY(char, pwbuf);
+  FREE_C_HEAP_ARRAY(char, pwbuf, mtInternal);
   return user_name;
 }
 
@@ -319,7 +320,7 @@ static char* get_user_name_slow(int vmid, TRAPS) {
   // to determine the user name for the process id.
   //
   struct dirent* dentry;
-  char* tdbuf = NEW_C_HEAP_ARRAY(char, os::readdir_buf_size(tmpdirname));
+  char* tdbuf = NEW_C_HEAP_ARRAY(char, os::readdir_buf_size(tmpdirname), mtInternal);
   errno = 0;
   while ((dentry = os::readdir(tmpdirp, (struct dirent *)tdbuf)) != NULL) {
 
@@ -329,7 +330,7 @@ static char* get_user_name_slow(int vmid, TRAPS) {
     }
 
     char* usrdir_name = NEW_C_HEAP_ARRAY(char,
-                              strlen(tmpdirname) + strlen(dentry->d_name) + 2);
+                  strlen(tmpdirname) + strlen(dentry->d_name) + 2, mtInternal);
     strcpy(usrdir_name, tmpdirname);
     strcat(usrdir_name, "/");
     strcat(usrdir_name, dentry->d_name);
@@ -337,7 +338,7 @@ static char* get_user_name_slow(int vmid, TRAPS) {
     DIR* subdirp = os::opendir(usrdir_name);
 
     if (subdirp == NULL) {
-      FREE_C_HEAP_ARRAY(char, usrdir_name);
+      FREE_C_HEAP_ARRAY(char, usrdir_name, mtInternal);
       continue;
     }
 
@@ -348,13 +349,13 @@ static char* get_user_name_slow(int vmid, TRAPS) {
     // symlink can be exploited.
     //
     if (!is_directory_secure(usrdir_name)) {
-      FREE_C_HEAP_ARRAY(char, usrdir_name);
+      FREE_C_HEAP_ARRAY(char, usrdir_name, mtInternal);
       os::closedir(subdirp);
       continue;
     }
 
     struct dirent* udentry;
-    char* udbuf = NEW_C_HEAP_ARRAY(char, os::readdir_buf_size(usrdir_name));
+    char* udbuf = NEW_C_HEAP_ARRAY(char, os::readdir_buf_size(usrdir_name), mtInternal);
     errno = 0;
     while ((udentry = os::readdir(subdirp, (struct dirent *)udbuf)) != NULL) {
 
@@ -363,7 +364,7 @@ static char* get_user_name_slow(int vmid, TRAPS) {
         int result;
 
         char* filename = NEW_C_HEAP_ARRAY(char,
-                            strlen(usrdir_name) + strlen(udentry->d_name) + 2);
+                 strlen(usrdir_name) + strlen(udentry->d_name) + 2, mtInternal);
 
         strcpy(filename, usrdir_name);
         strcat(filename, "/");
@@ -372,13 +373,13 @@ static char* get_user_name_slow(int vmid, TRAPS) {
         // don't follow symbolic links for the file
         RESTARTABLE(::lstat(filename, &statbuf), result);
         if (result == OS_ERR) {
-           FREE_C_HEAP_ARRAY(char, filename);
+           FREE_C_HEAP_ARRAY(char, filename, mtInternal);
            continue;
         }
 
         // skip over files that are not regular files.
         if (!S_ISREG(statbuf.st_mode)) {
-          FREE_C_HEAP_ARRAY(char, filename);
+          FREE_C_HEAP_ARRAY(char, filename, mtInternal);
           continue;
         }
 
@@ -388,23 +389,23 @@ static char* get_user_name_slow(int vmid, TRAPS) {
           if (statbuf.st_ctime > oldest_ctime) {
             char* user = strchr(dentry->d_name, '_') + 1;
 
-            if (oldest_user != NULL) FREE_C_HEAP_ARRAY(char, oldest_user);
-            oldest_user = NEW_C_HEAP_ARRAY(char, strlen(user)+1);
+            if (oldest_user != NULL) FREE_C_HEAP_ARRAY(char, oldest_user, mtInternal);
+            oldest_user = NEW_C_HEAP_ARRAY(char, strlen(user)+1, mtInternal);
 
             strcpy(oldest_user, user);
             oldest_ctime = statbuf.st_ctime;
           }
         }
 
-        FREE_C_HEAP_ARRAY(char, filename);
+        FREE_C_HEAP_ARRAY(char, filename, mtInternal);
       }
     }
     os::closedir(subdirp);
-    FREE_C_HEAP_ARRAY(char, udbuf);
-    FREE_C_HEAP_ARRAY(char, usrdir_name);
+    FREE_C_HEAP_ARRAY(char, udbuf, mtInternal);
+    FREE_C_HEAP_ARRAY(char, usrdir_name, mtInternal);
   }
   os::closedir(tmpdirp);
-  FREE_C_HEAP_ARRAY(char, tdbuf);
+  FREE_C_HEAP_ARRAY(char, tdbuf, mtInternal);
 
   return(oldest_user);
 }
@@ -436,7 +437,7 @@ static char* get_user_name(int vmid, TRAPS) {
       addr+=result;
     }
 
-    RESTARTABLE(::close(fd), result);
+    ::close(fd);
 
     // get the user name for the effective user id of the process
     char* user_name = get_user_name(psinfo.pr_euid);
@@ -471,7 +472,7 @@ static char* get_sharedmem_filename(const char* dirname, int vmid) {
   // add 2 for the file separator and a NULL terminator.
   size_t nbytes = strlen(dirname) + UINT_CHARS + 2;
 
-  char* name = NEW_C_HEAP_ARRAY(char, nbytes);
+  char* name = NEW_C_HEAP_ARRAY(char, nbytes, mtInternal);
   snprintf(name, nbytes, "%s/%d", dirname, vmid);
 
   return name;
@@ -509,7 +510,7 @@ static void remove_file(const char* path) {
 static void remove_file(const char* dirname, const char* filename) {
 
   size_t nbytes = strlen(dirname) + strlen(filename) + 2;
-  char* path = NEW_C_HEAP_ARRAY(char, nbytes);
+  char* path = NEW_C_HEAP_ARRAY(char, nbytes, mtInternal);
 
   strcpy(path, dirname);
   strcat(path, "/");
@@ -517,7 +518,7 @@ static void remove_file(const char* dirname, const char* filename) {
 
   remove_file(path);
 
-  FREE_C_HEAP_ARRAY(char, path);
+  FREE_C_HEAP_ARRAY(char, path, mtInternal);
 }
 
 
@@ -554,7 +555,7 @@ static void cleanup_sharedmem_resources(const char* dirname) {
   // opendir/readdir.
   //
   struct dirent* entry;
-  char* dbuf = NEW_C_HEAP_ARRAY(char, os::readdir_buf_size(dirname));
+  char* dbuf = NEW_C_HEAP_ARRAY(char, os::readdir_buf_size(dirname), mtInternal);
   errno = 0;
   while ((entry = os::readdir(dirp, (struct dirent *)dbuf)) != NULL) {
 
@@ -593,7 +594,7 @@ static void cleanup_sharedmem_resources(const char* dirname) {
     errno = 0;
   }
   os::closedir(dirp);
-  FREE_C_HEAP_ARRAY(char, dbuf);
+  FREE_C_HEAP_ARRAY(char, dbuf, mtInternal);
 }
 
 // make the user specific temporary directory. Returns true if
@@ -668,7 +669,7 @@ static int create_sharedmem_resources(const char* dirname, const char* filename,
     if (PrintMiscellaneous && Verbose) {
       warning("could not set shared memory file size: %s\n", strerror(errno));
     }
-    RESTARTABLE(::close(fd), result);
+    ::close(fd);
     return -1;
   }
 
@@ -686,15 +687,15 @@ static int open_sharedmem_file(const char* filename, int oflags, TRAPS) {
   RESTARTABLE(::open(filename, oflags), result);
   if (result == OS_ERR) {
     if (errno == ENOENT) {
-      THROW_MSG_0(vmSymbols::java_lang_IllegalArgumentException(),
-                  "Process not found");
+      THROW_MSG_(vmSymbols::java_lang_IllegalArgumentException(),
+                  "Process not found", OS_ERR);
     }
     else if (errno == EACCES) {
-      THROW_MSG_0(vmSymbols::java_lang_IllegalArgumentException(),
-                  "Permission denied");
+      THROW_MSG_(vmSymbols::java_lang_IllegalArgumentException(),
+                  "Permission denied", OS_ERR);
     }
     else {
-      THROW_MSG_0(vmSymbols::java_io_IOException(), strerror(errno));
+      THROW_MSG_(vmSymbols::java_io_IOException(), strerror(errno), OS_ERR);
     }
   }
 
@@ -738,19 +739,17 @@ static char* mmap_create_shared(size_t size) {
 
   fd = create_sharedmem_resources(dirname, filename, size);
 
-  FREE_C_HEAP_ARRAY(char, user_name);
-  FREE_C_HEAP_ARRAY(char, dirname);
+  FREE_C_HEAP_ARRAY(char, user_name, mtInternal);
+  FREE_C_HEAP_ARRAY(char, dirname, mtInternal);
 
   if (fd == -1) {
-    FREE_C_HEAP_ARRAY(char, filename);
+    FREE_C_HEAP_ARRAY(char, filename, mtInternal);
     return NULL;
   }
 
   mapAddress = (char*)::mmap((char*)0, size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
 
-  // attempt to close the file - restart it if it was interrupted,
-  // but ignore other failures
-  RESTARTABLE(::close(fd), result);
+  result = ::close(fd);
   assert(result != OS_ERR, "could not close file");
 
   if (mapAddress == MAP_FAILED) {
@@ -758,7 +757,7 @@ static char* mmap_create_shared(size_t size) {
       warning("mmap failed -  %s\n", strerror(errno));
     }
     remove_file(filename);
-    FREE_C_HEAP_ARRAY(char, filename);
+    FREE_C_HEAP_ARRAY(char, filename, mtInternal);
     return NULL;
   }
 
@@ -767,6 +766,9 @@ static char* mmap_create_shared(size_t size) {
 
   // clear the shared memory region
   (void)::memset((void*) mapAddress, 0, size);
+
+  // it does not go through os api, the operation has to record from here
+  MemTracker::record_virtual_memory_reserve((address)mapAddress, size, mtInternal, CURRENT_PC);
 
   return mapAddress;
 }
@@ -838,7 +840,7 @@ static void mmap_attach_shared(const char* user, int vmid, PerfMemory::PerfMemor
   char* mapAddress;
   int result;
   int fd;
-  size_t size;
+  size_t size = 0;
   const char* luser = NULL;
 
   int mmap_prot;
@@ -884,7 +886,7 @@ static void mmap_attach_shared(const char* user, int vmid, PerfMemory::PerfMemor
   // store file, we don't follow them when attaching either.
   //
   if (!is_directory_secure(dirname)) {
-    FREE_C_HEAP_ARRAY(char, dirname);
+    FREE_C_HEAP_ARRAY(char, dirname, mtInternal);
     THROW_MSG(vmSymbols::java_lang_IllegalArgumentException(),
               "Process not found");
   }
@@ -899,9 +901,9 @@ static void mmap_attach_shared(const char* user, int vmid, PerfMemory::PerfMemor
   strcpy(rfilename, filename);
 
   // free the c heap resources that are no longer needed
-  if (luser != user) FREE_C_HEAP_ARRAY(char, luser);
-  FREE_C_HEAP_ARRAY(char, dirname);
-  FREE_C_HEAP_ARRAY(char, filename);
+  if (luser != user) FREE_C_HEAP_ARRAY(char, luser, mtInternal);
+  FREE_C_HEAP_ARRAY(char, dirname, mtInternal);
+  FREE_C_HEAP_ARRAY(char, filename, mtInternal);
 
   // open the shared memory file for the give vmid
   fd = open_sharedmem_file(rfilename, file_flags, CHECK);
@@ -909,14 +911,15 @@ static void mmap_attach_shared(const char* user, int vmid, PerfMemory::PerfMemor
 
   if (*sizep == 0) {
     size = sharedmem_filesize(fd, CHECK);
-    assert(size != 0, "unexpected size");
+  } else {
+    size = *sizep;
   }
+
+  assert(size > 0, "unexpected size <= 0");
 
   mapAddress = (char*)::mmap((char*)0, size, mmap_prot, MAP_SHARED, fd, 0);
 
-  // attempt to close the file - restart if it gets interrupted,
-  // but ignore other failures
-  RESTARTABLE(::close(fd), result);
+  result = ::close(fd);
   assert(result != OS_ERR, "could not close file");
 
   if (mapAddress == MAP_FAILED) {
@@ -926,6 +929,9 @@ static void mmap_attach_shared(const char* user, int vmid, PerfMemory::PerfMemor
     THROW_MSG(vmSymbols::java_lang_OutOfMemoryError(),
               "Could not map PerfMemory");
   }
+
+  // it does not go through os api, the operation has to record from here
+  MemTracker::record_virtual_memory_reserve((address)mapAddress, size, mtInternal, CURRENT_PC);
 
   *addr = mapAddress;
   *sizep = size;

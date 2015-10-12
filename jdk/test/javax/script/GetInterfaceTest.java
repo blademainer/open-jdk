@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,10 +32,10 @@ import javax.script.*;
 public class GetInterfaceTest {
     public static void main(String[] args) throws Exception {
         ScriptEngineManager manager = new ScriptEngineManager();
-        ScriptEngine engine = manager.getEngineByName("js");
+        ScriptEngine engine = manager.getEngineByName("nashorn");
 
         if (engine == null) {
-            System.out.println("Warning: No engine engine found; test vacuously passes.");
+            System.out.println("Warning: No js engine engine found; test vacuously passes.");
             return;
         }
 
@@ -48,30 +48,30 @@ public class GetInterfaceTest {
         }
 
         // now define "run"
-        engine.eval("function run() { println('this is run function'); }");
+        engine.eval("function run() { print('this is run function'); }");
         runnable = ((Invocable)engine).getInterface(Runnable.class);
         // should not return null now!
         runnable.run();
 
         // define only one method of "Foo2"
-        engine.eval("function bar() { println('bar function'); }");
+        engine.eval("function bar() { print('bar function'); }");
         Foo2 foo2 = ((Invocable)engine).getInterface(Foo2.class);
         if (foo2 != null) {
             throw new RuntimeException("foo2 is not null!");
         }
 
         // now define other method of "Foo2"
-        engine.eval("function bar2() { println('bar2 function'); }");
+        engine.eval("function bar2() { print('bar2 function'); }");
         foo2 = ((Invocable)engine).getInterface(Foo2.class);
         foo2.bar();
         foo2.bar2();
     }
 
-    interface Foo {
+    public interface Foo {
         public void bar();
     }
 
-    interface Foo2 extends Foo {
+    public interface Foo2 extends Foo {
         public void bar2();
     }
 }

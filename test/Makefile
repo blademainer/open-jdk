@@ -38,8 +38,8 @@ JDK_DIR=$(TOPDIR)/jdk
 define SUBDIR_TEST # subdirectory target
 if [ -d $1 ] ; then \
   if [ -r $1/test/Makefile ] ; then \
-    echo "$(MAKE) -C $1/test $2" ; \
-    $(MAKE) -C $1/test $2 ; \
+    echo "$(MAKE) -k -C $1/test $2" ; \
+    $(MAKE) -k -C $1/test $2 ; \
   else \
     echo "ERROR: File does not exist: $1/test/Makefile"; \
     exit 1; \
@@ -49,50 +49,22 @@ else \
 fi
 endef
 
-# Test target list for langtools repository
-LANGTOOLS_TEST_LIST = langtools_jtreg
+# Default test target (core)
+default: jdk_core langtools_jtreg
 
-# Test target list for jdk repository
-JDK_TEST_LIST = \
-	jdk_beans1 jdk_beans2 jdk_beans3  \
-	jdk_io  \
-	jdk_lang  \
-	jdk_management1 jdk_management2  \
-	jdk_math  \
-	jdk_misc  \
-	jdk_net  \
-	jdk_nio1 jdk_nio2 jdk_nio3  \
-	jdk_security1 jdk_security2 jdk_security3  \
-	jdk_text  \
-	jdk_tools1 jdk_tools2  \
-	jdk_util
-
-# These tests need a DISPLAY and can create window interaction complications
-JDK_TEST_LIST2 = \
-	jdk_awt \
-	jdk_rmi \
-	jdk_swing
-
-# These are the current jck test targets in the jdk repository
-JDK_JCK7_LIST = jck7devtools jck7compiler jck7runtime
-
-# Default test target (everything)
-all: $(JDK_TEST_LIST) $(LANGTOOLS_TEST_LIST)
+# All testing
+all: jdk_all langtools_all
 
 # Test targets
-$(LANGTOOLS_TEST_LIST):
-	@$(NO_STOPPING)$(call SUBDIR_TEST, $(LANGTOOLS_DIR), $(subst langtools_,,$@))
-$(JDK_TEST_LIST) $(JDK_TEST_LIST2) $(JDK_JCK7_LIST):
-	@$(NO_STOPPING)$(call SUBDIR_TEST, $(JDK_DIR), $@)
+langtools_% :
+	@$(NO_STOPPING)$(call SUBDIR_TEST, $(LANGTOOLS_DIR), JT_JAVA=$(PRODUCT_HOME) JTREG_HOME=$(JT_HOME) TEST="$(subst langtools_,,$@)" $(subst langtools_,,$@))
 
-clean:
+jdk_% core_%s svc_%:
+	@$(NO_STOPPING)$(call SUBDIR_TEST, $(JDK_DIR), TEST="$@" $@)
 
 ################################################################
 
 # Phony targets (e.g. these are not filenames)
-.PHONY: all clean \
-        $(JDK_TEST_LIST) $(JDK_TEST_LIST2) $(JDK_JCK7_LIST) \
-        $(LANGTOOLS_TEST_LIST)
+.PHONY: all clean
 
 ################################################################
-

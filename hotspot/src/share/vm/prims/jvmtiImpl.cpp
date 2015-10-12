@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,19 +41,11 @@
 #include "runtime/os.hpp"
 #include "runtime/serviceThread.hpp"
 #include "runtime/signature.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/vframe.hpp"
 #include "runtime/vframe_hp.hpp"
 #include "runtime/vm_operations.hpp"
 #include "utilities/exceptions.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
 
 //
 // class JvmtiAgentThread
@@ -95,8 +87,8 @@ JvmtiAgentThread::call_start_function() {
 void GrowableCache::recache() {
   int len = _elements->length();
 
-  FREE_C_HEAP_ARRAY(address, _cache);
-  _cache = NEW_C_HEAP_ARRAY(address,len+1);
+  FREE_C_HEAP_ARRAY(address, _cache, mtInternal);
+  _cache = NEW_C_HEAP_ARRAY(address,len+1, mtInternal);
 
   for (int i=0; i<len; i++) {
     _cache[i] = _elements->at(i)->getCacheValue();
@@ -139,13 +131,13 @@ GrowableCache::GrowableCache() {
 GrowableCache::~GrowableCache() {
   clear();
   delete _elements;
-  FREE_C_HEAP_ARRAY(address, _cache);
+  FREE_C_HEAP_ARRAY(address, _cache, mtInternal);
 }
 
 void GrowableCache::initialize(void *this_obj, void listener_fun(void *, address*) ) {
   _this_obj       = this_obj;
   _listener_fun   = listener_fun;
-  _elements       = new (ResourceObj::C_HEAP) GrowableArray<GrowableElement*>(5,true);
+  _elements       = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<GrowableElement*>(5,true);
   recache();
 }
 
@@ -218,6 +210,14 @@ void GrowableCache::oops_do(OopClosure* f) {
   }
 }
 
+void GrowableCache::metadata_do(void f(Metadata*)) {
+  int len = _elements->length();
+  for (int i=0; i<len; i++) {
+    GrowableElement *e = _elements->at(i);
+    e->metadata_do(f);
+  }
+}
+
 void GrowableCache::gc_epilogue() {
   int len = _elements->length();
   for (int i=0; i<len; i++) {
@@ -232,33 +232,30 @@ void GrowableCache::gc_epilogue() {
 JvmtiBreakpoint::JvmtiBreakpoint() {
   _method = NULL;
   _bci    = 0;
-#ifdef CHECK_UNHANDLED_OOPS
-  // This one is always allocated with new, but check it just in case.
-  Thread *thread = Thread::current();
-  if (thread->is_in_stack((address)&_method)) {
-    thread->allow_unhandled_oop((oop*)&_method);
-  }
-#endif // CHECK_UNHANDLED_OOPS
+  _class_holder = NULL;
 }
 
-JvmtiBreakpoint::JvmtiBreakpoint(methodOop m_method, jlocation location) {
+JvmtiBreakpoint::JvmtiBreakpoint(Method* m_method, jlocation location) {
   _method        = m_method;
+  _class_holder  = _method->method_holder()->klass_holder();
+#ifdef CHECK_UNHANDLED_OOPS
+  // _class_holder can't be wrapped in a Handle, because JvmtiBreakpoints are
+  // sometimes allocated on the heap.
+  //
+  // The code handling JvmtiBreakpoints allocated on the stack can't be
+  // interrupted by a GC until _class_holder is reachable by the GC via the
+  // oops_do method.
+  Thread::current()->allow_unhandled_oop(&_class_holder);
+#endif // CHECK_UNHANDLED_OOPS
   assert(_method != NULL, "_method != NULL");
   _bci           = (int) location;
-#ifdef CHECK_UNHANDLED_OOPS
-  // Could be allocated with new and wouldn't be on the unhandled oop list.
-  Thread *thread = Thread::current();
-  if (thread->is_in_stack((address)&_method)) {
-    thread->allow_unhandled_oop(&_method);
-  }
-#endif // CHECK_UNHANDLED_OOPS
-
   assert(_bci >= 0, "_bci >= 0");
 }
 
 void JvmtiBreakpoint::copy(JvmtiBreakpoint& bp) {
   _method   = bp._method;
   _bci      = bp._bci;
+  _class_holder = bp._class_holder;
 }
 
 bool JvmtiBreakpoint::lessThan(JvmtiBreakpoint& bp) {
@@ -272,6 +269,7 @@ bool JvmtiBreakpoint::equals(JvmtiBreakpoint& bp) {
 }
 
 bool JvmtiBreakpoint::is_valid() {
+  // class loader can be NULL
   return _method != NULL &&
          _bci >= 0;
 }
@@ -281,68 +279,61 @@ address JvmtiBreakpoint::getBcp() {
 }
 
 void JvmtiBreakpoint::each_method_version_do(method_action meth_act) {
-  ((methodOopDesc*)_method->*meth_act)(_bci);
+  ((Method*)_method->*meth_act)(_bci);
 
   // add/remove breakpoint to/from versions of the method that
   // are EMCP. Directly or transitively obsolete methods are
-  // not saved in the PreviousVersionInfo.
+  // not saved in the PreviousVersionNodes.
   Thread *thread = Thread::current();
   instanceKlassHandle ikh = instanceKlassHandle(thread, _method->method_holder());
   Symbol* m_name = _method->name();
   Symbol* m_signature = _method->signature();
 
-  {
-    ResourceMark rm(thread);
-    // PreviousVersionInfo objects returned via PreviousVersionWalker
-    // contain a GrowableArray of handles. We have to clean up the
-    // GrowableArray _after_ the PreviousVersionWalker destructor
-    // has destroyed the handles.
-    {
-      // search previous versions if they exist
-      PreviousVersionWalker pvw((instanceKlass *)ikh()->klass_part());
-      for (PreviousVersionInfo * pv_info = pvw.next_previous_version();
-           pv_info != NULL; pv_info = pvw.next_previous_version()) {
-        GrowableArray<methodHandle>* methods =
-          pv_info->prev_EMCP_method_handles();
+  // search previous versions if they exist
+  PreviousVersionWalker pvw(thread, (InstanceKlass *)ikh());
+  for (PreviousVersionNode * pv_node = pvw.next_previous_version();
+       pv_node != NULL; pv_node = pvw.next_previous_version()) {
+    GrowableArray<Method*>* methods = pv_node->prev_EMCP_methods();
 
-        if (methods == NULL) {
-          // We have run into a PreviousVersion generation where
-          // all methods were made obsolete during that generation's
-          // RedefineClasses() operation. At the time of that
-          // operation, all EMCP methods were flushed so we don't
-          // have to go back any further.
-          //
-          // A NULL methods array is different than an empty methods
-          // array. We cannot infer any optimizations about older
-          // generations from an empty methods array for the current
-          // generation.
-          break;
-        }
+    if (methods == NULL) {
+      // We have run into a PreviousVersion generation where
+      // all methods were made obsolete during that generation's
+      // RedefineClasses() operation. At the time of that
+      // operation, all EMCP methods were flushed so we don't
+      // have to go back any further.
+      //
+      // A NULL methods array is different than an empty methods
+      // array. We cannot infer any optimizations about older
+      // generations from an empty methods array for the current
+      // generation.
+      break;
+    }
 
-        for (int i = methods->length() - 1; i >= 0; i--) {
-          methodHandle method = methods->at(i);
-          if (method->name() == m_name && method->signature() == m_signature) {
-            RC_TRACE(0x00000800, ("%sing breakpoint in %s(%s)",
-              meth_act == &methodOopDesc::set_breakpoint ? "sett" : "clear",
-              method->name()->as_C_string(),
-              method->signature()->as_C_string()));
-            assert(!method->is_obsolete(), "only EMCP methods here");
+    for (int i = methods->length() - 1; i >= 0; i--) {
+      Method* method = methods->at(i);
+      // obsolete methods that are running are not deleted from
+      // previous version array, but they are skipped here.
+      if (!method->is_obsolete() &&
+          method->name() == m_name &&
+          method->signature() == m_signature) {
+        RC_TRACE(0x00000800, ("%sing breakpoint in %s(%s)",
+          meth_act == &Method::set_breakpoint ? "sett" : "clear",
+          method->name()->as_C_string(),
+          method->signature()->as_C_string()));
 
-            ((methodOopDesc*)method()->*meth_act)(_bci);
-            break;
-          }
-        }
+        (method->*meth_act)(_bci);
+        break;
       }
-    } // pvw is cleaned up
-  } // rm is cleaned up
+    }
+  }
 }
 
 void JvmtiBreakpoint::set() {
-  each_method_version_do(&methodOopDesc::set_breakpoint);
+  each_method_version_do(&Method::set_breakpoint);
 }
 
 void JvmtiBreakpoint::clear() {
-  each_method_version_do(&methodOopDesc::clear_breakpoint);
+  each_method_version_do(&Method::clear_breakpoint);
 }
 
 void JvmtiBreakpoint::print() {
@@ -369,21 +360,23 @@ void VM_ChangeBreakpoints::doit() {
   case CLEAR_BREAKPOINT:
     _breakpoints->clear_at_safepoint(*_bp);
     break;
-  case CLEAR_ALL_BREAKPOINT:
-    _breakpoints->clearall_at_safepoint();
-    break;
   default:
     assert(false, "Unknown operation");
   }
 }
 
 void VM_ChangeBreakpoints::oops_do(OopClosure* f) {
-  // This operation keeps breakpoints alive
-  if (_breakpoints != NULL) {
-    _breakpoints->oops_do(f);
-  }
+  // The JvmtiBreakpoints in _breakpoints will be visited via
+  // JvmtiExport::oops_do.
   if (_bp != NULL) {
     _bp->oops_do(f);
+  }
+}
+
+void VM_ChangeBreakpoints::metadata_do(void f(Metadata*)) {
+  // Walk metadata in breakpoints to keep from being deallocated with RedefineClasses
+  if (_bp != NULL) {
+    _bp->metadata_do(f);
   }
 }
 
@@ -401,6 +394,10 @@ JvmtiBreakpoints:: ~JvmtiBreakpoints() {}
 
 void  JvmtiBreakpoints::oops_do(OopClosure* f) {
   _bps.oops_do(f);
+}
+
+void  JvmtiBreakpoints::metadata_do(void f(Metadata*)) {
+  _bps.metadata_do(f);
 }
 
 void JvmtiBreakpoints::gc_epilogue() {
@@ -442,23 +439,13 @@ void JvmtiBreakpoints::clear_at_safepoint(JvmtiBreakpoint& bp) {
   }
 }
 
-void JvmtiBreakpoints::clearall_at_safepoint() {
-  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
-
-  int len = _bps.length();
-  for (int i=0; i<len; i++) {
-    _bps.at(i).clear();
-  }
-  _bps.clear();
-}
-
 int JvmtiBreakpoints::length() { return _bps.length(); }
 
 int JvmtiBreakpoints::set(JvmtiBreakpoint& bp) {
   if ( _bps.find(bp) != -1) {
      return JVMTI_ERROR_DUPLICATE;
   }
-  VM_ChangeBreakpoints set_breakpoint(this,VM_ChangeBreakpoints::SET_BREAKPOINT, &bp);
+  VM_ChangeBreakpoints set_breakpoint(VM_ChangeBreakpoints::SET_BREAKPOINT, &bp);
   VMThread::execute(&set_breakpoint);
   return JVMTI_ERROR_NONE;
 }
@@ -468,12 +455,12 @@ int JvmtiBreakpoints::clear(JvmtiBreakpoint& bp) {
      return JVMTI_ERROR_NOT_FOUND;
   }
 
-  VM_ChangeBreakpoints clear_breakpoint(this,VM_ChangeBreakpoints::CLEAR_BREAKPOINT, &bp);
+  VM_ChangeBreakpoints clear_breakpoint(VM_ChangeBreakpoints::CLEAR_BREAKPOINT, &bp);
   VMThread::execute(&clear_breakpoint);
   return JVMTI_ERROR_NONE;
 }
 
-void JvmtiBreakpoints::clearall_in_class_at_safepoint(klassOop klass) {
+void JvmtiBreakpoints::clearall_in_class_at_safepoint(Klass* klass) {
   bool changed = true;
   // We are going to run thru the list of bkpts
   // and delete some.  This deletion probably alters
@@ -497,11 +484,6 @@ void JvmtiBreakpoints::clearall_in_class_at_safepoint(klassOop klass) {
       }
     }
   }
-}
-
-void JvmtiBreakpoints::clearall() {
-  VM_ChangeBreakpoints clearall_breakpoint(this,VM_ChangeBreakpoints::CLEAR_ALL_BREAKPOINT);
-  VMThread::execute(&clearall_breakpoint);
 }
 
 //
@@ -533,6 +515,12 @@ void  JvmtiCurrentBreakpoints::listener_fun(void *this_obj, address *cache) {
 void JvmtiCurrentBreakpoints::oops_do(OopClosure* f) {
   if (_jvmti_breakpoints != NULL) {
     _jvmti_breakpoints->oops_do(f);
+  }
+}
+
+void JvmtiCurrentBreakpoints::metadata_do(void f(Metadata*)) {
+  if (_jvmti_breakpoints != NULL) {
+    _jvmti_breakpoints->metadata_do(f);
   }
 }
 
@@ -639,14 +627,14 @@ bool VM_GetOrSetLocal::is_assignable(const char* ty_sign, Klass* klass, Thread* 
   int super_depth = klass->super_depth();
   int idx;
   for (idx = 0; idx < super_depth; idx++) {
-    if (Klass::cast(klass->primary_super_of_depth(idx))->name() == ty_sym) {
+    if (klass->primary_super_of_depth(idx)->name() == ty_sym) {
       return true;
     }
   }
   // Compare secondary supers
-  objArrayOop sec_supers = klass->secondary_supers();
+  Array<Klass*>* sec_supers = klass->secondary_supers();
   for (idx = 0; idx < sec_supers->length(); idx++) {
-    if (Klass::cast((klassOop) sec_supers->obj_at(idx))->name() == ty_sym) {
+    if (((Klass*) sec_supers->at(idx))->name() == ty_sym) {
       return true;
     }
   }
@@ -659,7 +647,7 @@ bool VM_GetOrSetLocal::is_assignable(const char* ty_sign, Klass* klass, Thread* 
 // Returns: 'true' - everything is Ok, 'false' - error code
 
 bool VM_GetOrSetLocal::check_slot_type(javaVFrame* jvf) {
-  methodOop method_oop = jvf->method();
+  Method* method_oop = jvf->method();
   if (!method_oop->has_localvariable_table()) {
     // Just to check index boundaries
     jint extra_slot = (_type == T_LONG || _type == T_DOUBLE) ? 1 : 0;
@@ -724,7 +712,7 @@ bool VM_GetOrSetLocal::check_slot_type(javaVFrame* jvf) {
     KlassHandle ob_kh = KlassHandle(cur_thread, obj->klass());
     NULL_CHECK(ob_kh, (_result = JVMTI_ERROR_INVALID_OBJECT, false));
 
-    if (!is_assignable(signature, Klass::cast(ob_kh()), cur_thread)) {
+    if (!is_assignable(signature, ob_kh(), cur_thread)) {
       _result = JVMTI_ERROR_TYPE_MISMATCH;
       return false;
     }
@@ -899,7 +887,7 @@ void JvmtiSuspendControl::print() {
 
   tty->print("Suspended Threads: [");
   for (JavaThread *thread = Threads::first(); thread != NULL; thread = thread->next()) {
-#if JVMTI_TRACE
+#ifdef JVMTI_TRACE
     const char *name   = JvmtiTrace::safe_get_thread_name(thread);
 #else
     const char *name   = "";
@@ -913,8 +901,6 @@ void JvmtiSuspendControl::print() {
   tty->print_cr("]");
 #endif
 }
-
-#ifndef KERNEL
 
 JvmtiDeferredEvent JvmtiDeferredEvent::compiled_method_load_event(
     nmethod* nm) {
@@ -1107,5 +1093,3 @@ void JvmtiDeferredEventQueue::process_pending_events() {
     }
   }
 }
-
-#endif // ndef KERNEL

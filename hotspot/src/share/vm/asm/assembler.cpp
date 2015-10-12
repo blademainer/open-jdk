@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,26 +23,13 @@
  */
 
 #include "precompiled.hpp"
-#include "asm/assembler.hpp"
-#include "asm/assembler.inline.hpp"
+#include "asm/macroAssembler.hpp"
+#include "asm/macroAssembler.inline.hpp"
 #include "asm/codeBuffer.hpp"
+#include "runtime/atomic.hpp"
+#include "runtime/atomic.inline.hpp"
 #include "runtime/icache.hpp"
 #include "runtime/os.hpp"
-#ifdef TARGET_ARCH_x86
-# include "assembler_x86.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_sparc
-# include "assembler_sparc.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_zero
-# include "assembler_zero.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_arm
-# include "assembler_arm.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_ppc
-# include "assembler_ppc.inline.hpp"
-#endif
 
 
 // Implementation of AbstractAssembler
@@ -56,15 +43,13 @@ AbstractAssembler::AbstractAssembler(CodeBuffer* code) {
   if (code == NULL)  return;
   CodeSection* cs = code->insts();
   cs->clear_mark();   // new assembler kills old mark
-  _code_section = cs;
-  _code_begin  = cs->start();
-  _code_limit  = cs->limit();
-  _code_pos    = cs->end();
-  _oop_recorder= code->oop_recorder();
-  if (_code_begin == NULL)  {
-    vm_exit_out_of_memory(0, err_msg("CodeCache: no room for %s",
+  if (cs->start() == NULL)  {
+    vm_exit_out_of_memory(0, OOM_MMAP_ERROR, err_msg("CodeCache: no room for %s",
                                      code->name()));
   }
+  _code_section = cs;
+  _oop_recorder= code->oop_recorder();
+  DEBUG_ONLY( _short_branch_delta = 0; )
 }
 
 void AbstractAssembler::set_code_section(CodeSection* cs) {
@@ -72,9 +57,6 @@ void AbstractAssembler::set_code_section(CodeSection* cs) {
   assert(cs->is_allocated(), "need to pre-allocate this section");
   cs->clear_mark();  // new assembly into this section kills old mark
   _code_section = cs;
-  _code_begin  = cs->start();
-  _code_limit  = cs->limit();
-  _code_pos    = cs->end();
 }
 
 // Inform CodeBuffer that incoming code and relocation will be for stubs
@@ -82,7 +64,6 @@ address AbstractAssembler::start_a_stub(int required_space) {
   CodeBuffer*  cb = code();
   CodeSection* cs = cb->stubs();
   assert(_code_section == cb->insts(), "not in insts?");
-  sync();
   if (cs->maybe_expand_to_ensure_remaining(required_space)
       && cb->blob() == NULL) {
     return NULL;
@@ -95,7 +76,6 @@ address AbstractAssembler::start_a_stub(int required_space) {
 // Should not be called if start_a_stub() returned NULL
 void AbstractAssembler::end_a_stub() {
   assert(_code_section == code()->stubs(), "not in stubs?");
-  sync();
   set_code_section(code()->insts());
 }
 
@@ -103,8 +83,7 @@ void AbstractAssembler::end_a_stub() {
 address AbstractAssembler::start_a_const(int required_space, int required_align) {
   CodeBuffer*  cb = code();
   CodeSection* cs = cb->consts();
-  assert(_code_section == cb->insts(), "not in insts?");
-  sync();
+  assert(_code_section == cb->insts() || _code_section == cb->stubs(), "not in insts/stubs?");
   address end = cs->end();
   int pad = -(intptr_t)end & (required_align-1);
   if (cs->maybe_expand_to_ensure_remaining(pad + required_space)) {
@@ -120,49 +99,15 @@ address AbstractAssembler::start_a_const(int required_space, int required_align)
 }
 
 // Inform CodeBuffer that incoming code and relocation will be code
-// Should not be called if start_a_const() returned NULL
-void AbstractAssembler::end_a_const() {
+// in section cs (insts or stubs).
+void AbstractAssembler::end_a_const(CodeSection* cs) {
   assert(_code_section == code()->consts(), "not in consts?");
-  sync();
-  set_code_section(code()->insts());
+  set_code_section(cs);
 }
-
 
 void AbstractAssembler::flush() {
-  sync();
   ICache::invalidate_range(addr_at(0), offset());
 }
-
-
-void AbstractAssembler::a_byte(int x) {
-  emit_byte(x);
-}
-
-
-void AbstractAssembler::a_long(jint x) {
-  emit_long(x);
-}
-
-// Labels refer to positions in the (to be) generated code.  There are bound
-// and unbound
-//
-// Bound labels refer to known positions in the already generated code.
-// offset() is the position the label refers to.
-//
-// Unbound labels refer to unknown positions in the code to be generated; it
-// may contain a list of unresolved displacements that refer to it
-#ifndef PRODUCT
-void AbstractAssembler::print(Label& L) {
-  if (L.is_bound()) {
-    tty->print_cr("bound label to %d|%d", L.loc_pos(), L.loc_sect());
-  } else if (L.is_unbound()) {
-    L.print_instructions((MacroAssembler*)this);
-  } else {
-    tty->print_cr("label in inconsistent state (loc = %d)", L.loc());
-  }
-}
-#endif // PRODUCT
-
 
 void AbstractAssembler::bind(Label& L) {
   if (L.is_bound()) {
@@ -177,7 +122,7 @@ void AbstractAssembler::bind(Label& L) {
 void AbstractAssembler::generate_stack_overflow_check( int frame_size_in_bytes) {
   if (UseStackBanging) {
     // Each code entry causes one stack bang n pages down the stack where n
-    // is configurable by StackBangPages.  The setting depends on the maximum
+    // is configurable by StackShadowPages.  The setting depends on the maximum
     // depth of VM call stack or native before going back into java code,
     // since only java code can raise a stack overflow exception using the
     // stack banging mechanism.  The VM and native code does not detect stack
@@ -317,6 +262,16 @@ void DelayedConstant::update_all() {
   }
 }
 
+RegisterOrConstant AbstractAssembler::delayed_value(int(*value_fn)(), Register tmp, int offset) {
+  intptr_t val = (intptr_t) (*value_fn)();
+  if (val != 0)  return val + offset;
+  return delayed_value_impl(delayed_value_addr(value_fn), tmp, offset);
+}
+RegisterOrConstant AbstractAssembler::delayed_value(address(*value_fn)(), Register tmp, int offset) {
+  intptr_t val = (intptr_t) (*value_fn)();
+  if (val != 0)  return val + offset;
+  return delayed_value_impl(delayed_value_addr(value_fn), tmp, offset);
+}
 intptr_t* AbstractAssembler::delayed_value_addr(int(*value_fn)()) {
   DelayedConstant* dcon = DelayedConstant::add(T_INT, (DelayedConstant::value_fn_t) value_fn);
   return &dcon->value;
@@ -329,13 +284,17 @@ void AbstractAssembler::update_delayed_values() {
   DelayedConstant::update_all();
 }
 
-
-
-
 void AbstractAssembler::block_comment(const char* comment) {
   if (sect() == CodeBuffer::SECT_INSTS) {
     code_section()->outer()->block_comment(offset(), comment);
   }
+}
+
+const char* AbstractAssembler::code_string(const char* str) {
+  if (sect() == CodeBuffer::SECT_INSTS || sect() == CodeBuffer::SECT_STUBS) {
+    return code_section()->outer()->code_string(str);
+  }
+  return NULL;
 }
 
 bool MacroAssembler::needs_explicit_null_check(intptr_t offset) {
@@ -356,28 +315,3 @@ bool MacroAssembler::needs_explicit_null_check(intptr_t offset) {
 #endif
   return offset < 0 || os::vm_page_size() <= offset;
 }
-
-#ifndef PRODUCT
-void Label::print_instructions(MacroAssembler* masm) const {
-  CodeBuffer* cb = masm->code();
-  for (int i = 0; i < _patch_index; ++i) {
-    int branch_loc;
-    if (i >= PatchCacheSize) {
-      branch_loc = _patch_overflow->at(i - PatchCacheSize);
-    } else {
-      branch_loc = _patches[i];
-    }
-    int branch_pos  = CodeBuffer::locator_pos(branch_loc);
-    int branch_sect = CodeBuffer::locator_sect(branch_loc);
-    address branch = cb->locator_address(branch_loc);
-    tty->print_cr("unbound label");
-    tty->print("@ %d|%d ", branch_pos, branch_sect);
-    if (branch_sect == CodeBuffer::SECT_CONSTS) {
-      tty->print_cr(PTR_FORMAT, *(address*)branch);
-      continue;
-    }
-    masm->pd_print_patched_instruction(branch);
-    tty->cr();
-  }
-}
-#endif // ndef PRODUCT

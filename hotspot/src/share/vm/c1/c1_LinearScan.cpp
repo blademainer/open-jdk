@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -75,9 +75,9 @@
 
 // Map BasicType to spill size in 32-bit words, matching VMReg's notion of words
 #ifdef _LP64
-static int type2spill_size[T_CONFLICT+1]={ -1, 0, 0, 0, 1, 1, 1, 2, 1, 1, 1, 2, 2, 2, 0, 1, -1};
+static int type2spill_size[T_CONFLICT+1]={ -1, 0, 0, 0, 1, 1, 1, 2, 1, 1, 1, 2, 2, 2, 0, 2,  1, 2, 1, -1};
 #else
-static int type2spill_size[T_CONFLICT+1]={ -1, 0, 0, 0, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 0, 1, -1};
+static int type2spill_size[T_CONFLICT+1]={ -1, 0, 0, 0, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 0, 1, -1, 1, 1, -1};
 #endif
 
 
@@ -1138,8 +1138,10 @@ IntervalUseKind LinearScan::use_kind_of_input_operand(LIR_Op* op, LIR_Opr opr) {
         }
       }
     }
-
-  } else if (opr_type != T_LONG) {
+    // We want to sometimes use logical operations on pointers, in particular in GC barriers.
+    // Since 64bit logical operations do not current support operands on stack, we have to make sure
+    // T_OBJECT doesn't get spilled along with T_LONG.
+  } else if (opr_type != T_LONG LP64_ONLY(&& opr_type != T_OBJECT)) {
     // integer instruction (note: long operands must always be in register)
     switch (op->code()) {
       case lir_cmp:
@@ -1884,7 +1886,7 @@ void LinearScan::resolve_exception_entry(BlockBegin* block, MoveResolver &move_r
 
   if (move_resolver.has_mappings()) {
     // insert moves after first instruction
-    move_resolver.set_insert_position(block->lir(), 1);
+    move_resolver.set_insert_position(block->lir(), 0);
     move_resolver.resolve_and_append_moves();
   }
 }
@@ -2065,6 +2067,12 @@ LIR_Opr LinearScan::calc_operand_for_interval(const Interval* interval) {
         assert(assigned_reg >= pd_first_cpu_reg && assigned_reg <= pd_last_cpu_reg, "no cpu register");
         assert(interval->assigned_regHi() == any_reg, "must not have hi register");
         return LIR_OprFact::single_cpu_address(assigned_reg);
+      }
+
+      case T_METADATA: {
+        assert(assigned_reg >= pd_first_cpu_reg && assigned_reg <= pd_last_cpu_reg, "no cpu register");
+        assert(interval->assigned_regHi() == any_reg, "must not have hi register");
+        return LIR_OprFact::single_cpu_metadata(assigned_reg);
       }
 
 #ifdef __SOFTFP__
@@ -2404,7 +2412,7 @@ OopMap* LinearScan::compute_oop_map(IntervalWalker* iw, LIR_Op* op, CodeEmitInfo
       assert(!is_call_site || assigned_reg >= nof_regs || !is_caller_save(assigned_reg), "interval is in a caller-save register at a call -> register will be overwritten");
 
       VMReg name = vm_reg_for_interval(interval);
-      map->set_oop(name);
+      set_oop(map, name);
 
       // Spill optimization: when the stack value is guaranteed to be always correct,
       // then it must be added to the oop map even if the interval is currently in a register
@@ -2415,7 +2423,7 @@ OopMap* LinearScan::compute_oop_map(IntervalWalker* iw, LIR_Op* op, CodeEmitInfo
         assert(interval->canonical_spill_slot() >= LinearScan::nof_regs, "no spill slot assigned");
         assert(interval->assigned_reg() < LinearScan::nof_regs, "interval is on stack, so stack slot is registered twice");
 
-        map->set_oop(frame_map()->slot_regname(interval->canonical_spill_slot() - LinearScan::nof_regs));
+        set_oop(map, frame_map()->slot_regname(interval->canonical_spill_slot() - LinearScan::nof_regs));
       }
     }
   }
@@ -2424,7 +2432,7 @@ OopMap* LinearScan::compute_oop_map(IntervalWalker* iw, LIR_Op* op, CodeEmitInfo
   assert(info->stack() != NULL, "CodeEmitInfo must always have a stack");
   int locks_count = info->stack()->total_locks_size();
   for (int i = 0; i < locks_count; i++) {
-    map->set_oop(frame_map()->monitor_object_regname(i));
+    set_oop(map, frame_map()->monitor_object_regname(i));
   }
 
   return map;
@@ -2464,12 +2472,15 @@ void LinearScan::compute_oop_map(IntervalWalker* iw, const LIR_OpVisitState &vis
 
 
 // frequently used constants
-ConstantOopWriteValue LinearScan::_oop_null_scope_value = ConstantOopWriteValue(NULL);
-ConstantIntValue      LinearScan::_int_m1_scope_value = ConstantIntValue(-1);
-ConstantIntValue      LinearScan::_int_0_scope_value =  ConstantIntValue(0);
-ConstantIntValue      LinearScan::_int_1_scope_value =  ConstantIntValue(1);
-ConstantIntValue      LinearScan::_int_2_scope_value =  ConstantIntValue(2);
-LocationValue         _illegal_value = LocationValue(Location());
+// Allocate them with new so they are never destroyed (otherwise, a
+// forced exit could destroy these objects while they are still in
+// use).
+ConstantOopWriteValue* LinearScan::_oop_null_scope_value = new (ResourceObj::C_HEAP, mtCompiler) ConstantOopWriteValue(NULL);
+ConstantIntValue*      LinearScan::_int_m1_scope_value = new (ResourceObj::C_HEAP, mtCompiler) ConstantIntValue(-1);
+ConstantIntValue*      LinearScan::_int_0_scope_value =  new (ResourceObj::C_HEAP, mtCompiler) ConstantIntValue(0);
+ConstantIntValue*      LinearScan::_int_1_scope_value =  new (ResourceObj::C_HEAP, mtCompiler) ConstantIntValue(1);
+ConstantIntValue*      LinearScan::_int_2_scope_value =  new (ResourceObj::C_HEAP, mtCompiler) ConstantIntValue(2);
+LocationValue*         _illegal_value = new (ResourceObj::C_HEAP, mtCompiler) LocationValue(Location());
 
 void LinearScan::init_compute_debug_info() {
   // cache for frequently used scope values
@@ -2508,7 +2519,7 @@ int LinearScan::append_scope_value_for_constant(LIR_Opr opr, GrowableArray<Scope
     case T_OBJECT: {
       jobject value = c->as_jobject();
       if (value == NULL) {
-        scope_values->append(&_oop_null_scope_value);
+        scope_values->append(_oop_null_scope_value);
       } else {
         scope_values->append(new ConstantOopWriteValue(c->as_jobject()));
       }
@@ -2519,10 +2530,10 @@ int LinearScan::append_scope_value_for_constant(LIR_Opr opr, GrowableArray<Scope
     case T_FLOAT: {
       int value = c->as_jint_bits();
       switch (value) {
-        case -1: scope_values->append(&_int_m1_scope_value); break;
-        case 0:  scope_values->append(&_int_0_scope_value); break;
-        case 1:  scope_values->append(&_int_1_scope_value); break;
-        case 2:  scope_values->append(&_int_2_scope_value); break;
+        case -1: scope_values->append(_int_m1_scope_value); break;
+        case 0:  scope_values->append(_int_0_scope_value); break;
+        case 1:  scope_values->append(_int_1_scope_value); break;
+        case 2:  scope_values->append(_int_2_scope_value); break;
         default: scope_values->append(new ConstantIntValue(c->as_jint_bits())); break;
       }
       return 1;
@@ -2531,7 +2542,7 @@ int LinearScan::append_scope_value_for_constant(LIR_Opr opr, GrowableArray<Scope
     case T_LONG: // fall through
     case T_DOUBLE: {
 #ifdef _LP64
-      scope_values->append(&_int_0_scope_value);
+      scope_values->append(_int_0_scope_value);
       scope_values->append(new ConstantLongValue(c->as_jlong_bits()));
 #else
       if (hi_word_offset_in_bytes > lo_word_offset_in_bytes) {
@@ -2619,6 +2630,24 @@ int LinearScan::append_scope_value_for_operand(LIR_Opr opr, GrowableArray<ScopeV
 
     Location::Type loc_type = float_saved_as_double ? Location::float_in_dbl : Location::normal;
     VMReg rname = frame_map()->fpu_regname(opr->fpu_regnr());
+#ifndef __SOFTFP__
+#ifndef VM_LITTLE_ENDIAN
+    if (! float_saved_as_double) {
+      // On big endian system, we may have an issue if float registers use only
+      // the low half of the (same) double registers.
+      // Both the float and the double could have the same regnr but would correspond
+      // to two different addresses once saved.
+
+      // get next safely (no assertion checks)
+      VMReg next = VMRegImpl::as_VMReg(1+rname->value());
+      if (next->is_reg() &&
+          (next->as_FloatRegister() == rname->as_FloatRegister())) {
+        // the back-end does use the same numbering for the double and the float
+        rname = next; // VMReg for the low bits, e.g. the real VMReg for the float
+      }
+    }
+#endif
+#endif
     LocationValue* sv = new LocationValue(Location::new_reg_loc(loc_type, rname));
 
     scope_values->append(sv);
@@ -2639,7 +2668,7 @@ int LinearScan::append_scope_value_for_operand(LIR_Opr opr, GrowableArray<ScopeV
       }
       // Does this reverse on x86 vs. sparc?
       first =  new LocationValue(loc1);
-      second = &_int_0_scope_value;
+      second = _int_0_scope_value;
 #else
       Location loc1, loc2;
       if (!frame_map()->locations_for_slot(opr->double_stack_ix(), Location::normal, &loc1, &loc2)) {
@@ -2653,7 +2682,7 @@ int LinearScan::append_scope_value_for_operand(LIR_Opr opr, GrowableArray<ScopeV
 #ifdef _LP64
       VMReg rname_first = opr->as_register_lo()->as_VMReg();
       first = new LocationValue(Location::new_reg_loc(Location::lng, rname_first));
-      second = &_int_0_scope_value;
+      second = _int_0_scope_value;
 #else
       VMReg rname_first = opr->as_register_lo()->as_VMReg();
       VMReg rname_second = opr->as_register_hi()->as_VMReg();
@@ -2676,7 +2705,7 @@ int LinearScan::append_scope_value_for_operand(LIR_Opr opr, GrowableArray<ScopeV
       VMReg rname_first  = opr->as_xmm_double_reg()->as_VMReg();
 #  ifdef _LP64
       first = new LocationValue(Location::new_reg_loc(Location::dbl, rname_first));
-      second = &_int_0_scope_value;
+      second = _int_0_scope_value;
 #  else
       first = new LocationValue(Location::new_reg_loc(Location::normal, rname_first));
       // %%% This is probably a waste but we'll keep things as they were for now
@@ -2723,7 +2752,7 @@ int LinearScan::append_scope_value_for_operand(LIR_Opr opr, GrowableArray<ScopeV
 
 #ifdef _LP64
       first = new LocationValue(Location::new_reg_loc(Location::dbl, rname_first));
-      second = &_int_0_scope_value;
+      second = _int_0_scope_value;
 #else
       first = new LocationValue(Location::new_reg_loc(Location::normal, rname_first));
       // %%% This is probably a waste but we'll keep things as they were for now
@@ -2804,7 +2833,7 @@ int LinearScan::append_scope_value(int op_id, Value value, GrowableArray<ScopeVa
     }
   } else {
     // append a dummy value because real value not needed
-    scope_values->append(&_illegal_value);
+    scope_values->append(_illegal_value);
     return 1;
   }
 }
@@ -2847,7 +2876,7 @@ IRScopeDebugInfo* LinearScan::compute_debug_info_for_scope(int op_id, IRScope* c
     nof_locals = cur_scope->method()->max_locals();
     locals = new GrowableArray<ScopeValue*>(nof_locals);
     for(int i = 0; i < nof_locals; i++) {
-      locals->append(&_illegal_value);
+      locals->append(_illegal_value);
     }
   }
 
@@ -6204,26 +6233,29 @@ void ControlFlowOptimizer::delete_unnecessary_jumps(BlockList* code) {
             assert(prev_op->as_OpBranch() != NULL, "branch must be of type LIR_OpBranch");
             LIR_OpBranch* prev_branch = (LIR_OpBranch*)prev_op;
 
-            LIR_Op2* prev_cmp = NULL;
+            if (prev_branch->stub() == NULL) {
 
-            for(int j = instructions->length() - 3; j >= 0 && prev_cmp == NULL; j--) {
-              prev_op = instructions->at(j);
-              if(prev_op->code() == lir_cmp) {
-                assert(prev_op->as_Op2() != NULL, "branch must be of type LIR_Op2");
-                prev_cmp = (LIR_Op2*)prev_op;
-                assert(prev_branch->cond() == prev_cmp->condition(), "should be the same");
+              LIR_Op2* prev_cmp = NULL;
+
+              for(int j = instructions->length() - 3; j >= 0 && prev_cmp == NULL; j--) {
+                prev_op = instructions->at(j);
+                if (prev_op->code() == lir_cmp) {
+                  assert(prev_op->as_Op2() != NULL, "branch must be of type LIR_Op2");
+                  prev_cmp = (LIR_Op2*)prev_op;
+                  assert(prev_branch->cond() == prev_cmp->condition(), "should be the same");
+                }
               }
-            }
-            assert(prev_cmp != NULL, "should have found comp instruction for branch");
-            if (prev_branch->block() == code->at(i + 1) && prev_branch->info() == NULL) {
+              assert(prev_cmp != NULL, "should have found comp instruction for branch");
+              if (prev_branch->block() == code->at(i + 1) && prev_branch->info() == NULL) {
 
-              TRACE_LINEAR_SCAN(3, tty->print_cr("Negating conditional branch and deleting unconditional branch at end of block B%d", block->block_id()));
+                TRACE_LINEAR_SCAN(3, tty->print_cr("Negating conditional branch and deleting unconditional branch at end of block B%d", block->block_id()));
 
-              // eliminate a conditional branch to the immediate successor
-              prev_branch->change_block(last_branch->block());
-              prev_branch->negate_cond();
-              prev_cmp->set_condition(prev_branch->cond());
-              instructions->truncate(instructions->length() - 1);
+                // eliminate a conditional branch to the immediate successor
+                prev_branch->change_block(last_branch->block());
+                prev_branch->negate_cond();
+                prev_cmp->set_condition(prev_branch->cond());
+                instructions->truncate(instructions->length() - 1);
+              }
             }
           }
         }
@@ -6558,6 +6590,8 @@ void LinearScanStatistic::collect(LinearScan* allocator) {
         case lir_abs:
         case lir_log10:
         case lir_log:
+        case lir_pow:
+        case lir_exp:
         case lir_logic_and:
         case lir_logic_or:
         case lir_logic_xor:

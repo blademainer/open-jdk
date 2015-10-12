@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,10 +26,10 @@
  * @bug     6207984 6272521 6192552 6269713 6197726 6260652 5073546 4137464
  *          4155650 4216399 4294891 6282555 6318622 6355327 6383475 6420753
  *          6431845 4802633 6570566 6570575 6570631 6570924 6691185 6691215
+ *          4802647 7123424 8024709
  * @summary Run many tests on many Collection and Map implementations
  * @author  Martin Buchholz
  * @run main MOAT
- * @run main/othervm -XX:+AggressiveOpts MOAT
  */
 
 /* Mother Of All (Collection) Tests
@@ -58,6 +58,8 @@ import static java.util.Collections.*;
 public class MOAT {
     public static void realMain(String[] args) {
 
+        testCollection(new NewAbstractCollection<Integer>());
+        testCollection(new NewAbstractSet<Integer>());
         testCollection(new LinkedHashSet<Integer>());
         testCollection(new HashSet<Integer>());
         testCollection(new Vector<Integer>());
@@ -68,6 +70,14 @@ public class MOAT {
         testCollection(new LinkedList<Integer>());
         testCollection(new LinkedList<Integer>().subList(0,0));
         testCollection(new TreeSet<Integer>());
+        testCollection(Collections.checkedList(new ArrayList<Integer>(), Integer.class));
+        testCollection(Collections.synchronizedList(new ArrayList<Integer>()));
+        testCollection(Collections.checkedSet(new HashSet<Integer>(), Integer.class));
+        testCollection(Collections.checkedSortedSet(new TreeSet<Integer>(), Integer.class));
+        testCollection(Collections.checkedNavigableSet(new TreeSet<Integer>(), Integer.class));
+        testCollection(Collections.synchronizedSet(new HashSet<Integer>()));
+        testCollection(Collections.synchronizedSortedSet(new TreeSet<Integer>()));
+        testCollection(Collections.synchronizedNavigableSet(new TreeSet<Integer>()));
 
         testCollection(new CopyOnWriteArrayList<Integer>());
         testCollection(new CopyOnWriteArrayList<Integer>().subList(0,0));
@@ -95,6 +105,12 @@ public class MOAT {
         testMap(new Hashtable<Integer,Integer>());
         testMap(new ConcurrentHashMap<Integer,Integer>(10, 0.5f));
         testMap(new ConcurrentSkipListMap<Integer,Integer>());
+        testMap(Collections.checkedMap(new HashMap<Integer,Integer>(), Integer.class, Integer.class));
+        testMap(Collections.checkedSortedMap(new TreeMap<Integer,Integer>(), Integer.class, Integer.class));
+        testMap(Collections.checkedNavigableMap(new TreeMap<Integer,Integer>(), Integer.class, Integer.class));
+        testMap(Collections.synchronizedMap(new HashMap<Integer,Integer>()));
+        testMap(Collections.synchronizedSortedMap(new TreeMap<Integer,Integer>()));
+        testMap(Collections.synchronizedNavigableMap(new TreeMap<Integer,Integer>()));
 
         // Empty collections
         final List<Integer> emptyArray = Arrays.asList(new Integer[]{});
@@ -114,19 +130,29 @@ public class MOAT {
         testCollection(emptySet);
         testEmptySet(emptySet);
         testEmptySet(EMPTY_SET);
+        testEmptySet(Collections.emptySet());
+        testEmptySet(Collections.emptySortedSet());
+        testEmptySet(Collections.emptyNavigableSet());
         testImmutableSet(emptySet);
 
         List<Integer> emptyList = emptyList();
         testCollection(emptyList);
         testEmptyList(emptyList);
         testEmptyList(EMPTY_LIST);
+        testEmptyList(Collections.emptyList());
         testImmutableList(emptyList);
 
         Map<Integer,Integer> emptyMap = emptyMap();
         testMap(emptyMap);
         testEmptyMap(emptyMap);
         testEmptyMap(EMPTY_MAP);
+        testEmptyMap(Collections.emptyMap());
+        testEmptyMap(Collections.emptySortedMap());
+        testEmptyMap(Collections.emptyNavigableMap());
         testImmutableMap(emptyMap);
+        testImmutableMap(Collections.emptyMap());
+        testImmutableMap(Collections.emptySortedMap());
+        testImmutableMap(Collections.emptyNavigableMap());
 
         // Singleton collections
         Set<Integer> singletonSet = singleton(1);
@@ -181,8 +207,8 @@ public class MOAT {
                new Fun(){void f(){ it.next(); }});
 
         try { it.remove(); }
-        catch (IllegalStateException _) { pass(); }
-        catch (UnsupportedOperationException _) { pass(); }
+        catch (IllegalStateException ignored) { pass(); }
+        catch (UnsupportedOperationException ignored) { pass(); }
         catch (Throwable t) { unexpected(t); }
 
         if (rnd.nextBoolean())
@@ -254,9 +280,9 @@ public class MOAT {
         testEmptyCollection(m.values());
 
         try { check(! m.containsValue(null)); }
-        catch (NullPointerException _) { /* OK */ }
+        catch (NullPointerException ignored) { /* OK */ }
         try { check(! m.containsKey(null)); }
-        catch (NullPointerException _) { /* OK */ }
+        catch (NullPointerException ignored) { /* OK */ }
         check(! m.containsValue(1));
         check(! m.containsKey(1));
     }
@@ -374,8 +400,6 @@ public class MOAT {
     // If add(null) succeeds, contains(null) & remove(null) should succeed
     //----------------------------------------------------------------
     private static void testNullElement(Collection<Integer> c) {
-        // !!!! 5018849: (coll) TreeSet.contains(null) does not agree with Javadoc
-        if (c instanceof TreeSet) return;
 
         try {
             check(c.add(null));
@@ -686,8 +710,8 @@ public class MOAT {
             l.addAll(-1, Collections.<Integer>emptyList());
             fail("Expected IndexOutOfBoundsException not thrown");
         }
-        catch (UnsupportedOperationException _) {/* OK */}
-        catch (IndexOutOfBoundsException _) {/* OK */}
+        catch (UnsupportedOperationException ignored) {/* OK */}
+        catch (IndexOutOfBoundsException ignored) {/* OK */}
         catch (Throwable t) { unexpected(t); }
 
 //      equal(l instanceof Serializable,
@@ -753,9 +777,25 @@ public class MOAT {
         // The "all" operations should throw NPE when passed null
         //----------------------------------------------------------------
         {
+            clear(c);
+            try {
+                c.removeAll(null);
+                fail("Expected NullPointerException");
+            }
+            catch (NullPointerException e) { pass(); }
+            catch (Throwable t) { unexpected(t); }
+
             oneElement(c);
             try {
                 c.removeAll(null);
+                fail("Expected NullPointerException");
+            }
+            catch (NullPointerException e) { pass(); }
+            catch (Throwable t) { unexpected(t); }
+
+            clear(c);
+            try {
+                c.retainAll(null);
                 fail("Expected NullPointerException");
             }
             catch (NullPointerException e) { pass(); }
@@ -1131,8 +1171,45 @@ public class MOAT {
             THROWS(NoSuchElementException.class,
                    new Fun(){void f(){it.next();}});
         }
-    }
 
+        prepMapForDescItrTests(m);
+        checkDescItrRmFirst(m.keySet(), m.navigableKeySet().descendingIterator());
+        prepMapForDescItrTests(m);
+        checkDescItrRmMid(m.keySet(), m.navigableKeySet().descendingIterator());
+        prepMapForDescItrTests(m);
+        checkDescItrRmLast(m.keySet(), m.navigableKeySet().descendingIterator());
+
+        prepMapForDescItrTests(m);
+        checkDescItrRmFirst(m.keySet(), m.descendingMap().keySet().iterator());
+        prepMapForDescItrTests(m);
+        checkDescItrRmMid(m.keySet(), m.descendingMap().keySet().iterator());
+        prepMapForDescItrTests(m);
+        checkDescItrRmLast(m.keySet(), m.descendingMap().keySet().iterator());
+
+        prepMapForDescItrTests(m);
+        checkDescItrRmFirst(m.keySet(), m.descendingKeySet().iterator());
+        prepMapForDescItrTests(m);
+        checkDescItrRmMid(m.keySet(), m.descendingKeySet().iterator());
+        prepMapForDescItrTests(m);
+        checkDescItrRmLast(m.keySet(), m.descendingKeySet().iterator());
+
+        prepMapForDescItrTests(m);
+        checkDescItrRmFirst(m.values(), m.descendingMap().values().iterator());
+        prepMapForDescItrTests(m);
+        checkDescItrRmMid(m.values(), m.descendingMap().values().iterator());
+        prepMapForDescItrTests(m);
+        checkDescItrRmLast(m.values(), m.descendingMap().values().iterator());
+
+        prepMapForDescItrTests(m);
+        checkDescItrRmFirst((Collection)m.entrySet(),
+                            m.descendingMap().entrySet().iterator());
+        prepMapForDescItrTests(m);
+        checkDescItrRmMid((Collection)m.entrySet(),
+                          m.descendingMap().entrySet().iterator());
+        prepMapForDescItrTests(m);
+        checkDescItrRmLast((Collection)m.entrySet(),
+                           m.descendingMap().entrySet().iterator());
+    }
 
     private static void testNavigableSet(NavigableSet<Integer> s) {
         clear(s);
@@ -1165,6 +1242,87 @@ public class MOAT {
             THROWS(NoSuchElementException.class,
                    new Fun(){void f(){it.next();}});
         }
+
+        prepSetForDescItrTests(s);
+        checkDescItrRmFirst(s, s.descendingIterator());
+        prepSetForDescItrTests(s);
+        checkDescItrRmMid(s, s.descendingIterator());
+        prepSetForDescItrTests(s);
+        checkDescItrRmLast(s, s.descendingIterator());
+
+        prepSetForDescItrTests(s);
+        checkDescItrRmFirst(s, s.descendingSet().iterator());
+        prepSetForDescItrTests(s);
+        checkDescItrRmMid(s, s.descendingSet().iterator());
+        prepSetForDescItrTests(s);
+        checkDescItrRmLast(s, s.descendingSet().iterator());
+    }
+
+    private static void prepSetForDescItrTests(Set s) {
+        clear(s);
+        check(s.add(1));
+        check(s.add(3));
+        check(s.add(5));
+    }
+
+    private static void prepMapForDescItrTests(Map m) {
+        clear(m);
+        equal(m.put(1, 2), null);
+        equal(m.put(3, 4), null);
+        equal(m.put(5, 9), null);
+    }
+
+    //--------------------------------------------------------------------
+    // Check behavior of descending iterator when first element is removed
+    //--------------------------------------------------------------------
+    private static <T> void checkDescItrRmFirst(Collection<T> ascColl,
+                                                Iterator<T> descItr) {
+        T[] expected = (T[]) ascColl.toArray();
+        int idx = expected.length -1;
+
+        equalNext(descItr, expected[idx--]);
+        descItr.remove();
+        while(idx >= 0 && descItr.hasNext()) {
+            equalNext(descItr, expected[idx--]);
+        }
+        equal(descItr.hasNext(), false);
+        equal(idx, -1);
+    }
+
+    //-----------------------------------------------------------------------
+    // Check behavior of descending iterator when a middle element is removed
+    //-----------------------------------------------------------------------
+    private static <T> void checkDescItrRmMid(Collection<T> ascColl,
+                                              Iterator<T> descItr) {
+        T[] expected = (T[]) ascColl.toArray();
+        int idx = expected.length -1;
+
+        while (idx >= expected.length / 2) {
+            equalNext(descItr, expected[idx--]);
+        }
+        descItr.remove();
+        while (idx >= 0 && descItr.hasNext()) {
+            equalNext(descItr, expected[idx--]);
+        }
+        equal(descItr.hasNext(), false);
+        equal(idx, -1);
+    }
+
+    //-----------------------------------------------------------------------
+    // Check behavior of descending iterator when the last element is removed
+    //-----------------------------------------------------------------------
+    private static <T> void checkDescItrRmLast(Collection<T> ascColl,
+                                               Iterator<T> descItr) {
+        T[] expected = (T[]) ascColl.toArray();
+        int idx = expected.length -1;
+
+        while (idx >= 0 && descItr.hasNext()) {
+            equalNext(descItr, expected[idx--]);
+        }
+        equal(idx, -1);
+        equal(descItr.hasNext(), false);
+        descItr.remove();
+        equal(ascColl.contains(expected[0]), false);
     }
 
     //--------------------- Infrastructure ---------------------------
@@ -1205,4 +1363,35 @@ public class MOAT {
     static <T> T serialClone(T obj) {
         try { return (T) readObject(serializedForm(obj)); }
         catch (Exception e) { throw new Error(e); }}
+    private static class NewAbstractCollection<E> extends AbstractCollection<E> {
+        ArrayList<E> list = new ArrayList<>();
+        public boolean remove(Object obj) {
+            return list.remove(obj);
+        }
+        public boolean add(E e) {
+            return list.add(e);
+        }
+        public Iterator<E> iterator() {
+            return list.iterator();
+        }
+        public int size() {
+            return list.size();
+        }
+    }
+    private static class NewAbstractSet<E> extends AbstractSet<E> {
+        HashSet<E> set = new HashSet<>();
+        public boolean remove(Object obj) {
+            return set.remove(obj);
+        }
+        public boolean add(E e) {
+            return set.add(e);
+        }
+        public Iterator<E> iterator() {
+            return set.iterator();
+        }
+        public int size() {
+            return set.size();
+        }
+    }
+
 }

@@ -24,7 +24,7 @@
  */
 
 /*
- * (C) Copyright IBM Corp. 1998-2010 - All Rights Reserved
+ * (C) Copyright IBM Corp. 1998-2013 - All Rights Reserved
  *
  */
 
@@ -35,6 +35,7 @@
 #include "LEGlyphFilter.h"
 #include "LEFontInstance.h"
 #include "LayoutEngine.h"
+#include "LETableReference.h"
 
 #include "GlyphSubstitutionTables.h"
 #include "GlyphDefinitionTables.h"
@@ -58,7 +59,7 @@ U_NAMESPACE_BEGIN
  * 3) Glyph post processing - in cases where the font doesn't directly contain a GSUB table,
  *    the previous two steps may have generated "fake" glyph indices to use with a "canned" GSUB
  *    table. This step turns those glyph indices into actual font-specific glyph indices, and may
- *    perform any other adjustments requried by the previous steps.
+ *    perform any other adjustments required by the previous steps.
  *
  * OpenTypeLayoutEngine will also use the font's GPOS table to apply position adjustments
  * such as kerning and accent positioning.
@@ -88,7 +89,7 @@ public:
      * @internal
      */
     OpenTypeLayoutEngine(const LEFontInstance *fontInstance, le_int32 scriptCode, le_int32 languageCode,
-                            le_int32 typoFlags, const GlyphSubstitutionTableHeader *gsubTable, LEErrorCode &success);
+                            le_int32 typoFlags, const LEReferenceTo<GlyphSubstitutionTableHeader> &gsubTable, LEErrorCode &success);
 
     /**
      * This constructor is used when the font requires a "canned" GSUB table which can't be known
@@ -184,6 +185,11 @@ private:
      */
     static const LETag scriptTags[];
 
+    /**
+     * apply the typoflags. Only called by the c'tors.
+     */
+    void applyTypoFlags();
+
 protected:
     /**
      * A set of "default" features. The default characterProcessing method
@@ -223,21 +229,21 @@ protected:
      *
      * @internal
      */
-    const GlyphSubstitutionTableHeader *fGSUBTable;
+    LEReferenceTo<GlyphSubstitutionTableHeader> fGSUBTable;
 
     /**
      * The address of the GDEF table.
      *
      * @internal
      */
-    const GlyphDefinitionTableHeader   *fGDEFTable;
+    LEReferenceTo<GlyphDefinitionTableHeader> fGDEFTable;
 
     /**
      * The address of the GPOS table.
      *
      * @internal
      */
-    const GlyphPositioningTableHeader  *fGPOSTable;
+    LEReferenceTo<GlyphPositioningTableHeader> fGPOSTable;
 
     /**
      * An optional filter used to inhibit substitutions
@@ -343,7 +349,7 @@ protected:
      * index and character index arrays, assuming that no "fake" glyph indices
      * were needed to do GSUB processing.
      *
-     * Input paramters:
+     * Input parameters:
      * @param tempGlyphs - the input "fake" glyph index array
      * @param tempCharIndices - the input "fake" character index array
      * @param tempGlyphCount - the number of "fake" glyph indices

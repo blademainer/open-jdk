@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,17 +49,24 @@ public class IIOPURLTest {
     public static void main(String[] args) throws Exception {
         JMXServiceURL inputAddr =
             new JMXServiceURL("service:jmx:iiop://");
-        JMXConnectorServer s =
-            JMXConnectorServerFactory.newJMXConnectorServer(inputAddr, null,
-                                                            null);
+        JMXConnectorServer s;
+        try {
+            s = JMXConnectorServerFactory.newJMXConnectorServer(inputAddr, null, null);
+        } catch (java.net.MalformedURLException x) {
+            try {
+                Class.forName("javax.management.remote.rmi._RMIConnectionImpl_Tie");
+                throw new RuntimeException("MalformedURLException thrown but iiop appears to be supported");
+            } catch (ClassNotFoundException expected) { }
+            System.out.println("IIOP protocol not supported, test skipped");
+            return;
+        }
         MBeanServer mbs = MBeanServerFactory.createMBeanServer();
         mbs.registerMBean(s, new ObjectName("a:b=c"));
         s.start();
         JMXServiceURL outputAddr = s.getAddress();
         if (!outputAddr.getURLPath().startsWith("/ior/IOR:")) {
-            System.out.println("URL path should start with \"/ior/IOR:\": " +
-                               outputAddr);
-            System.exit(1);
+            throw new RuntimeException("URL path should start with \"/ior/IOR:\": " +
+                                       outputAddr);
         }
         System.out.println("IIOP URL path looks OK: " + outputAddr);
         JMXConnector c = JMXConnectorFactory.connect(outputAddr);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,7 +38,7 @@ public class DriverPropertyInfo {
     /**
      * Constructs a <code>DriverPropertyInfo</code> object with a  given
      * name and value.  The <code>description</code> and <code>choices</code>
-     * are intialized to <code>null</code> and <code>required</code> is initialized
+     * are initialized to <code>null</code> and <code>required</code> is initialized
      * to <code>false</code>.
      *
      * @param name the name of the property

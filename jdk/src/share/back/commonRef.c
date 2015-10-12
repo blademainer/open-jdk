@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,6 +22,10 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+
+#if defined(_ALLBSD_SOURCE)
+#include <stdint.h>                     /* for uintptr_t */
+#endif
 
 #include "util.h"
 #include "commonRef.h"
@@ -48,7 +52,7 @@
  * the number times an object has been referenced through
  * commonRef_refToID. A RefNode is freed once the reference
  * count is decremented to 0 (with commonRef_release*), even if the
- * correspoding object has not been collected.
+ * corresponding object has not been collected.
  *
  * One hash table is maintained. The mapping of ID to jobject (or RefNode*)
  * is handled with one hash table that will re-size itself as the number

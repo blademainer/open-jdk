@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -95,14 +95,12 @@ public class B6521014 {
         Socket sock;
         ServerSocket ssock;
         int port;
-        int localport;
 
         ssock = new ServerSocket(0);
         ssock.setSoTimeout(100);
         port = ssock.getLocalPort();
-        localport = port + 1;
         sock = new Socket();
-        sock.bind(new InetSocketAddress(sin, localport));
+        sock.bind(new InetSocketAddress(sin, 0));
         try {
             sock.connect(new InetSocketAddress(sin, port), 100);
         } catch (SocketTimeoutException e) {

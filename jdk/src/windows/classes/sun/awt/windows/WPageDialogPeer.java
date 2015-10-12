@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,7 +49,7 @@ public class WPageDialogPeer extends WPrintDialogPeer {
                      // but if it is we need to trap it so the thread does
                      // not hide is called and the thread doesn't hang.
                     }
-                    ((WPrintDialog)target).hide();
+                    ((WPrintDialog)target).setVisible(false);
                 }
             }).start();
     }

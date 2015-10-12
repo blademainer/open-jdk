@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,6 +34,9 @@ package sun.rmi.rmic.iiop;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.SerializablePermission;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.Vector;
 import java.util.Hashtable;
 import java.util.Enumeration;
@@ -48,6 +51,7 @@ import java.util.Arrays;
 import com.sun.corba.se.impl.util.Utility;
 import com.sun.corba.se.impl.util.PackagePrefixChecker;
 import sun.rmi.rmic.Main;
+
 
 /**
  * An IIOP stub/tie generator for rmic.
@@ -78,6 +82,7 @@ public class StubGenerator extends sun.rmi.rmic.iiop.Generator {
     protected boolean castArray = false;
     protected Hashtable transactionalObjects = new Hashtable() ;
     protected boolean POATie = false ;
+    protected boolean emitPermissionCheck = false;
 
     /**
      * Default constructor for Main to use.
@@ -192,6 +197,9 @@ public class StubGenerator extends sun.rmi.rmic.iiop.Generator {
                         argv[i] = null;
                     } else if (argv[i].equals("-standardPackage")) {
                         standardPackage = true;
+                        argv[i] = null;
+                    } else if (argv[i].equals("-emitPermissionCheck")) {
+                        emitPermissionCheck = true;
                         argv[i] = null;
                     } else if (arg.equals("-xstubbase")) {
                         argv[i] = null;
@@ -390,9 +398,22 @@ public class StubGenerator extends sun.rmi.rmic.iiop.Generator {
 
         writePackageAndImports(p);
 
+//        generate
+//        import java.security.AccessController;
+//        import java.security.PrivilegedAction;
+//        import java.io.SerializablePermission;
+        if (emitPermissionCheck) {
+            p.pln("import java.security.AccessController;");
+            p.pln("import java.security.PrivilegedAction;");
+            p.pln("import java.io.SerializablePermission;");
+            p.pln();
+            p.pln();
+        }
+
         // Declare the stub class; implement all remote interfaces.
 
         p.p("public class " + currentClass);
+
         p.p(" extends " + getName(stubBaseClass));
         p.p(" implements ");
         if (remoteInterfaces.length > 0) {
@@ -422,10 +443,61 @@ public class StubGenerator extends sun.rmi.rmic.iiop.Generator {
         writeIds( p, theType, false );
         p.pln();
 
+        if (emitPermissionCheck) {
+
+            // produce the following generated code for example
+            // private static Void checkPermission() {
+            // SecurityManager sm = System.getSecurityManager();
+            // if (sm != null) {
+            //     sm.checkPermission(new SerializablePermission(
+            // "enableSubclassImplementation")); // testing
+            // }
+            // return null;
+            // }
+            //
+            // private _XXXXX_Stub(Void ignore) {
+            // }
+            //
+            // public _XXXXX_Stub() {
+            // this(checkPermission());
+            // }
+            //
+            // where XXXXX is the name of the remote interface
+
+                p.pln();
+                p.plnI("private static Void checkPermission() {");
+                p.plnI("SecurityManager sm = System.getSecurityManager();");
+                p.pln("if (sm != null) {");
+                p.pI();
+                p.plnI("sm.checkPermission(new SerializablePermission(");
+                p.plnI("\"enableSubclassImplementation\"));");
+                p.pO();
+                p.pO();
+                p.pOln("}");
+                p.pln("return null;");
+                p.pO();
+                p.pOln("}");
+                p.pln();
+                p.pO();
+
+                p.pI();
+                p.pln("private " + currentClass + "(Void ignore) {  }");
+                p.pln();
+
+                p.plnI("public " + currentClass + "() { ");
+                p.pln("this(checkPermission());");
+                p.pOln("}");
+                p.pln();
+        }
+
+       if (!emitPermissionCheck) {
+            p.pI();
+       }
+
         // Write the _ids() method...
 
         p.plnI("public String[] _ids() { ");
-        p.pln("return _type_ids;");
+        p.pln("return (String[]) _type_ids.clone();");
         p.pOln("}");
 
         // Get all the methods and write each stub method...
@@ -815,7 +887,6 @@ public class StubGenerator extends sun.rmi.rmic.iiop.Generator {
                             CompoundType theType) throws IOException {
 
         // Wtite the method declaration and opening brace...
-
         String methodName = method.getName();
         String methodIDLName = method.getIDLName();
 
@@ -1631,7 +1702,7 @@ public class StubGenerator extends sun.rmi.rmic.iiop.Generator {
 
         // Write data members...
         p.pln();
-        p.pln("private " + getName(theType) + " target = null;");
+        p.pln("volatile private " + getName(theType) + " target = null;");
         p.pln();
 
         // Write the ids...
@@ -1695,6 +1766,10 @@ public class StubGenerator extends sun.rmi.rmic.iiop.Generator {
 
         if (remoteMethods.length > 0) {
             p.plnI("try {");
+            p.pln(getName(theType) + " target = this.target;");
+            p.plnI("if (target == null) {");
+            p.pln("throw new java.io.IOException();");
+            p.pOln("}");
             p.plnI(idExtInputStream + " "+in+" = ");
             p.pln("(" + idExtInputStream + ") "+_in+";");
             p.pO();
@@ -1860,11 +1935,11 @@ public class StubGenerator extends sun.rmi.rmic.iiop.Generator {
     {
         if(POATie){
         p.plnI("public String[] _all_interfaces(org.omg.PortableServer.POA poa, byte[] objectId){");
-        p.pln("return _type_ids;");
+        p.pln("return (String[]) _type_ids.clone();");
         p.pOln("}");
         } else {
         p.plnI("public String[] _ids() { ");
-        p.pln("return _type_ids;");
+        p.pln("return (String[]) _type_ids.clone();");
         p.pOln("}");
         }
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,14 +42,16 @@ import static sun.nio.fs.SolarisConstants.*;
 class SolarisUserDefinedFileAttributeView
     extends AbstractUserDefinedFileAttributeView
 {
+    private static final byte[] HERE = { '.' };
+
     private byte[] nameAsBytes(UnixPath file, String name) throws IOException {
-        byte[] bytes = name.getBytes();
-        //  "", "." and ".." not allowed
+        byte[] bytes = Util.toBytes(name);
+        // "", "." and ".." not allowed
         if (bytes.length == 0 || bytes[0] == '.') {
             if (bytes.length <= 1 ||
                 (bytes.length == 2 && bytes[1] == '.'))
             {
-                throw new FileSystemException(file.getPathForExecptionMessage(),
+                throw new FileSystemException(file.getPathForExceptionMessage(),
                     null, "'" + name + "' is not a valid name");
             }
         }
@@ -73,7 +75,7 @@ class SolarisUserDefinedFileAttributeView
         try {
             try {
                 // open extended attribute directory
-                int dfd = openat(fd, ".".getBytes(), (O_RDONLY|O_XATTR), 0);
+                int dfd = openat(fd, HERE, (O_RDONLY|O_XATTR), 0);
                 long dp;
                 try {
                     dp = fdopendir(dfd);
@@ -87,7 +89,7 @@ class SolarisUserDefinedFileAttributeView
                 try {
                     byte[] name;
                     while ((name = readdir(dp)) != null) {
-                        String s = new String(name);
+                        String s = Util.toString(name);
                         if (!s.equals(".") && !s.equals(".."))
                             list.add(s);
                     }
@@ -96,7 +98,7 @@ class SolarisUserDefinedFileAttributeView
                 }
                 return Collections.unmodifiableList(list);
             } catch (UnixException x) {
-                throw new FileSystemException(file.getPathForExecptionMessage(),
+                throw new FileSystemException(file.getPathForExceptionMessage(),
                     null, "Unable to get list of extended attributes: " +
                     x.getMessage());
             }
@@ -126,7 +128,7 @@ class SolarisUserDefinedFileAttributeView
                     close(afd);
                 }
             } catch (UnixException x) {
-                throw new FileSystemException(file.getPathForExecptionMessage(),
+                throw new FileSystemException(file.getPathForExceptionMessage(),
                     null, "Unable to get size of extended attribute '" + name +
                     "': " + x.getMessage());
             }
@@ -165,7 +167,7 @@ class SolarisUserDefinedFileAttributeView
                     fc.close();
                 }
             } catch (UnixException x) {
-                throw new FileSystemException(file.getPathForExecptionMessage(),
+                throw new FileSystemException(file.getPathForExceptionMessage(),
                     null, "Unable to read extended attribute '" + name +
                     "': " + x.getMessage());
             }
@@ -201,7 +203,7 @@ class SolarisUserDefinedFileAttributeView
                     fc.close();
                 }
             } catch (UnixException x) {
-                throw new FileSystemException(file.getPathForExecptionMessage(),
+                throw new FileSystemException(file.getPathForExceptionMessage(),
                     null, "Unable to write extended attribute '" + name +
                     "': " + x.getMessage());
             }
@@ -217,14 +219,14 @@ class SolarisUserDefinedFileAttributeView
 
         int fd = file.openForAttributeAccess(followLinks);
         try {
-            int dfd = openat(fd, ".".getBytes(), (O_RDONLY|O_XATTR), 0);
+            int dfd = openat(fd, HERE, (O_RDONLY|O_XATTR), 0);
             try {
                 unlinkat(dfd, nameAsBytes(file,name), 0);
             } finally {
                 close(dfd);
             }
         } catch (UnixException x) {
-            throw new FileSystemException(file.getPathForExecptionMessage(),
+            throw new FileSystemException(file.getPathForExceptionMessage(),
                 null, "Unable to delete extended attribute '" + name +
                 "': " + x.getMessage());
         } finally {
@@ -243,7 +245,7 @@ class SolarisUserDefinedFileAttributeView
     static void copyExtendedAttributes(int ofd, int nfd) {
         try {
             // open extended attribute directory
-            int dfd = openat(ofd, ".".getBytes(), (O_RDONLY|O_XATTR), 0);
+            int dfd = openat(ofd, HERE, (O_RDONLY|O_XATTR), 0);
             long dp = 0L;
             try {
                 dp = fdopendir(dfd);

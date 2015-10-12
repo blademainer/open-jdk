@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,7 +37,7 @@ import java.awt.FontMetrics;
 import java.beans.PropertyChangeEvent;
 
 /**
- * Provides the Synth L&F UI delegate for
+ * Provides the Synth L&amp;F UI delegate for
  * {@link javax.swing.JLabel}.
  *
  * @author Scott Violet
@@ -57,7 +57,7 @@ public class SynthLabelUI extends BasicLabelUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void installDefaults(JLabel c) {
@@ -71,7 +71,7 @@ public class SynthLabelUI extends BasicLabelUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     protected void uninstallDefaults(JLabel c){
@@ -83,7 +83,7 @@ public class SynthLabelUI extends BasicLabelUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public SynthContext getContext(JComponent c) {
@@ -97,15 +97,15 @@ public class SynthLabelUI extends BasicLabelUI implements SynthUI {
 
     private int getComponentState(JComponent c) {
         int state = SynthLookAndFeel.getComponentState(c);
-        if (SynthLookAndFeel.selectedUI == this &&
+        if (SynthLookAndFeel.getSelectedUI() == this &&
                         state == SynthConstants.ENABLED) {
-            state = SynthLookAndFeel.selectedUIState | SynthConstants.ENABLED;
+            state = SynthLookAndFeel.getSelectedUIState() | SynthConstants.ENABLED;
         }
         return state;
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public int getBaseline(JComponent c, int width, int height) {
@@ -218,7 +218,7 @@ public class SynthLabelUI extends BasicLabelUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public void paintBorder(SynthContext context, Graphics g, int x,
@@ -227,7 +227,7 @@ public class SynthLabelUI extends BasicLabelUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public Dimension getPreferredSize(JComponent c) {
@@ -248,7 +248,7 @@ public class SynthLabelUI extends BasicLabelUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public Dimension getMinimumSize(JComponent c) {
@@ -269,7 +269,7 @@ public class SynthLabelUI extends BasicLabelUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public Dimension getMaximumSize(JComponent c) {
@@ -290,7 +290,7 @@ public class SynthLabelUI extends BasicLabelUI implements SynthUI {
     }
 
     /**
-     * @inheritDoc
+     * {@inheritDoc}
      */
     @Override
     public void propertyChange(PropertyChangeEvent e) {

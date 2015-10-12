@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ import java.net.*;
 import javax.net.ssl.*;
 import javax.net.ServerSocketFactory;
 import sun.net.www.*;
+import java.util.Base64;
 
 public class ProxyTunnelServer extends Thread {
 
@@ -292,12 +293,12 @@ public class ProxyTunnelServer extends Thread {
             authInfo.trim();
             int ind = authInfo.indexOf(' ');
             String recvdUserPlusPass = authInfo.substring(ind + 1).trim();
+
             // extract encoded (username:passwd
             if (userPlusPass.equals(
-                                new String(
-                                (new sun.misc.BASE64Decoder()).
-                                decodeBuffer(recvdUserPlusPass)
-                                ))) {
+                            new String( Base64.getMimeDecoder()
+                                        .decode(recvdUserPlusPass))))
+            {
                 matched = true;
             }
         } catch (Exception e) {

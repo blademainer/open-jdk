@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -161,8 +161,18 @@ public class ProxyTest {
         }
     }
 
+    private static boolean hasFtp() {
+        try {
+            return new java.net.URL("ftp://") != null;
+        } catch (java.net.MalformedURLException x) {
+            System.out.println("FTP not supported by this runtime.");
+            return false;
+        }
+    }
+
     public static void main(String[] args) throws Exception {
-        ProxyTest test = new ProxyTest();
+        if (hasFtp())
+           new ProxyTest();
     }
 
     public ProxyTest() throws Exception {

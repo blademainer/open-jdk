@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -119,9 +119,6 @@ public class SubjectDelegation2Test {
             System.out.println("Create SimpleStandard MBean");
             SimpleStandard s = new SimpleStandard("monitorRole");
             mbs.registerMBean(s, new ObjectName("MBeans:type=SimpleStandard"));
-            // Set Security Manager
-            //
-            System.setSecurityManager(new SecurityManager());
             // Create Properties containing the username/password entries
             //
             Properties props = new Properties();
@@ -132,6 +129,9 @@ public class SubjectDelegation2Test {
             HashMap env = new HashMap();
             env.put("jmx.remote.authenticator",
                     new JMXPluggableAuthenticator(props));
+            // Set Security Manager
+            //
+            System.setSecurityManager(new SecurityManager());
             // Create an RMI connector server
             //
             System.out.println("Create an RMI connector server");

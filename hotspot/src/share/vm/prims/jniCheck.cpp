@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -107,7 +107,7 @@ extern "C" {                                                             \
     if (env != xenv) {                                                   \
       NativeReportJNIFatalError(thr, warn_wrong_jnienv);                 \
     }                                                                    \
-    __ENTRY(result_type, header, thr)
+    VM_ENTRY_BASE(result_type, header, thr)
 
 
 #define UNCHECKED() (unchecked_jni_NativeInterface)
@@ -126,6 +126,7 @@ static const char * fatal_wrong_class_or_method = "Wrong object class or methodI
 static const char * fatal_non_weak_method = "non-weak methodID passed to JNI call";
 static const char * fatal_unknown_array_object = "Unknown array object passed to JNI array operations";
 static const char * fatal_object_array_expected = "Object array expected but not received for JNI array operation";
+static const char * fatal_prim_type_array_expected = "Primitive type array expected but not received for JNI array operation";
 static const char * fatal_non_array  = "Non-array passed to JNI array operations";
 static const char * fatal_element_type_mismatch = "Array element type mismatch in JNI";
 static const char * fatal_should_be_static = "Non-static field ID passed to JNI";
@@ -215,12 +216,12 @@ checkStaticFieldID(JavaThread* thr, jfieldID fid, jclass cls, int ftype)
 
   /* validate the class being passed */
   ASSERT_OOPS_ALLOWED;
-  klassOop k_oop = jniCheck::validate_class(thr, cls, false);
+  Klass* k_oop = jniCheck::validate_class(thr, cls, false);
 
   /* check for proper subclass hierarchy */
   JNIid* id = jfieldIDWorkaround::from_static_jfieldID(fid);
-  klassOop f_oop = id->holder();
-  if (!instanceKlass::cast(k_oop)->is_subtype_of(f_oop))
+  Klass* f_oop = id->holder();
+  if (!InstanceKlass::cast(k_oop)->is_subtype_of(f_oop))
     ReportJNIFatalError(thr, fatal_wrong_static_field);
 
   /* check for proper field type */
@@ -247,7 +248,7 @@ checkInstanceFieldID(JavaThread* thr, jfieldID fid, jobject obj, int ftype)
   if (!oopObj) {
     ReportJNIFatalError(thr, fatal_null_object);
   }
-  klassOop k_oop = oopObj->klass();
+  Klass* k_oop = oopObj->klass();
 
   if (!jfieldIDWorkaround::is_valid_jfieldID(k_oop, fid)) {
     ReportJNIFatalError(thr, fatal_wrong_field);
@@ -255,11 +256,11 @@ checkInstanceFieldID(JavaThread* thr, jfieldID fid, jobject obj, int ftype)
 
   /* make sure the field exists */
   int offset = jfieldIDWorkaround::from_instance_jfieldID(k_oop, fid);
-  if (!instanceKlass::cast(k_oop)->contains_field_offset(offset))
+  if (!InstanceKlass::cast(k_oop)->contains_field_offset(offset))
     ReportJNIFatalError(thr, fatal_wrong_field);
 
   /* check for proper field type */
-  if (!instanceKlass::cast(k_oop)->find_field_from_offset(offset,
+  if (!InstanceKlass::cast(k_oop)->find_field_from_offset(offset,
                                                               false, &fd))
     ReportJNIFatalError(thr, fatal_instance_field_not_found);
 
@@ -278,30 +279,49 @@ checkString(JavaThread* thr, jstring js)
     ReportJNIFatalError(thr, fatal_non_string);
 }
 
-static inline void
-checkArray(JavaThread* thr, jarray jArray, int elementType)
+static inline arrayOop
+check_is_array(JavaThread* thr, jarray jArray)
 {
   ASSERT_OOPS_ALLOWED;
   arrayOop aOop;
 
   aOop = (arrayOop)jniCheck::validate_object(thr, jArray);
-  if (aOop == NULL || !aOop->is_array())
+  if (aOop == NULL || !aOop->is_array()) {
     ReportJNIFatalError(thr, fatal_non_array);
+  }
+  return aOop;
+}
 
-  if (elementType != -1) {
-    if (aOop->is_typeArray()) {
-      BasicType array_type = typeArrayKlass::cast(aOop->klass())->element_type();
-      if (array_type != elementType)
-        ReportJNIFatalError(thr, fatal_element_type_mismatch);
-      } else if (aOop->is_objArray()) {
-        if ( T_OBJECT != elementType)
-          ReportJNIFatalError(thr, fatal_object_array_expected);
-      } else {
-        ReportJNIFatalError(thr, fatal_unknown_array_object);
-    }
+static inline arrayOop
+check_is_primitive_array(JavaThread* thr, jarray jArray) {
+  arrayOop aOop = check_is_array(thr, jArray);
+
+  if (!aOop->is_typeArray()) {
+     ReportJNIFatalError(thr, fatal_prim_type_array_expected);
+  }
+  return aOop;
+}
+
+static inline void
+check_primitive_array_type(JavaThread* thr, jarray jArray, BasicType elementType)
+{
+  BasicType array_type;
+  arrayOop aOop;
+
+  aOop = check_is_primitive_array(thr, jArray);
+  array_type = TypeArrayKlass::cast(aOop->klass())->element_type();
+  if (array_type != elementType) {
+    ReportJNIFatalError(thr, fatal_element_type_mismatch);
   }
 }
 
+static inline void
+check_is_obj_array(JavaThread* thr, jarray jArray) {
+  arrayOop aOop = check_is_array(thr, jArray);
+  if (!aOop->is_objArray()) {
+    ReportJNIFatalError(thr, fatal_object_array_expected);
+  }
+}
 
 oop jniCheck::validate_handle(JavaThread* thr, jobject obj) {
   if (JNIHandles::is_frame_handle(thr, obj) ||
@@ -316,16 +336,16 @@ oop jniCheck::validate_handle(JavaThread* thr, jobject obj) {
 }
 
 
-methodOop jniCheck::validate_jmethod_id(JavaThread* thr, jmethodID method_id) {
+Method* jniCheck::validate_jmethod_id(JavaThread* thr, jmethodID method_id) {
   ASSERT_OOPS_ALLOWED;
   // do the fast jmethodID check first
-  methodOop moop = JNIHandles::checked_resolve_jmethod_id(method_id);
+  Method* moop = Method::checked_resolve_jmethod_id(method_id);
   if (moop == NULL) {
     ReportJNIFatalError(thr, fatal_wrong_class_or_method);
   }
-  // jmethodIDs are supposed to be weak global handles, but that
-  // can be expensive so check it last
-  else if (!JNIHandles::is_weak_global_handle((jobject) method_id)) {
+  // jmethodIDs are supposed to be weak handles in the class loader data,
+  // but that can be expensive so check it last
+  else if (!Method::is_method_id(method_id)) {
     ReportJNIFatalError(thr, fatal_non_weak_method);
   }
   return moop;
@@ -360,7 +380,7 @@ void jniCheck::validate_class_descriptor(JavaThread* thr, const char* name) {
   }
 }
 
-klassOop jniCheck::validate_class(JavaThread* thr, jclass clazz, bool allow_primitive) {
+Klass* jniCheck::validate_class(JavaThread* thr, jclass clazz, bool allow_primitive) {
   ASSERT_OOPS_ALLOWED;
   oop mirror = jniCheck::validate_handle(thr, clazz);
   if (!mirror) {
@@ -371,7 +391,7 @@ klassOop jniCheck::validate_class(JavaThread* thr, jclass clazz, bool allow_prim
     ReportJNIFatalError(thr, fatal_class_not_a_class);
   }
 
-  klassOop k = java_lang_Class::as_klassOop(mirror);
+  Klass* k = java_lang_Class::as_Klass(mirror);
   // Make allowances for primitive classes ...
   if (!(k != NULL || allow_primitive && java_lang_Class::is_primitive(mirror))) {
     ReportJNIFatalError(thr, fatal_class_not_a_class);
@@ -379,12 +399,12 @@ klassOop jniCheck::validate_class(JavaThread* thr, jclass clazz, bool allow_prim
   return k;
 }
 
-void jniCheck::validate_throwable_klass(JavaThread* thr, klassOop klass) {
+void jniCheck::validate_throwable_klass(JavaThread* thr, Klass* klass) {
   ASSERT_OOPS_ALLOWED;
   assert(klass != NULL, "klass argument must have a value");
 
-  if (!Klass::cast(klass)->oop_is_instance() ||
-      !instanceKlass::cast(klass)->is_subclass_of(SystemDictionary::Throwable_klass())) {
+  if (!klass->oop_is_instance() ||
+      !InstanceKlass::cast(klass)->is_subclass_of(SystemDictionary::Throwable_klass())) {
     ReportJNIFatalError(thr, fatal_class_not_a_throwable_class);
   }
 }
@@ -540,8 +560,8 @@ JNI_ENTRY_CHECKED(jint,
                        const char *msg))
     functionEnter(thr);
     IN_VM(
-      klassOop k = jniCheck::validate_class(thr, clazz, false);
-      assert(k != NULL, "validate_class shouldn't return NULL klassOop");
+      Klass* k = jniCheck::validate_class(thr, clazz, false);
+      assert(k != NULL, "validate_class shouldn't return NULL Klass*");
       jniCheck::validate_throwable_klass(thr, k);
     )
     jint result = UNCHECKED()->ThrowNew(env, clazz, msg);
@@ -1304,18 +1324,19 @@ JNI_ENTRY_CHECKED(const jchar *,
     IN_VM(
       checkString(thr, str);
     )
+    jchar* newResult = NULL;
     const jchar *result = UNCHECKED()->GetStringChars(env,str,isCopy);
     assert (isCopy == NULL || *isCopy == JNI_TRUE, "GetStringChars didn't return a copy as expected");
-
-    size_t len = UNCHECKED()->GetStringLength(env,str) + 1; // + 1 for NULL termination
-    jint* tagLocation = (jint*) AllocateHeap(len * sizeof(jchar) + sizeof(jint), "checked_jni_GetStringChars");
-    *tagLocation = STRING_TAG;
-    jchar* newResult = (jchar*) (tagLocation + 1);
-    memcpy(newResult, result, len * sizeof(jchar));
-    // Avoiding call to UNCHECKED()->ReleaseStringChars() since that will fire unexpected dtrace probes
-    // Note that the dtrace arguments for the allocated memory will not match up with this solution.
-    FreeHeap((char*)result);
-
+    if (result != NULL) {
+      size_t len = UNCHECKED()->GetStringLength(env,str) + 1; // + 1 for NULL termination
+      jint* tagLocation = (jint*) AllocateHeap(len * sizeof(jchar) + sizeof(jint), mtInternal);
+      *tagLocation = STRING_TAG;
+      newResult = (jchar*) (tagLocation + 1);
+      memcpy(newResult, result, len * sizeof(jchar));
+      // Avoiding call to UNCHECKED()->ReleaseStringChars() since that will fire unexpected dtrace probes
+      // Note that the dtrace arguments for the allocated memory will not match up with this solution.
+      FreeHeap((char*)result);
+    }
     functionExit(env);
     return newResult;
 JNI_END
@@ -1374,18 +1395,19 @@ JNI_ENTRY_CHECKED(const char *,
     IN_VM(
       checkString(thr, str);
     )
+    char* newResult = NULL;
     const char *result = UNCHECKED()->GetStringUTFChars(env,str,isCopy);
     assert (isCopy == NULL || *isCopy == JNI_TRUE, "GetStringUTFChars didn't return a copy as expected");
-
-    size_t len = strlen(result) + 1; // + 1 for NULL termination
-    jint* tagLocation = (jint*) AllocateHeap(len + sizeof(jint), "checked_jni_GetStringUTFChars");
-    *tagLocation = STRING_UTF_TAG;
-    char* newResult = (char*) (tagLocation + 1);
-    strcpy(newResult, result);
-    // Avoiding call to UNCHECKED()->ReleaseStringUTFChars() since that will fire unexpected dtrace probes
-    // Note that the dtrace arguments for the allocated memory will not match up with this solution.
-    FreeHeap((char*)result);
-
+    if (result != NULL) {
+      size_t len = strlen(result) + 1; // + 1 for NULL termination
+      jint* tagLocation = (jint*) AllocateHeap(len + sizeof(jint), mtInternal);
+      *tagLocation = STRING_UTF_TAG;
+      newResult = (char*) (tagLocation + 1);
+      strcpy(newResult, result);
+      // Avoiding call to UNCHECKED()->ReleaseStringUTFChars() since that will fire unexpected dtrace probes
+      // Note that the dtrace arguments for the allocated memory will not match up with this solution.
+      FreeHeap((char*)result, mtInternal);
+    }
     functionExit(env);
     return newResult;
 JNI_END
@@ -1417,7 +1439,7 @@ JNI_ENTRY_CHECKED(jsize,
                              jarray array))
     functionEnter(thr);
     IN_VM(
-      checkArray(thr, array, -1);
+      check_is_array(thr, array);
     )
     jsize result = UNCHECKED()->GetArrayLength(env,array);
     functionExit(env);
@@ -1441,7 +1463,7 @@ JNI_ENTRY_CHECKED(jobject,
                                     jsize index))
     functionEnter(thr);
     IN_VM(
-      checkArray(thr, array, T_OBJECT);
+      check_is_obj_array(thr, array);
     )
     jobject result = UNCHECKED()->GetObjectArrayElement(env,array,index);
     functionExit(env);
@@ -1455,7 +1477,7 @@ JNI_ENTRY_CHECKED(void,
                                     jobject val))
     functionEnter(thr);
     IN_VM(
-      checkArray(thr, array, T_OBJECT);
+      check_is_obj_array(thr, array);
     )
     UNCHECKED()->SetObjectArrayElement(env,array,index,val);
     functionExit(env);
@@ -1487,7 +1509,7 @@ JNI_ENTRY_CHECKED(ElementType *,  \
                                          jboolean *isCopy)) \
     functionEnter(thr); \
     IN_VM( \
-      checkArray(thr, array, ElementTag); \
+      check_primitive_array_type(thr, array, ElementTag); \
     ) \
     ElementType *result = UNCHECKED()->Get##Result##ArrayElements(env, \
                                                                   array, \
@@ -1513,7 +1535,7 @@ JNI_ENTRY_CHECKED(void,  \
                                              jint mode)) \
     functionEnterExceptionAllowed(thr); \
     IN_VM( \
-      checkArray(thr, array, ElementTag); \
+      check_primitive_array_type(thr, array, ElementTag); \
       ASSERT_OOPS_ALLOWED; \
       typeArrayOop a = typeArrayOop(JNIHandles::resolve_non_null(array)); \
       /* cannot check validity of copy, unless every request is logged by
@@ -1543,7 +1565,7 @@ JNI_ENTRY_CHECKED(void,  \
                                        ElementType *buf)) \
     functionEnter(thr); \
     IN_VM( \
-      checkArray(thr, array, ElementTag); \
+      check_primitive_array_type(thr, array, ElementTag); \
     ) \
     UNCHECKED()->Get##Result##ArrayRegion(env,array,start,len,buf); \
     functionExit(env); \
@@ -1567,7 +1589,7 @@ JNI_ENTRY_CHECKED(void,  \
                                        const ElementType *buf)) \
     functionEnter(thr); \
     IN_VM( \
-      checkArray(thr, array, ElementTag); \
+      check_primitive_array_type(thr, array, ElementTag); \
     ) \
     UNCHECKED()->Set##Result##ArrayRegion(env,array,start,len,buf); \
     functionExit(env); \
@@ -1669,7 +1691,7 @@ JNI_ENTRY_CHECKED(void *,
                                         jboolean *isCopy))
     functionEnterCritical(thr);
     IN_VM(
-      checkArray(thr, array, -1);
+      check_is_primitive_array(thr, array);
     )
     void *result = UNCHECKED()->GetPrimitiveArrayCritical(env, array, isCopy);
     functionExit(env);
@@ -1683,7 +1705,7 @@ JNI_ENTRY_CHECKED(void,
                                             jint mode))
     functionEnterCriticalExceptionAllowed(thr);
     IN_VM(
-      checkArray(thr, array, -1);
+      check_is_primitive_array(thr, array);
     )
     /* The Hotspot JNI code does not use the parameters, so just check the
      * array parameter as a minor sanity check

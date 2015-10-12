@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2004, 2007, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2004, 2012, Oracle and/or its affiliates. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -38,7 +38,7 @@ and plots the memory usage history graph.
 
 To run the MemoryMonitor demo
 
-   java -jar <JDK_HOME>/demo/management/MemoryMonitor.jar 
+   java -jar <JDK_HOME>/demo/management/MemoryMonitor/MemoryMonitor.jar 
 
 These instructions assume that this installation's version of the java
 command is in your path.  If it isn't, then you should either

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,6 +22,13 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+#ifdef _ALLBSD_SOURCE
+#include <stdint.h>
+#define THRTYPE intptr_t
+#else
+#define THRTYPE int
+#endif
+
 #include <sys/types.h>
 
 #include <stdio.h>
@@ -35,7 +42,7 @@
 
 #if defined(unix) && !defined(PRODUCT)
 #include "pthread.h"
-#define THREAD_SELF ((int)pthread_self())
+#define THREAD_SELF ((THRTYPE)pthread_self())
 #endif
 
 #include "defines.h"
@@ -58,18 +65,18 @@ int main(int argc, char **argv) {
 // Single-threaded, implementation, not reentrant.
 // Includes a weak error check against MT access.
 #ifndef THREAD_SELF
-#define THREAD_SELF (0)
+#define THREAD_SELF ((THRTYPE) 0)
 #endif
-NOT_PRODUCT(static int uThread = -1;)
+NOT_PRODUCT(static THRTYPE uThread = -1;)
 
 unpacker* unpacker::non_mt_current = null;
 unpacker* unpacker::current() {
-  assert(uThread == THREAD_SELF);
+  //assert(uThread == THREAD_SELF);
   return non_mt_current;
 }
 static void set_current_unpacker(unpacker* u) {
   unpacker::non_mt_current = u;
-  assert(((uThread = (u == null) ? -1 : THREAD_SELF),
+  assert(((uThread = (u == null) ? (THRTYPE) -1 : THREAD_SELF),
           true));
 }
 

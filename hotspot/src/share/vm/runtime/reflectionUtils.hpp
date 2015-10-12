@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,25 +38,29 @@
 // and (super)interfaces. Streaming is done in reverse order (subclasses first,
 // interfaces last).
 //
-//    for (KlassStream st(k, false, false); !st.eos(); st.next()) {
-//      klassOop k = st.klass();
+//    for (KlassStream st(k, false, false, false); !st.eos(); st.next()) {
+//      Klass* k = st.klass();
 //      ...
 //    }
 
 class KlassStream VALUE_OBJ_CLASS_SPEC {
  protected:
   instanceKlassHandle _klass;           // current klass/interface iterated over
-  objArrayHandle      _interfaces;      // transitive interfaces for initial class
+  instanceKlassHandle _base_klass;      // initial klass/interface to iterate over
+  Array<Klass*>*      _interfaces;      // transitive interfaces for initial class
   int                 _interface_index; // current interface being processed
   bool                _local_only;      // process initial class/interface only
   bool                _classes_only;    // process classes only (no interfaces)
+  bool                _walk_defaults;   // process default methods
+  bool                _base_class_search_defaults; // time to process default methods
+  bool                _defaults_checked; // already checked for default methods
   int                 _index;
 
-  virtual int length() const = 0;
+  virtual int length() = 0;
 
  public:
   // constructor
-  KlassStream(instanceKlassHandle klass, bool local_only, bool classes_only);
+  KlassStream(instanceKlassHandle klass, bool local_only, bool classes_only, bool walk_defaults);
 
   // testing
   bool eos();
@@ -67,6 +71,8 @@ class KlassStream VALUE_OBJ_CLASS_SPEC {
   // accessors
   instanceKlassHandle klass() const { return _klass; }
   int index() const                 { return _index; }
+  bool base_class_search_defaults() const { return _base_class_search_defaults; }
+  void base_class_search_defaults(bool b) { _base_class_search_defaults = b; }
 };
 
 
@@ -75,23 +81,30 @@ class KlassStream VALUE_OBJ_CLASS_SPEC {
 // Usage:
 //
 //    for (MethodStream st(k, false, false); !st.eos(); st.next()) {
-//      methodOop m = st.method();
+//      Method* m = st.method();
 //      ...
 //    }
 
 class MethodStream : public KlassStream {
  private:
-  int length() const          { return methods()->length(); }
-  objArrayOop methods() const { return _klass->methods(); }
+  int length()                    { return methods()->length(); }
+  Array<Method*>* methods() {
+    if (base_class_search_defaults()) {
+      base_class_search_defaults(false);
+      return _klass->default_methods();
+    } else {
+      return _klass->methods();
+    }
+  }
  public:
   MethodStream(instanceKlassHandle klass, bool local_only, bool classes_only)
-    : KlassStream(klass, local_only, classes_only) {
+    : KlassStream(klass, local_only, classes_only, true) {
     _index = length();
     next();
   }
 
   void next() { _index--; }
-  methodOop method() const { return methodOop(methods()->obj_at(index())); }
+  Method* method() { return methods()->at(index()); }
 };
 
 
@@ -107,52 +120,54 @@ class MethodStream : public KlassStream {
 
 class FieldStream : public KlassStream {
  private:
-  int length() const                { return fields()->length(); }
-  constantPoolOop constants() const { return _klass->constants(); }
- protected:
-  typeArrayOop fields() const       { return _klass->fields(); }
+  int length() { return _klass->java_fields_count(); }
+
+  fieldDescriptor _fd_buf;
+
  public:
   FieldStream(instanceKlassHandle klass, bool local_only, bool classes_only)
-    : KlassStream(klass, local_only, classes_only) {
+    : KlassStream(klass, local_only, classes_only, false) {
     _index = length();
     next();
   }
 
-  void next() { _index -= instanceKlass::next_offset; }
+  void next() { _index -= 1; }
 
   // Accessors for current field
   AccessFlags access_flags() const {
     AccessFlags flags;
-    flags.set_flags(fields()->ushort_at(index() + instanceKlass::access_flags_offset));
+    flags.set_flags(_klass->field_access_flags(_index));
     return flags;
   }
   Symbol* name() const {
-    int name_index = fields()->ushort_at(index() + instanceKlass::name_index_offset);
-    return constants()->symbol_at(name_index);
+    return _klass->field_name(_index);
   }
   Symbol* signature() const {
-    int signature_index = fields()->ushort_at(index() +
-                                       instanceKlass::signature_index_offset);
-    return constants()->symbol_at(signature_index);
+    return _klass->field_signature(_index);
   }
   // missing: initval()
   int offset() const {
-    return _klass->offset_from_fields( index() );
+    return _klass->field_offset( index() );
+  }
+  // bridge to a heavier API:
+  fieldDescriptor& field_descriptor() const {
+    fieldDescriptor& field = const_cast<fieldDescriptor&>(_fd_buf);
+    field.reinitialize(_klass(), _index);
+    return field;
   }
 };
 
-class FilteredField {
+class FilteredField : public CHeapObj<mtInternal>  {
  private:
-  klassOop _klass;
-  int      _field_offset;
+  Klass* _klass;
+  int    _field_offset;
 
  public:
-  FilteredField(klassOop klass, int field_offset) {
+  FilteredField(Klass* klass, int field_offset) {
     _klass = klass;
     _field_offset = field_offset;
   }
-  klassOop klass() { return _klass; }
-  oop* klass_addr() { return (oop*) &_klass; }
+  Klass* klass() { return _klass; }
   int  field_offset() { return _field_offset; }
 };
 
@@ -161,7 +176,7 @@ class FilteredFieldsMap : AllStatic {
   static GrowableArray<FilteredField *> *_filtered_fields;
  public:
   static void initialize();
-  static bool is_filtered_field(klassOop klass, int field_offset) {
+  static bool is_filtered_field(Klass* klass, int field_offset) {
     for (int i=0; i < _filtered_fields->length(); i++) {
       if (klass == _filtered_fields->at(i)->klass() &&
         field_offset == _filtered_fields->at(i)->field_offset()) {
@@ -170,21 +185,21 @@ class FilteredFieldsMap : AllStatic {
     }
     return false;
   }
-  static int  filtered_fields_count(klassOop klass, bool local_only) {
+  static int  filtered_fields_count(Klass* klass, bool local_only) {
     int nflds = 0;
     for (int i=0; i < _filtered_fields->length(); i++) {
       if (local_only && klass == _filtered_fields->at(i)->klass()) {
         nflds++;
-      } else if (klass->klass_part()->is_subtype_of(_filtered_fields->at(i)->klass())) {
+      } else if (klass->is_subtype_of(_filtered_fields->at(i)->klass())) {
         nflds++;
       }
     }
     return nflds;
   }
-  // GC support.
-  static void klasses_oops_do(OopClosure* f) {
+  // Enhance Class Redefinition Support
+  static void classes_do(KlassClosure* f) {
     for (int i = 0; i < _filtered_fields->length(); i++) {
-      f->do_oop((oop*)_filtered_fields->at(i)->klass_addr());
+      f->do_klass(_filtered_fields->at(i)->klass());
     }
   }
 };
@@ -209,14 +224,14 @@ class FilteredFieldStream : public FieldStream {
  public:
   FilteredFieldStream(instanceKlassHandle klass, bool local_only, bool classes_only)
     : FieldStream(klass, local_only, classes_only) {
-    _filtered_fields_count = FilteredFieldsMap::filtered_fields_count((klassOop)klass(), local_only);
+    _filtered_fields_count = FilteredFieldsMap::filtered_fields_count((Klass*)klass(), local_only);
   }
   int field_count();
   void next() {
-    _index -= instanceKlass::next_offset;
+    _index -= 1;
     if (has_filtered_field()) {
-      while (_index >=0 && FilteredFieldsMap::is_filtered_field((klassOop)_klass(), offset())) {
-        _index -= instanceKlass::next_offset;
+      while (_index >=0 && FilteredFieldsMap::is_filtered_field((Klass*)_klass(), offset())) {
+        _index -= 1;
       }
     }
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -81,19 +81,27 @@ public class WindowsTreeUI extends BasicTreeUI {
             else {
                 Rectangle   beginRect = getPathBounds(tree, getPathForRow
                                                       (tree, beginRow));
-                Rectangle   testRect = beginRect;
-                int         beginY = beginRect.y;
-                int         maxY = beginY + visRect.height;
+                if (beginRect != null) {
+                    Rectangle   testRect = beginRect;
+                    int         beginY = beginRect.y;
+                    int         maxY = beginY + visRect.height;
 
-                for(int counter = beginRow + 1; counter <= endRow; counter++) {
-                    testRect = getPathBounds(tree,
-                                             getPathForRow(tree, counter));
-                    if((testRect.y + testRect.height) > maxY)
-                        counter = endRow;
+                    for(int counter = beginRow + 1; counter <= endRow; counter++) {
+                        testRect = getPathBounds(tree,
+                                                 getPathForRow(tree, counter));
+                        if(testRect != null && (testRect.y + testRect.height) > maxY) {
+                            counter = endRow;
+                        }
+                    }
+
+                    if (testRect == null) {
+                        return;
+                    }
+
+                    tree.scrollRectToVisible(new Rectangle(visRect.x, beginY, 1,
+                                                      testRect.y + testRect.height-
+                                                      beginY));
                 }
-                tree.scrollRectToVisible(new Rectangle(visRect.x, beginY, 1,
-                                                  testRect.y + testRect.height-
-                                                  beginY));
             }
         }
     }

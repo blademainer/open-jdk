@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -87,7 +87,12 @@ class NativeUnpack {
         // If loading from stand alone build uncomment this.
         // System.loadLibrary("unpack");
         java.security.AccessController.doPrivileged(
-                new sun.security.action.LoadLibraryAction("unpack"));
+            new java.security.PrivilegedAction<Void>() {
+                public Void run() {
+                    System.loadLibrary("unpack");
+                    return null;
+                }
+            });
         initIDs();
     }
 
@@ -102,6 +107,10 @@ class NativeUnpack {
     static private Object currentInstance() {
         UnpackerImpl p200 = (UnpackerImpl) Utils.getTLGlobals();
         return (p200 == null)? null: p200._nunp;
+    }
+
+    private synchronized long getUnpackerPtr() {
+        return unpackerPtr;
     }
 
     // Callback from the unpacker engine to get more data.
@@ -181,7 +190,7 @@ class NativeUnpack {
 
         copyInOption(Utils.DEBUG_VERBOSE);
         copyInOption(Pack200.Unpacker.DEFLATE_HINT);
-        if (modtime == Constants.NO_MODTIME)  // Dont pass KEEP && NOW
+        if (modtime == Constants.NO_MODTIME)  // Don't pass KEEP && NOW
             copyInOption(Utils.UNPACK_MODIFICATION_TIME);
         updateProgress();  // reset progress bar
         for (;;) {
@@ -292,7 +301,7 @@ class NativeUnpack {
         }
 
         ZipEntry z = new ZipEntry(name);
-        z.setTime( (long)mtime * 1000);
+        z.setTime(mtime * 1000);
 
         if (size == 0) {
             z.setMethod(ZipOutputStream.STORED);

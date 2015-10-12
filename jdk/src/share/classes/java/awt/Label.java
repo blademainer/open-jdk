@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,7 +36,7 @@ import javax.accessibility.*;
  * directly.
  * <p>
  * For example, the code&nbsp;.&nbsp;.&nbsp;.
- * <p>
+ *
  * <hr><blockquote><pre>
  * setLayout(new FlowLayout(FlowLayout.CENTER, 10, 10));
  * add(new Label("Hi There!"));
@@ -46,7 +46,7 @@ import javax.accessibility.*;
  * produces the following labels:
  * <p>
  * <img src="doc-files/Label-1.gif" alt="Two labels: 'Hi There!' and 'Another label'"
- * ALIGN=center HSPACE=10 VSPACE=7>
+ * style="float:center; margin: 7px 10px;">
  *
  * @author      Sami Shaio
  * @since       JDK1.0

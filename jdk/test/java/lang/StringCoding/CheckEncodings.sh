@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,7 @@
 # set platform-dependent variables
 OS=`uname -s`
 case "$OS" in
-  SunOS | Linux ) ;;
+  SunOS | Linux | Darwin) ;;
   Windows* | CYGWIN* )
     echo "Passed"; exit 0 ;;
   * ) echo "Unrecognized system!" ;  exit 1 ;;
@@ -49,7 +49,7 @@ runTest() {
   echo "Testing:" ${1}
   set LC_ALL="${1}"; export LC_ALL
   locale
-  ${TESTJAVA}/bin/java -version 2>&1
+  ${TESTJAVA}/bin/java ${TESTVMOPTS} -version 2>&1
   expectPass $?
 }
 
@@ -63,7 +63,7 @@ cat ${TESTSRC}/locales.txt machine_locales.txt | sort | uniq > locale_union.txt
 for i in `xargs < locale_union.txt` ; do
   runTest ${i}
 done
-  
+
 # random strings
 for i in FOO 1234 ZZ; do
   runTest ${i}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,7 +43,6 @@ class GenCollectedHeap : public SharedHeap {
   friend class CMSCollector;
   friend class GenMarkSweep;
   friend class VM_GenCollectForAllocation;
-  friend class VM_GenCollectForPermanentAllocation;
   friend class VM_GenCollectFull;
   friend class VM_GenCollectFullConcurrent;
   friend class VM_GC_HeapInspection;
@@ -86,15 +85,7 @@ public:
   // In block contents verification, the number of header words to skip
   NOT_PRODUCT(static size_t _skip_header_HeapWords;)
 
-  // GC is not allowed during the dump of the shared classes.  Keep track
-  // of this in order to provide an reasonable error message when terminating.
-  bool _preloading_shared_classes;
-
 protected:
-  // Directs each generation up to and including "collectedGen" to recompute
-  // its desired size.
-  void compute_new_generation_sizes(int collectedGen);
-
   // Helper functions for allocation
   HeapWord* attempt_allocation(size_t size,
                                bool   is_tlab,
@@ -116,6 +107,7 @@ protected:
 
   // Callback from VM_GenCollectFull operation.
   // Perform a full collection of the first max_level+1 generations.
+  virtual void do_full_collection(bool clear_all_soft_refs);
   void do_full_collection(bool clear_all_soft_refs, int max_level);
 
   // Does the "cause" of GC indicate that
@@ -129,7 +121,7 @@ public:
 
   // Returns JNI_OK on success
   virtual jint initialize();
-  char* allocate(size_t alignment, PermanentGenerationSpec* perm_gen_spec,
+  char* allocate(size_t alignment,
                  size_t* _total_reserved, int* _n_covered_regions,
                  ReservedSpace* heap_rs);
 
@@ -145,24 +137,27 @@ public:
 
   // The generational collector policy.
   GenCollectorPolicy* gen_policy() const { return _gen_policy; }
+  virtual CollectorPolicy* collector_policy() const { return (CollectorPolicy*) gen_policy(); }
 
   // Adaptive size policy
   virtual AdaptiveSizePolicy* size_policy() {
     return gen_policy()->size_policy();
   }
 
+  // Return the (conservative) maximum heap alignment
+  static size_t conservative_max_heap_alignment() {
+    return Generation::GenGrain;
+  }
+
   size_t capacity() const;
   size_t used() const;
 
-  // Save the "used_region" for generations level and lower,
-  // and, if perm is true, for perm gen.
-  void save_used_regions(int level, bool perm);
+  // Save the "used_region" for generations level and lower.
+  void save_used_regions(int level);
 
   size_t max_capacity() const;
 
   HeapWord* mem_allocate(size_t size,
-                         bool   is_large_noref,
-                         bool   is_tlab,
                          bool*  gc_overhead_limit_was_exceeded);
 
   // We may support a shared contiguous allocation area, if the youngest
@@ -187,12 +182,6 @@ public:
   // supports. Caller does not hold the Heap_lock on entry.
   void collect(GCCause::Cause cause);
 
-  // This interface assumes that it's being called by the
-  // vm thread. It collects the heap assuming that the
-  // heap lock is already held and that we are executing in
-  // the context of the vm thread.
-  void collect_as_vm_thread(GCCause::Cause cause);
-
   // The same as above but assume that the caller holds the Heap_lock.
   void collect_locked(GCCause::Cause cause);
 
@@ -200,7 +189,7 @@ public:
   // Mostly used for testing purposes. Caller does not hold the Heap_lock on entry.
   void collect(GCCause::Cause cause, int max_level);
 
-  // Returns "TRUE" iff "p" points into the allocated area of the heap.
+  // Returns "TRUE" iff "p" points into the committed areas of the heap.
   // The methods is_in(), is_in_closed_subset() and is_in_youngest() may
   // be expensive to compute in general, so, to prevent
   // their inadvertent use in product jvm's, we restrict their use to
@@ -230,11 +219,10 @@ public:
   }
 
   // Iteration functions.
-  void oop_iterate(OopClosure* cl);
-  void oop_iterate(MemRegion mr, OopClosure* cl);
+  void oop_iterate(ExtendedOopClosure* cl);
+  void oop_iterate(MemRegion mr, ExtendedOopClosure* cl);
   void object_iterate(ObjectClosure* cl);
   void safe_object_iterate(ObjectClosure* cl);
-  void object_iterate_since_last_GC(ObjectClosure* cl);
   Space* space_containing(const void* addr) const;
 
   // A CollectedHeap is divided into a dense sequence of "blocks"; that is,
@@ -296,14 +284,6 @@ public:
     return is_in_young(new_obj);
   }
 
-  // Can a compiler elide a store barrier when it writes
-  // a permanent oop into the heap?  Applies when the compiler
-  // is storing x to the heap, where x->is_perm() is true.
-  virtual bool can_elide_permanent_oop_store_barriers() const {
-    // CMS needs to see all, even intra-generational, ref updates.
-    return !UseConcMarkSweepGC;
-  }
-
   // The "requestor" generation is performing some garbage collection
   // action for which it would be useful to have scratch space.  The
   // requestor promises to allocate no more than "max_alloc_words" in any
@@ -314,8 +294,6 @@ public:
   // Allow each generation to reset any scratch space that it has
   // contributed as it needs.
   void release_scratch();
-
-  size_t large_typearray_limit();
 
   // Ensure parsability: override
   virtual void ensure_parsability(bool retire_tlabs);
@@ -342,7 +320,6 @@ public:
     for (int i = 0; i < _n_gens; i++) {
       _gens[i]->update_time_of_last_gc(now);
     }
-    perm_gen()->update_time_of_last_gc(now);
   }
 
   // Update the gc statistics for each generation.
@@ -351,7 +328,6 @@ public:
     for (int i = 0; i < _n_gens; i++) {
       _gens[i]->update_gc_stats(current_level, full);
     }
-    perm_gen()->update_gc_stats(current_level, full);
   }
 
   // Override.
@@ -361,18 +337,17 @@ public:
   void prepare_for_verify();
 
   // Override.
-  void verify(bool allow_dirty, bool silent, bool /* option */);
+  void verify(bool silent, VerifyOption option);
 
   // Override.
-  void print() const;
-  void print_on(outputStream* st) const;
+  virtual void print_on(outputStream* st) const;
   virtual void print_gc_threads_on(outputStream* st) const;
   virtual void gc_threads_do(ThreadClosure* tc) const;
   virtual void print_tracing_info() const;
+  virtual void print_on_error(outputStream* st) const;
 
   // PrintGC, PrintGCDetails support
   void print_heap_change(size_t prev_used) const;
-  void print_perm_heap_change(size_t perm_prev_used) const;
 
   // The functions below are helper functions that a subclass of
   // "CollectedHeap" can use in the implementation of its virtual
@@ -383,36 +358,34 @@ public:
     virtual void do_generation(Generation* gen) = 0;
   };
 
-  // Apply "cl.do_generation" to all generations in the heap (not including
-  // the permanent generation).  If "old_to_young" determines the order.
+  // Apply "cl.do_generation" to all generations in the heap
+  // If "old_to_young" determines the order.
   void generation_iterate(GenClosure* cl, bool old_to_young);
 
   void space_iterate(SpaceClosure* cl);
 
-  // Return "true" if all generations (but perm) have reached the
+  // Return "true" if all generations have reached the
   // maximal committed limit that they can reach, without a garbage
   // collection.
   virtual bool is_maximal_no_gc() const;
 
-  // Return the generation before "gen", or else NULL.
+  // Return the generation before "gen".
   Generation* prev_gen(Generation* gen) const {
     int l = gen->level();
-    if (l == 0) return NULL;
-    else return _gens[l-1];
+    guarantee(l > 0, "Out of bounds");
+    return _gens[l-1];
   }
 
-  // Return the generation after "gen", or else NULL.
+  // Return the generation after "gen".
   Generation* next_gen(Generation* gen) const {
     int l = gen->level() + 1;
-    if (l == _n_gens) return NULL;
-    else return _gens[l];
+    guarantee(l < _n_gens, "Out of bounds");
+    return _gens[l];
   }
 
   Generation* get_gen(int i) const {
-    if (i >= 0 && i < _n_gens)
-      return _gens[i];
-    else
-      return NULL;
+    guarantee(i >= 0 && i < _n_gens, "Out of bounds");
+    return _gens[i];
   }
 
   int n_gens() const {
@@ -424,8 +397,7 @@ public:
   // asserted to be this type.
   static GenCollectedHeap* heap();
 
-  void set_par_threads(int t);
-
+  void set_par_threads(uint t);
 
   // Invoke the "do_oop" method of one of the closures "not_older_gens"
   // or "older_gens" on root locations for the generation at
@@ -435,10 +407,8 @@ public:
   // not scanned as roots; in this case, the caller must be arranging to
   // scan the younger generations itself.  (For example, a generation might
   // explicitly mark reachable objects in younger generations, to avoid
-  // excess storage retention.)  If "collecting_perm_gen" is false, then
-  // roots that may only contain references to permGen objects are not
-  // scanned; instead, the older_gens closure is applied to all outgoing
-  // references in the perm gen.  The "so" argument determines which of the roots
+  // excess storage retention.)
+  // The "so" argument determines which of the roots
   // the closure is applied to:
   // "SO_None" does none;
   // "SO_AllClasses" applies the closure to all entries in the SystemDictionary;
@@ -449,18 +419,18 @@ public:
                                 // The remaining arguments are in an order
                                 // consistent with SharedHeap::process_strong_roots:
                                 bool activate_scope,
-                                bool collecting_perm_gen,
+                                bool is_scavenging,
                                 SharedHeap::ScanningOption so,
                                 OopsInGenClosure* not_older_gens,
                                 bool do_code_roots,
-                                OopsInGenClosure* older_gens);
+                                OopsInGenClosure* older_gens,
+                                KlassClosure* klass_closure);
 
   // Apply "blk" to all the weak roots of the system.  These include
   // JNI weak roots, the code cache, system dictionary, symbol table,
   // string table, and referents of reachable weak refs.
   void gen_process_weak_roots(OopClosure* root_closure,
-                              CodeBlobClosure* code_roots,
-                              OopClosure* non_root_closure);
+                              CodeBlobClosure* code_roots);
 
   // Set the saved marks of generations, if that makes sense.
   // In particular, if any generation might iterate over the oops
@@ -469,9 +439,9 @@ public:
 
   // Apply "cur->do_oop" or "older->do_oop" to all the oops in objects
   // allocated since the last call to save_marks in generations at or above
-  // "level" (including the permanent generation.)  The "cur" closure is
+  // "level".  The "cur" closure is
   // applied to references in the generation at "level", and the "older"
-  // closure to older (and permanent) generations.
+  // closure to older generations.
 #define GCH_SINCE_SAVE_MARKS_ITERATE_DECL(OopClosureType, nv_suffix)    \
   void oop_since_save_marks_iterate(int level,                          \
                                     OopClosureType* cur,                \
@@ -482,7 +452,7 @@ public:
 #undef GCH_SINCE_SAVE_MARKS_ITERATE_DECL
 
   // Returns "true" iff no allocations have occurred in any generation at
-  // "level" or above (including the permanent generation) since the last
+  // "level" or above since the last
   // call to "save_marks".
   bool no_allocs_since_save_marks(int level);
 
@@ -512,11 +482,11 @@ public:
     _incremental_collection_failed = false;
   }
 
-  // Promotion of obj into gen failed.  Try to promote obj to higher non-perm
+  // Promotion of obj into gen failed.  Try to promote obj to higher
   // gens in ascending order; return the new location of obj if successful.
-  // Otherwise, try expand-and-allocate for obj in each generation starting at
-  // gen; return the new location of obj if successful.  Otherwise, return NULL.
-  oop handle_failed_promotion(Generation* gen,
+  // Otherwise, try expand-and-allocate for obj in both the young and old
+  // generation; return the new location of obj if successful.  Otherwise, return NULL.
+  oop handle_failed_promotion(Generation* old_gen,
                               oop obj,
                               size_t obj_size);
 
@@ -553,9 +523,6 @@ private:
 protected:
   virtual void gc_prologue(bool full);
   virtual void gc_epilogue(bool full);
-
-public:
-  virtual void preload_and_dump(TRAPS) KERNEL_RETURN;
 };
 
 #endif // SHARE_VM_MEMORY_GENCOLLECTEDHEAP_HPP

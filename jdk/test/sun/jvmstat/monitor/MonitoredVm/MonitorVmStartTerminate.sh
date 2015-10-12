@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,6 @@
 
 #
 # @test
-# @ignore until 6543856 is fixed
 # @bug 4990825
 # @summary attach to external but local JVM processes
 # @library ../../testlibrary
@@ -39,6 +38,6 @@ setup
 verify_os
 
 JAVA="${TESTJAVA}/bin/java"
-CP=${TESTJAVA}${FS}lib${FS}tools.jar${PS}${TESTCLASSES}
+CP=${TESTJAVA}${FS}lib${FS}tools.jar${PS}${TESTCLASSES}${PS}${TESTCLASSES}${FS}..${FS}..${FS}testlibrary
 
-${JAVA} -classpath ${CP} MonitorVmStartTerminate
+${JAVA} ${TESTVMOPTS} -classpath ${CP} MonitorVmStartTerminate

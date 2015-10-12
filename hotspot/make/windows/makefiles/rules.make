@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -23,14 +23,15 @@
 #
 
 # These are the commands used externally to compile and run.
-
+# The \ are used here for traditional Windows apps and " quoted to get
+# past the Unix-like shell:
 !ifdef BootStrapDir
-RUN_JAVA=$(BootStrapDir)\bin\java
-RUN_JAVAP=$(BootStrapDir)\bin\javap
-RUN_JAVAH=$(BootStrapDir)\bin\javah
-RUN_JAR=$(BootStrapDir)\bin\jar
-COMPILE_JAVAC=$(BootStrapDir)\bin\javac $(BOOTSTRAP_JAVAC_FLAGS)
-COMPILE_RMIC=$(BootStrapDir)\bin\rmic
+RUN_JAVA="$(BootStrapDir)\bin\java"
+RUN_JAVAP="$(BootStrapDir)\bin\javap"
+RUN_JAVAH="$(BootStrapDir)\bin\javah"
+RUN_JAR="$(BootStrapDir)\bin\jar"
+COMPILE_JAVAC="$(BootStrapDir)\bin\javac" $(BOOTSTRAP_JAVAC_FLAGS)
+COMPILE_RMIC="$(BootStrapDir)\bin\rmic"
 BOOT_JAVA_HOME=$(BootStrapDir)
 !else
 RUN_JAVA=java
@@ -64,6 +65,13 @@ VcVersion=VC8
 VcVersion=VC9
 
 !elseif "$(MSC_VER)" == "1600"
+
+VcVersion=VC10
+ProjectFile=jvm.vcxproj
+
+!elseif "$(MSC_VER)" == "1700"
+# This is VS2012, but it loads VS10 projects just fine (and will
+# upgrade them automatically to VS2012 format).
 
 VcVersion=VC10
 ProjectFile=jvm.vcxproj

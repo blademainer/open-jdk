@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,13 +25,16 @@
 package com.sun.beans.finder;
 
 import com.sun.beans.TypeResolver;
-import com.sun.beans.WeakCache;
+import com.sun.beans.util.Cache;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.Arrays;
+
+import static com.sun.beans.util.Cache.Kind.SOFT;
+import static sun.reflect.misc.ReflectUtil.isPackageAccessible;
 
 /**
  * This utility class provides {@code static} methods
@@ -43,7 +46,18 @@ import java.util.Arrays;
  * @author Sergey A. Malenkov
  */
 public final class MethodFinder extends AbstractFinder<Method> {
-    private static final WeakCache<Signature, Method> CACHE = new WeakCache<Signature, Method>();
+    private static final Cache<Signature, Method> CACHE = new Cache<Signature, Method>(SOFT, SOFT) {
+        @Override
+        public Method create(Signature signature) {
+            try {
+                MethodFinder finder = new MethodFinder(signature.getName(), signature.getArgs());
+                return findAccessibleMethod(finder.find(signature.getType().getMethods()));
+            }
+            catch (Exception exception) {
+                throw new SignatureException(exception);
+            }
+        }
+    };
 
     /**
      * Finds public method (static or non-static)
@@ -63,13 +77,13 @@ public final class MethodFinder extends AbstractFinder<Method> {
         PrimitiveWrapperMap.replacePrimitivesWithWrappers(args);
         Signature signature = new Signature(type, name, args);
 
-        Method method = CACHE.get(signature);
-        if (method != null) {
-            return method;
+        try {
+            Method method = CACHE.get(signature);
+            return (method == null) || isPackageAccessible(method.getDeclaringClass()) ? method : CACHE.create(signature);
         }
-        method = findAccessibleMethod(new MethodFinder(name, args).find(type.getMethods()));
-        CACHE.put(signature, method);
-        return method;
+        catch (SignatureException exception) {
+            throw exception.toNoSuchMethodException("Method '" + name + "' is not found");
+        }
     }
 
     /**
@@ -120,7 +134,7 @@ public final class MethodFinder extends AbstractFinder<Method> {
      */
     public static Method findAccessibleMethod(Method method) throws NoSuchMethodException {
         Class<?> type = method.getDeclaringClass();
-        if (Modifier.isPublic(type.getModifiers())) {
+        if (Modifier.isPublic(type.getModifiers()) && isPackageAccessible(type)) {
             return method;
         }
         if (Modifier.isStatic(method.getModifiers())) {
@@ -164,8 +178,10 @@ public final class MethodFinder extends AbstractFinder<Method> {
                             return findAccessibleMethod(m);
                         }
                         Type[] gpts = m.getGenericParameterTypes();
-                        if (Arrays.equals(params, TypeResolver.erase(TypeResolver.resolve(pt, gpts)))) {
-                            return findAccessibleMethod(m);
+                        if (params.length == gpts.length) {
+                            if (Arrays.equals(params, TypeResolver.erase(TypeResolver.resolve(pt, gpts)))) {
+                                return findAccessibleMethod(m);
+                            }
                         }
                     }
                 }
@@ -189,33 +205,6 @@ public final class MethodFinder extends AbstractFinder<Method> {
     }
 
     /**
-     * Returns an array of {@code Class} objects
-     * that represent the formal parameter types of the method
-     * Returns an empty array if the method takes no parameters.
-     *
-     * @param method  the object that represents method
-     * @return the parameter types of the method
-     */
-    @Override
-    protected Class<?>[] getParameters(Method method) {
-        return method.getParameterTypes();
-    }
-
-    /**
-     * Returns {@code true} if and only if the method
-     * was declared to take a variable number of arguments.
-     *
-     * @param method  the object that represents method
-     * @return {@code true} if the method was declared
-     *         to take a variable number of arguments;
-     *         {@code false} otherwise
-     */
-    @Override
-    protected boolean isVarArgs(Method method) {
-        return method.isVarArgs();
-    }
-
-    /**
      * Checks validness of the method.
      * The valid method should be public and
      * should have the specified name.
@@ -226,6 +215,6 @@ public final class MethodFinder extends AbstractFinder<Method> {
      */
     @Override
     protected boolean isValid(Method method) {
-        return Modifier.isPublic(method.getModifiers()) && method.getName().equals(this.name);
+        return super.isValid(method) && method.getName().equals(this.name);
     }
 }

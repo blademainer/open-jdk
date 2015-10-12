@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,6 +44,7 @@
 #include <X11/Xlib.h>
 
 #include "jni.h"
+#include "jvm_md.h"
 #include "jdga.h"
 #include "jdgadevice.h"
 
@@ -84,10 +85,10 @@ Drawable GetVirtualDrawableStub(Display *display, Drawable drawable) {
 static GetVirtualDrawableFunc * GetVirtualDrawable = GetVirtualDrawableStub;
 
 static void Solaris_DGA_XineramaInit(Display *display) {
-    void * handle = 0;
+    void * handle = NULL;
     if (IsXineramaOn == NULL) {
-        handle = dlopen("libxinerama.so", RTLD_NOW);
-        if (handle != 0) {
+        handle = dlopen(JNI_LIB_NAME("xinerama"), RTLD_NOW);
+        if (handle != NULL) {
             void *sym = dlsym(handle, "IsXineramaOn");
             IsXineramaOn = (IsXineramaOnFunc *)sym;
             if (IsXineramaOn != 0 && (*IsXineramaOn)(display)) {

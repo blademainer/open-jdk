@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,12 +39,13 @@ class x86 {
  friend class VMStructs;
 
  private:
-  static address _verify_mxcsr_entry;
   static address _verify_fpu_cntrl_wrd_entry;
 
  public:
-  static address verify_mxcsr_entry()                        { return _verify_mxcsr_entry; }
   static address verify_fpu_cntrl_wrd_entry()                { return _verify_fpu_cntrl_wrd_entry; }
+
+# include "stubRoutines_x86.hpp"
+
 };
 
   static bool    returns_to_call_stub(address return_pc)     { return return_pc == _call_stub_return_address; }

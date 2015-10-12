@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -102,7 +102,7 @@ class InstancesCountQuery extends QueryHandler {
             int count = clazz.getInstancesCount(false);
             print("" + count);
             printAnchorStart();
-            out.print("instances/" + encodeForURL(classes[i]));
+            print("instances/" + encodeForURL(classes[i]));
             out.print("\"> ");
             if (count == 1) {
                 print("instance");
@@ -121,7 +121,7 @@ class InstancesCountQuery extends QueryHandler {
                 }
                 print("(");
                 printAnchorStart();
-                out.print("newInstances/" + encodeForURL(classes[i]));
+                print("newInstances/" + encodeForURL(classes[i]));
                 out.print("\">");
                 print("" + newInst + " new");
                 out.print("</a>) ");

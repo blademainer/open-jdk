@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,16 +26,9 @@
 package sun.tools.jconsole;
 
 import java.awt.*;
-import java.awt.event.*;
-import java.io.*;
-import java.util.*;
-
 import javax.swing.*;
-import javax.swing.Timer;
-import javax.swing.border.*;
-import javax.swing.event.*;
 
-import static sun.tools.jconsole.Resources.*;
+
 import static sun.tools.jconsole.Utilities.*;
 
 @SuppressWarnings("serial")
@@ -47,7 +40,7 @@ public class VMInternalFrame extends MaximizableInternalFrame {
 
         this.vmPanel = vmPanel;
         setAccessibleDescription(this,
-                                 getText("VMInternalFrame.accessibleDescription"));
+                                 Messages.VMINTERNAL_FRAME_ACCESSIBLE_DESCRIPTION);
         getContentPane().add(vmPanel, BorderLayout.CENTER);
         pack();
         vmPanel.updateFrameTitle();

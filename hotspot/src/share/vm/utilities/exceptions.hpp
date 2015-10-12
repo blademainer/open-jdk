@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,7 +57,9 @@ class JavaCallArguments;
 // field of the Thread class w/o having access to the Thread's interface (for
 // include hierachy reasons).
 
-class ThreadShadow: public CHeapObj {
+class ThreadShadow: public CHeapObj<mtThread> {
+  friend class VMStructs;
+
  protected:
   oop  _pending_exception;                       // Thread has gc actions.
   const char* _exception_file;                   // file information for exception (debugging only)
@@ -110,19 +112,22 @@ class Exceptions {
   // Throw exceptions: w/o message, w/ message & with formatted message.
   static void _throw_oop(Thread* thread, const char* file, int line, oop exception);
   static void _throw(Thread* thread, const char* file, int line, Handle exception, const char* msg = NULL);
-  static void _throw_msg(Thread* thread, const char* file, int line,
-                         Symbol* name, const char* message, Handle loader,
-                         Handle protection_domain);
-  static void _throw_msg(Thread* thread, const char* file, int line,
-                         Symbol* name, const char* message);
+
+  static void _throw_msg(Thread* thread, const char* file, int line, Symbol* name, const char* message);
+  static void _throw_msg(Thread* thread, const char* file, int line, Symbol* name, const char* message,
+                         Handle loader, Handle protection_domain);
+
+  static void _throw_msg_cause(Thread* thread, const char* file, int line, Symbol* name, const char* message, Handle h_cause);
+  static void _throw_msg_cause(Thread* thread, const char* file, int line, Symbol* name, const char* message, Handle h_cause,
+                               Handle h_loader, Handle h_protection_domain);
+
+  static void _throw_cause(Thread* thread, const char* file, int line, Symbol* name, Handle h_cause);
+  static void _throw_cause(Thread* thread, const char* file, int line, Symbol* name, Handle h_cause,
+                           Handle h_loader, Handle h_protection_domain);
+
   static void _throw_args(Thread* thread, const char* file, int line,
                           Symbol* name, Symbol* signature,
                           JavaCallArguments* args);
-  static void _throw_msg_cause(Thread* thread, const char* file,
-                         int line, Symbol* h_name, const char* message,
-                         Handle h_cause, Handle h_loader, Handle h_protection_domain);
-  static void _throw_msg_cause(Thread* thread, const char* file, int line,
-                            Symbol* name, const char* message, Handle cause);
 
   // There is no THROW... macro for this method. Caller should remember
   // to do a return after calling it.
@@ -132,17 +137,26 @@ class Exceptions {
   // Create and initialize a new exception
   static Handle new_exception(Thread* thread, Symbol* name,
                               Symbol* signature, JavaCallArguments* args,
-                              Handle cause, Handle loader,
-                              Handle protection_domain);
+                              Handle loader, Handle protection_domain);
 
   static Handle new_exception(Thread* thread, Symbol* name,
-                              const char* message, Handle cause, Handle loader,
-                              Handle protection_domain,
+                              Symbol* signature, JavaCallArguments* args,
+                              Handle cause,
+                              Handle loader, Handle protection_domain);
+
+  static Handle new_exception(Thread* thread, Symbol* name,
+                              Handle cause,
+                              Handle loader, Handle protection_domain,
                               ExceptionMsgToUtf8Mode to_utf8_safe = safe_to_utf8);
 
- static Handle new_exception(Thread* thread, Symbol* name,
-                             const char* message,
-                             ExceptionMsgToUtf8Mode to_utf8_safe = safe_to_utf8);
+  static Handle new_exception(Thread* thread, Symbol* name,
+                              const char* message, Handle cause,
+                              Handle loader, Handle protection_domain,
+                              ExceptionMsgToUtf8Mode to_utf8_safe = safe_to_utf8);
+
+  static Handle new_exception(Thread* thread, Symbol* name,
+                              const char* message,
+                              ExceptionMsgToUtf8Mode to_utf8_safe = safe_to_utf8);
 
   static void throw_stack_overflow_exception(Thread* thread, const char* file, int line, methodHandle method);
 
@@ -180,12 +194,19 @@ class Exceptions {
 #define HAS_PENDING_EXCEPTION                    (((ThreadShadow*)THREAD)->has_pending_exception())
 #define CLEAR_PENDING_EXCEPTION                  (((ThreadShadow*)THREAD)->clear_pending_exception())
 
-#define CHECK                                    THREAD); if (HAS_PENDING_EXCEPTION) return       ; (0
-#define CHECK_(result)                           THREAD); if (HAS_PENDING_EXCEPTION) return result; (0
+#define CHECK                                    THREAD); if (HAS_PENDING_EXCEPTION) return       ; (void)(0
+#define CHECK_(result)                           THREAD); if (HAS_PENDING_EXCEPTION) return result; (void)(0
 #define CHECK_0                                  CHECK_(0)
 #define CHECK_NH                                 CHECK_(Handle())
 #define CHECK_NULL                               CHECK_(NULL)
 #define CHECK_false                              CHECK_(false)
+
+#define CHECK_AND_CLEAR                         THREAD); if (HAS_PENDING_EXCEPTION) { CLEAR_PENDING_EXCEPTION; return;        } (void)(0
+#define CHECK_AND_CLEAR_(result)                THREAD); if (HAS_PENDING_EXCEPTION) { CLEAR_PENDING_EXCEPTION; return result; } (void)(0
+#define CHECK_AND_CLEAR_0                       CHECK_AND_CLEAR_(0)
+#define CHECK_AND_CLEAR_NH                      CHECK_AND_CLEAR_(Handle())
+#define CHECK_AND_CLEAR_NULL                    CHECK_AND_CLEAR_(NULL)
+#define CHECK_AND_CLEAR_false                   CHECK_AND_CLEAR_(false)
 
 // The THROW... macros should be used to throw an exception. They require a THREAD variable to be
 // visible within the scope containing the THROW. Usually this is achieved by declaring the function
@@ -204,6 +225,9 @@ class Exceptions {
 
 #define THROW_MSG(name, message)                    \
   { Exceptions::_throw_msg(THREAD_AND_LOCATION, name, message); return;  }
+
+#define THROW_CAUSE(name, cause)   \
+  { Exceptions::_throw_cause(THREAD_AND_LOCATION, name, cause); return; }
 
 #define THROW_MSG_LOADER(name, message, loader, protection_domain) \
   { Exceptions::_throw_msg(THREAD_AND_LOCATION, name, message, loader, protection_domain); return;  }
@@ -229,6 +253,9 @@ class Exceptions {
 #define THROW_ARG_(name, signature, args, result) \
   { Exceptions::_throw_args(THREAD_AND_LOCATION, name, signature, args); return result; }
 
+#define THROW_MSG_CAUSE(name, message, cause)   \
+  { Exceptions::_throw_msg_cause(THREAD_AND_LOCATION, name, message, cause); return; }
+
 #define THROW_MSG_CAUSE_(name, message, cause, result)   \
   { Exceptions::_throw_msg_cause(THREAD_AND_LOCATION, name, message, cause); return result; }
 
@@ -240,6 +267,7 @@ class Exceptions {
 #define THROW_WRAPPED_0(name, oop_to_wrap)  THROW_WRAPPED_(name, oop_to_wrap, 0)
 #define THROW_ARG_0(name, signature, arg)   THROW_ARG_(name, signature, arg, 0)
 #define THROW_MSG_CAUSE_0(name, message, cause) THROW_MSG_CAUSE_(name, message, cause, 0)
+#define THROW_MSG_CAUSE_NULL(name, message, cause) THROW_MSG_CAUSE_(name, message, cause, NULL)
 
 #define THROW_NULL(name)                    THROW_(name, NULL)
 #define THROW_MSG_NULL(name, message)       THROW_MSG_(name, message, NULL)
@@ -254,8 +282,7 @@ class Exceptions {
     CLEAR_PENDING_EXCEPTION;               \
     ex->print();                           \
     ShouldNotReachHere();                  \
-  } (0
-
+  } (void)(0
 
 // ExceptionMark is a stack-allocated helper class for local exception handling.
 // It is used with the EXCEPTION_MARK macro.
@@ -279,6 +306,6 @@ class ExceptionMark {
 // which preserves pre-existing exceptions and does not allow new
 // exceptions.
 
-#define EXCEPTION_MARK                           Thread* THREAD; ExceptionMark __em(THREAD);
+#define EXCEPTION_MARK                           Thread* THREAD = NULL; ExceptionMark __em(THREAD);
 
 #endif // SHARE_VM_UTILITIES_EXCEPTIONS_HPP

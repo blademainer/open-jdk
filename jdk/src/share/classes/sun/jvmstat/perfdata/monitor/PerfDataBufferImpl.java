@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -120,7 +120,7 @@ public abstract class PerfDataBufferImpl {
                 }
             } catch (MonitorException e) {
                 /*
-                 * just ignore this here and let the reciever of the
+                 * just ignore this here and let the receiver of the
                  * byte[] detect and handle the problem.
                  */
             }

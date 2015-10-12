@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,6 +29,7 @@ import java.util.Enumeration;
 import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Stack;
 import java.util.TreeSet;
 import java.util.Vector;
 
@@ -139,10 +140,17 @@ public abstract class WinGammaPlatform {
                            "already exist>");
         System.err.println("  If any of the above are specified, "+
                            "they must all be.");
+        System.err.println("  Note: if '-altRelativeInclude' option below " +
+                           "is used, then the '-relativeAltSrcInclude' " +
+                           "option must be used to specify the alternate " +
+                           "source dir, e.g., 'src\\closed'");
         System.err.println("  Additional, optional arguments, which can be " +
                            "specified multiple times:");
         System.err.println("    -absoluteInclude <string containing absolute " +
                            "path to include directory>");
+        System.err.println("    -altRelativeInclude <string containing " +
+                           "alternate include directory relative to " +
+                           "-sourceBase>");
         System.err.println("    -relativeInclude <string containing include " +
                            "directory relative to -sourceBase>");
         System.err.println("    -define <preprocessor flag to be #defined " +
@@ -216,69 +224,6 @@ public abstract class WinGammaPlatform {
         }
 
         return false;
-    }
-
-    /* This returns a String containing the full path to the passed
-       file name, or null if an error occurred. If the file was not
-       found or was a duplicate and couldn't be resolved using the
-       preferred paths, the file name is added to the appropriate
-       Vector of Strings. */
-    private String findFileInDirectory(String fileName,
-                                       DirectoryTree directory,
-                                       Vector preferredPaths,
-                                       Vector filesNotFound,
-                                       Vector filesDuplicate) {
-        List locationsInTree = directory.findFile(fileName);
-        int  rootNameLength = directory.getRootNodeName().length();
-        String name = null;
-        if ((locationsInTree == null) ||
-            (locationsInTree.size() == 0)) {
-            filesNotFound.add(fileName);
-        } else if (locationsInTree.size() > 1) {
-            // Iterate through them, trying to find one with a
-            // preferred path
-        search:
-            {
-                for (Iterator locIter = locationsInTree.iterator();
-                     locIter.hasNext(); ) {
-                    DirectoryTreeNode node =
-                        (DirectoryTreeNode) locIter.next();
-                    String tmpName = node.getName();
-                    for (Iterator prefIter = preferredPaths.iterator();
-                         prefIter.hasNext(); ) {
-                        // We need to make sure the preferred path is
-                        // found from the file path not including the root node name.
-                        if (tmpName.indexOf((String)prefIter.next(),
-                                            rootNameLength) != -1) {
-                            name = tmpName;
-                            break search;
-                        }
-                    }
-                }
-            }
-
-            if (name == null) {
-                filesDuplicate.add(fileName);
-            }
-        } else {
-            name = ((DirectoryTreeNode) locationsInTree.get(0)).getName();
-        }
-
-        return name;
-    }
-
-    protected String envVarPrefixedFileName(String fileName,
-                                            int sourceBaseLen,
-                                            DirectoryTree tree,
-                                            Vector preferredPaths,
-                                            Vector filesNotFound,
-                                            Vector filesDuplicate) {
-        String fullName = findFileInDirectory(fileName,
-                                              tree,
-                                              preferredPaths,
-                                              filesNotFound,
-                                              filesDuplicate);
-        return fullName;
     }
 
      String getProjectName(String fullPath, String extension)
@@ -369,6 +314,12 @@ public abstract class WinGammaPlatform {
                               HsArgHandler.STRING
                               ),
 
+               new HsArgRule("-buildSpace",
+                              "BuildSpace",
+                              null,
+                              HsArgHandler.STRING
+                              ),
+
               new HsArgRule("-platformName",
                               "PlatformName",
                               null,
@@ -399,8 +350,32 @@ public abstract class WinGammaPlatform {
                               HsArgHandler.VECTOR
                               ),
 
+                new HsArgRule("-altRelativeInclude",
+                              "AltRelativeInclude",
+                              null,
+                              HsArgHandler.VECTOR
+                              ),
+
                 new HsArgRule("-relativeInclude",
                               "RelativeInclude",
+                              null,
+                              HsArgHandler.VECTOR
+                              ),
+
+                new HsArgRule("-absoluteSrcInclude",
+                              "AbsoluteSrcInclude",
+                              null,
+                              HsArgHandler.VECTOR
+                              ),
+
+                new HsArgRule("-relativeAltSrcInclude",
+                              "RelativeAltSrcInclude",
+                              null,
+                              HsArgHandler.STRING
+                              ),
+
+                new HsArgRule("-relativeSrcInclude",
+                              "RelativeSrcInclude",
                               null,
                               HsArgHandler.VECTOR
                               ),
@@ -493,6 +468,12 @@ public abstract class WinGammaPlatform {
                               null,
                               HsArgHandler.VECTOR
                               ),
+
+                new HsArgRule("-hidePath",
+                      "HidePath",
+                      null,
+                      HsArgHandler.VECTOR
+                      ),
 
                 new HsArgRule("-additionalFile",
                               "AdditionalFile",
@@ -598,114 +579,7 @@ public abstract class WinGammaPlatform {
         allConfigs.add(new TieredFastDebugConfig());
         allConfigs.add(new TieredProductConfig());
 
-        allConfigs.add(new CoreDebugConfig());
-        allConfigs.add(new CoreFastDebugConfig());
-        allConfigs.add(new CoreProductConfig());
-
-        if (platform.equals("Win32")) {
-            allConfigs.add(new KernelDebugConfig());
-            allConfigs.add(new KernelFastDebugConfig());
-            allConfigs.add(new KernelProductConfig());
-        }
-
         return allConfigs;
-    }
-
-    class FileAttribute {
-        int     numConfigs;
-        Vector  configs;
-        String  shortName;
-        boolean noPch, pchRoot;
-
-        FileAttribute(String shortName, BuildConfig cfg, int numConfigs) {
-            this.shortName = shortName;
-            this.noPch =  (cfg.lookupHashFieldInContext("DisablePch", shortName) != null);
-            this.pchRoot = shortName.equals(BuildConfig.getFieldString(null, "UseToGeneratePch"));
-            this.numConfigs = numConfigs;
-
-            configs = new Vector();
-            add(cfg.get("Name"));
-        }
-
-        void add(String confName) {
-            configs.add(confName);
-
-            // if presented in all configs
-            if (configs.size() == numConfigs) {
-                configs = null;
-            }
-        }
-    }
-
-    class FileInfo implements Comparable {
-        String        full;
-        FileAttribute attr;
-
-        FileInfo(String full, FileAttribute  attr) {
-            this.full = full;
-            this.attr = attr;
-        }
-
-        public int compareTo(Object o) {
-            FileInfo oo = (FileInfo)o;
-            return full.compareTo(oo.full);
-        }
-
-        boolean isHeader() {
-            return attr.shortName.endsWith(".h") || attr.shortName.endsWith(".hpp");
-        }
-
-        boolean isCpp() {
-            return attr.shortName.endsWith(".cpp");
-        }
-    }
-
-
-    TreeSet sortFiles(Hashtable allFiles) {
-        TreeSet rv = new TreeSet();
-        Enumeration e = allFiles.keys();
-        while (e.hasMoreElements()) {
-            String fullPath = (String)e.nextElement();
-            rv.add(new FileInfo(fullPath, (FileAttribute)allFiles.get(fullPath)));
-        }
-        return rv;
-    }
-
-    Hashtable computeAttributedFiles(Vector allConfigs) {
-        Hashtable ht = new Hashtable();
-        int numConfigs = allConfigs.size();
-
-        for (Iterator i = allConfigs.iterator(); i.hasNext(); ) {
-            BuildConfig bc = (BuildConfig)i.next();
-            Hashtable  confFiles = (Hashtable)bc.getSpecificField("AllFilesHash");
-            String confName = bc.get("Name");
-
-            for (Enumeration e=confFiles.keys(); e.hasMoreElements(); ) {
-                String filePath = (String)e.nextElement();
-                FileAttribute fa = (FileAttribute)ht.get(filePath);
-
-                if (fa == null) {
-                    fa = new FileAttribute((String)confFiles.get(filePath), bc, numConfigs);
-                    ht.put(filePath, fa);
-                } else {
-                    fa.add(confName);
-                }
-            }
-        }
-
-        return ht;
-    }
-
-     Hashtable computeAttributedFiles(BuildConfig bc) {
-        Hashtable ht = new Hashtable();
-        Hashtable confFiles = (Hashtable)bc.getSpecificField("AllFilesHash");
-
-        for (Enumeration e = confFiles.keys(); e.hasMoreElements(); ) {
-            String filePath = (String)e.nextElement();
-            ht.put(filePath,  new FileAttribute((String)confFiles.get(filePath), bc, 1));
-        }
-
-        return ht;
     }
 
     PrintWriter printWriter;
@@ -714,4 +588,95 @@ public abstract class WinGammaPlatform {
                                  Vector<BuildConfig> allConfigs) throws IOException {
         throw new RuntimeException("use compiler version specific version");
     }
+
+    int indent;
+    private Stack<String> tagStack = new Stack<String>();
+
+    private void startTagPrim(String name, String[] attrs, boolean close) {
+       startTagPrim(name, attrs, close, true);
+    }
+
+    private void startTagPrim(String name, String[] attrs, boolean close,
+          boolean newline) {
+       doIndent();
+       printWriter.print("<" + name);
+       indent++;
+
+       if (attrs != null && attrs.length > 0) {
+          for (int i = 0; i < attrs.length; i += 2) {
+             printWriter.print(" " + attrs[i] + "=\"" + attrs[i + 1] + "\"");
+             if (i < attrs.length - 2) {
+             }
+          }
+       }
+
+       if (close) {
+          indent--;
+          printWriter.print(" />");
+       } else {
+          // TODO push tag name, and change endTag to pop and print.
+          tagStack.push(name);
+          printWriter.print(">");
+       }
+       if (newline) {
+          printWriter.println();
+       }
+    }
+
+    void startTag(String name, String... attrs) {
+       startTagPrim(name, attrs, false);
+    }
+
+    void startTagV(String name, Vector attrs) {
+       String s[] = new String[attrs.size()];
+       for (int i = 0; i < attrs.size(); i++) {
+          s[i] = (String) attrs.elementAt(i);
+       }
+       startTagPrim(name, s, false);
+    }
+
+    void endTag() {
+       String name = tagStack.pop();
+       indent--;
+       doIndent();
+       printWriter.println("</" + name + ">");
+    }
+
+    private void endTagNoIndent() {
+       String name = tagStack.pop();
+       indent--;
+       printWriter.println("</" + name + ">");
+    }
+
+    void tag(String name, String... attrs) {
+       startTagPrim(name, attrs, true);
+    }
+
+    void tagData(String name, String data) {
+       startTagPrim(name, null, false, false);
+       printWriter.print(data);
+       endTagNoIndent();
+    }
+
+    void tagData(String name, String data, String... attrs) {
+       startTagPrim(name, attrs, false, false);
+       printWriter.print(data);
+       endTagNoIndent();
+    }
+
+    void tagV(String name, Vector attrs) {
+       String s[] = new String[attrs.size()];
+       for (int i = 0; i < attrs.size(); i++) {
+          s[i] = (String) attrs.elementAt(i);
+       }
+       startTagPrim(name, s, true);
+    }
+
+    void doIndent() {
+       for (int i = 0; i < indent; i++) {
+          printWriter.print("  ");
+       }
+    }
+
+
 }

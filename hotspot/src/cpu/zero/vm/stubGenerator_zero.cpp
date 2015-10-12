@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2007, 2008, 2010 Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -29,7 +29,7 @@
 #include "interpreter/interpreter.hpp"
 #include "nativeInst_zero.hpp"
 #include "oops/instanceOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/method.hpp"
 #include "oops/objArrayKlass.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/methodHandles.hpp"
@@ -38,11 +38,9 @@
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubCodeGenerator.hpp"
 #include "runtime/stubRoutines.hpp"
+#include "runtime/thread.inline.hpp"
 #include "stack_zero.inline.hpp"
 #include "utilities/top.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
 #ifdef COMPILER2
 #include "opto/runtime.hpp"
 #endif
@@ -58,7 +56,7 @@ class StubGenerator: public StubCodeGenerator {
     JavaCallWrapper *call_wrapper,
     intptr_t*        result,
     BasicType        result_type,
-    methodOop        method,
+    Method*          method,
     address          entry_point,
     intptr_t*        parameters,
     int              parameter_words,
@@ -178,6 +176,19 @@ class StubGenerator: public StubCodeGenerator {
       StubRoutines::_oop_arraycopy;
   }
 
+  static int SafeFetch32(int *adr, int errValue) {
+    int value = errValue;
+    value = *adr;
+    return value;
+  }
+
+  static intptr_t SafeFetchN(intptr_t *adr, intptr_t errValue) {
+    intptr_t value = errValue;
+    value = *adr;
+    return value;
+  }
+
+
   void generate_initial() {
     // Generates all stubs and initializes the entry points
 
@@ -215,12 +226,6 @@ class StubGenerator: public StubCodeGenerator {
     StubRoutines::_throw_AbstractMethodError_entry =
       ShouldNotCallThisStub();
 
-    StubRoutines::_throw_ArithmeticException_entry =
-      ShouldNotCallThisStub();
-
-    StubRoutines::_throw_NullPointerException_entry =
-      ShouldNotCallThisStub();
-
     StubRoutines::_throw_NullPointerException_at_call_entry =
       ShouldNotCallThisStub();
 
@@ -233,6 +238,15 @@ class StubGenerator: public StubCodeGenerator {
 
     // arraycopy stubs used by compilers
     generate_arraycopy_stubs();
+
+    // Safefetch stubs.
+    StubRoutines::_safefetch32_entry = CAST_FROM_FN_PTR(address, StubGenerator::SafeFetch32);
+    StubRoutines::_safefetch32_fault_pc = NULL;
+    StubRoutines::_safefetch32_continuation_pc = NULL;
+
+    StubRoutines::_safefetchN_entry = CAST_FROM_FN_PTR(address, StubGenerator::SafeFetchN);
+    StubRoutines::_safefetchN_fault_pc = NULL;
+    StubRoutines::_safefetchN_continuation_pc = NULL;
   }
 
  public:

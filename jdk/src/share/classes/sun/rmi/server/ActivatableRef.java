@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,6 +41,7 @@ import java.rmi.server.RemoteObjectInvocationHandler;
 import java.rmi.server.RemoteRef;
 import java.rmi.server.RemoteStub;
 
+@SuppressWarnings("deprecation")
 public class ActivatableRef implements RemoteRef {
 
     private static final long serialVersionUID = 7579060052569229166L;
@@ -80,7 +81,7 @@ public class ActivatableRef implements RemoteRef {
         String className = desc.getClassName();
 
         try {
-            Class cl =
+            Class<?> cl =
                 RMIClassLoader.loadClass(desc.getLocation(), className);
             RemoteRef clientRef = new ActivatableRef(id, null);
             return Util.createProxy(cl, clientRef, false);
@@ -373,8 +374,8 @@ public class ActivatableRef implements RemoteRef {
         if (className.equals("")) return;
 
         try {
-            Class refClass = Class.forName(RemoteRef.packagePrefix + "." +
-                                           className);
+            Class<?> refClass = Class.forName(RemoteRef.packagePrefix + "." +
+                                              className);
             ref = (RemoteRef)refClass.newInstance();
             ref.readExternal(in);
         } catch (InstantiationException e) {

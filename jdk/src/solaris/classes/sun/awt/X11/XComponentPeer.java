@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,7 +38,6 @@ import java.awt.Graphics;
 import java.awt.GraphicsConfiguration;
 import java.awt.Image;
 import java.awt.Insets;
-import java.awt.KeyboardFocusManager;
 import java.awt.Rectangle;
 import java.awt.SystemColor;
 import java.awt.Toolkit;
@@ -59,21 +58,19 @@ import java.awt.image.ImageProducer;
 import java.awt.image.VolatileImage;
 import java.awt.peer.ComponentPeer;
 import java.awt.peer.ContainerPeer;
-import java.awt.peer.LightweightPeer;
 import java.lang.reflect.*;
 import java.security.*;
 import java.util.Collection;
-import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
-import java.util.Vector;
 import sun.util.logging.PlatformLogger;
-
 import sun.awt.*;
 import sun.awt.event.IgnorePaintEvent;
 import sun.awt.image.SunVolatileImage;
 import sun.awt.image.ToolkitImage;
 import sun.java2d.BackBufferCapsProvider;
 import sun.java2d.pipe.Region;
+
 
 public class XComponentPeer extends XWindow implements ComponentPeer, DropTargetPeer,
     BackBufferCapsProvider
@@ -87,7 +84,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
 
     boolean paintPending = false;
     boolean isLayouting = false;
-    boolean enabled;
+    private boolean enabled;
 
     // Actually used only by XDecoratedPeer
     protected int boundsOperation;
@@ -133,9 +130,6 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
     }
     void postInit(XCreateWindowParams params) {
         super.postInit(params);
-        Color c;
-        Font  f;
-        Cursor cursor;
 
         pSetCursor(target.getCursor());
 
@@ -148,19 +142,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
             reshape(r.x, r.y, r.width, r.height);
         }
 
-        enabled = target.isEnabled();
-
-        // If any of our heavyweight ancestors are disable, we should be too
-        // See 6176875 for more information
-        Component comp = target;
-        while( !(comp == null || comp instanceof Window) ) {
-            comp = comp.getParent();
-            if( comp != null && !comp.isEnabled() && !comp.isLightweight() ){
-                setEnabled(false);
-                break;
-            }
-        }
-        enableLog.fine("Initial enable state: {0}", Boolean.valueOf(enabled));
+        setEnabled(target.isEnabled());
 
         if (target.isVisible()) {
             setVisible(true);
@@ -233,7 +215,9 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
      * Called when component receives focus
      */
     public void focusGained(FocusEvent e) {
-        focusLog.fine("{0}", e);
+        if (focusLog.isLoggable(PlatformLogger.Level.FINE)) {
+            focusLog.fine("{0}", e);
+        }
         bHasFocus = true;
     }
 
@@ -241,7 +225,9 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
      * Called when component loses focus
      */
     public void focusLost(FocusEvent e) {
-        focusLog.fine("{0}", e);
+        if (focusLog.isLoggable(PlatformLogger.Level.FINE)) {
+            focusLog.fine("{0}", e);
+        }
         bHasFocus = false;
     }
 
@@ -313,8 +299,10 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
           case XKeyboardFocusManagerPeer.SNFH_SUCCESS_PROCEED:
               // Currently we just generate focus events like we deal with lightweight instead of calling
               // XSetInputFocus on native window
-              if (focusLog.isLoggable(PlatformLogger.FINER)) focusLog.finer("Proceeding with request to " +
-                  lightweightChild + " in " + target);
+              if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
+                  focusLog.finer("Proceeding with request to " +
+                                 lightweightChild + " in " + target);
+              }
               /**
                * The problems with requests in non-focused window arise because shouldNativelyFocusHeavyweight
                * checks that native window is focused while appropriate WINDOW_GAINED_FOCUS has not yet
@@ -338,7 +326,9 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
                */
               boolean res = wpeer.requestWindowFocus(null);
 
-              if (focusLog.isLoggable(PlatformLogger.FINER)) focusLog.finer("Requested window focus: " + res);
+              if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
+                  focusLog.finer("Requested window focus: " + res);
+              }
               // If parent window can be made focused and has been made focused(synchronously)
               // then we can proceed with children, otherwise we retreat.
               if (!(res && parentWindow.isFocused())) {
@@ -358,13 +348,17 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
     }
 
     private boolean rejectFocusRequestHelper(String logMsg) {
-        if (focusLog.isLoggable(PlatformLogger.FINER)) focusLog.finer(logMsg);
+        if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
+            focusLog.finer(logMsg);
+        }
         XKeyboardFocusManagerPeer.removeLastFocusRequest(target);
         return false;
     }
 
     void handleJavaFocusEvent(AWTEvent e) {
-        if (focusLog.isLoggable(PlatformLogger.FINER)) focusLog.finer(e.toString());
+        if (focusLog.isLoggable(PlatformLogger.Level.FINER)) {
+            focusLog.finer(e.toString());
+        }
         if (e.getID() == FocusEvent.FOCUS_GAINED) {
             focusGained((FocusEvent)e);
         } else {
@@ -389,66 +383,65 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
         setVisible(false);
     }
 
-
     /**
      * @see java.awt.peer.ComponentPeer
      */
-    public void setEnabled(boolean value) {
-        enableLog.fine("{0}ing {1}", (value?"Enabl":"Disabl"), this);
-        boolean repaintNeeded = (enabled != value);
-        enabled = value;
+    public void setEnabled(final boolean value) {
+        if (enableLog.isLoggable(PlatformLogger.Level.FINE)) {
+            enableLog.fine("{0}ing {1}", (value ? "Enabl" : "Disabl"), this);
+        }
+        boolean status = value;
+        // If any of our heavyweight ancestors are disable, we should be too
+        // See 6176875 for more information
+        final Container cp = SunToolkit.getNativeContainer(target);
+        if (cp != null) {
+            status &= ((XComponentPeer) cp.getPeer()).isEnabled();
+        }
+        synchronized (getStateLock()) {
+            if (enabled == status) {
+                return;
+            }
+            enabled = status;
+        }
+
         if (target instanceof Container) {
-            Component list[] = ((Container)target).getComponents();
-            for (int i = 0; i < list.length; ++i) {
-                boolean childEnabled = list[i].isEnabled();
-                ComponentPeer p = list[i].getPeer();
-                if ( p != null ) {
-                    p.setEnabled(value && childEnabled);
+            final Component[] list = ((Container) target).getComponents();
+            for (final Component child : list) {
+                final ComponentPeer p = child.getPeer();
+                if (p != null) {
+                    p.setEnabled(status && child.isEnabled());
                 }
             }
         }
-        if (repaintNeeded) {
-            repaint();
-        }
+        repaint();
     }
 
     //
     // public so aw/Window can call it
     //
-    public boolean isEnabled() {
-        return enabled;
+    public final boolean isEnabled() {
+        synchronized (getStateLock()) {
+            return enabled;
+        }
     }
 
-
-
-    public void enable() {
-        setEnabled(true);
+    @Override
+    public void paint(final Graphics g) {
+        super.paint(g);
+        // allow target to change the picture
+        target.paint(g);
     }
-
-    public void disable() {
-        setEnabled(false);
-    }
-
-    public void paint(Graphics g) {
-    }
-    public void repaint(long tm, int x, int y, int width, int height) {
-        repaint();
-    }
-
 
     public Graphics getGraphics() {
         return getGraphics(surfaceData, getPeerForeground(), getPeerBackground(), getPeerFont());
     }
-
-
-
     public void print(Graphics g) {
         // clear rect here to emulate X clears rect before Expose
         g.setColor(target.getBackground());
         g.fillRect(0, 0, target.getWidth(), target.getHeight());
         g.setColor(target.getForeground());
         // paint peer
-        paint(g);
+        paintPeer(g);
         // allow target to change the picture
         target.print(g);
     }
@@ -475,12 +468,16 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
         if (true) {
             switch(e.getID()) {
               case PaintEvent.UPDATE:
-                  log.finer("XCP coalescePaintEvent : UPDATE : add : x = " +
+                  if (log.isLoggable(PlatformLogger.Level.FINER)) {
+                      log.finer("XCP coalescePaintEvent : UPDATE : add : x = " +
                             r.x + ", y = " + r.y + ", width = " + r.width + ",height = " + r.height);
+                  }
                   return;
               case PaintEvent.PAINT:
-                  log.finer("XCP coalescePaintEvent : PAINT : add : x = " +
+                  if (log.isLoggable(PlatformLogger.Level.FINER)) {
+                      log.finer("XCP coalescePaintEvent : PAINT : add : x = " +
                             r.x + ", y = " + r.y + ", width = " + r.width + ",height = " + r.height);
+                  }
                   return;
             }
         }
@@ -601,33 +598,6 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
 
     }
 
-    public void handleButtonPressRelease(XEvent xev) {
-        /*
-         * Fix for 6385277.
-         * We request focus on simple Window by click in order
-         * to make it behave like Frame/Dialog in this case and also to unify
-         * the behaviour with what we have on MS Windows.
-         * handleJavaMouseEvent() would be more suitable place to do this
-         * but we want Swing to have this functionality also.
-         */
-        if (xev.get_type() == XConstants.ButtonPress) {
-            final XWindowPeer parentXWindow = getParentTopLevel();
-            Window parentWindow = (Window)parentXWindow.getTarget();
-            if (parentXWindow.isFocusableWindow() && parentXWindow.isSimpleWindow() &&
-                XKeyboardFocusManagerPeer.getCurrentNativeFocusedWindow() != parentWindow)
-            {
-                postEvent(new InvocationEvent(parentWindow, new  Runnable() {
-                        public void run() {
-                            // Request focus on the EDT of 'parentWindow' because
-                            // XDecoratedPeer.requestWindowFocus() calls client code.
-                            parentXWindow.requestXFocus();
-                        }
-                    }));
-            }
-        }
-        super.handleButtonPressRelease(xev);
-    }
-
     public Dimension getMinimumSize() {
         return target.getSize();
     }
@@ -637,10 +607,6 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
     }
 
     public void layout() {}
-
-    public java.awt.Toolkit getToolkit() {
-        return Toolkit.getDefaultToolkit();
-    }
 
     void updateMotifColors(Color bg) {
         int red = bg.getRed();
@@ -670,18 +636,30 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
         g.drawLine(x+width, y+height, x+width, y+1);  // right
     }
 
+    @Override
     public void setBackground(Color c) {
-        if (log.isLoggable(PlatformLogger.FINE)) log.fine("Set background to " + c);
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine("Set background to " + c);
+        }
         synchronized (getStateLock()) {
+            if (Objects.equals(background, c)) {
+                return;
+            }
             background = c;
         }
         super.setBackground(c);
         repaint();
     }
 
+    @Override
     public void setForeground(Color c) {
-        if (log.isLoggable(PlatformLogger.FINE)) log.fine("Set foreground to " + c);
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine("Set foreground to " + c);
+        }
         synchronized (getStateLock()) {
+            if (Objects.equals(foreground, c)) {
+                return;
+            }
             foreground = c;
         }
         repaint();
@@ -699,22 +677,27 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
      * @since     JDK1.0
      */
     public FontMetrics getFontMetrics(Font font) {
-        if (fontLog.isLoggable(PlatformLogger.FINE)) fontLog.fine("Getting font metrics for " + font);
+        if (fontLog.isLoggable(PlatformLogger.Level.FINE)) {
+            fontLog.fine("Getting font metrics for " + font);
+        }
         return sun.font.FontDesignMetrics.getMetrics(font);
     }
 
+    @Override
     public void setFont(Font f) {
+        if (f == null) {
+            f = XWindow.getDefaultFont();
+        }
         synchronized (getStateLock()) {
-            if (f == null) {
-                f = XWindow.getDefaultFont();
+            if (f.equals(font)) {
+                return;
             }
             font = f;
         }
-        // as it stands currently we dont need to do layout or repaint since
+        // as it stands currently we don't need to do layout since
         // layout is done in the Component upon setFont.
         //layout();
-        // target.repaint();
-        //repaint()?
+        repaint();
     }
 
     public Font getFont() {
@@ -770,11 +753,11 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
     }
 
     public boolean prepareImage(Image img, int w, int h, ImageObserver o) {
-        return getToolkit().prepareImage(img, w, h, o);
+        return Toolkit.getDefaultToolkit().prepareImage(img, w, h, o);
     }
 
     public int checkImage(Image img, int w, int h, ImageObserver o) {
-        return getToolkit().checkImage(img, w, h, o);
+        return Toolkit.getDefaultToolkit().checkImage(img, w, h, o);
     }
 
     public Dimension preferredSize() {
@@ -1183,7 +1166,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
     public void createBuffers(int numBuffers, BufferCapabilities caps)
       throws AWTException
     {
-        if (buffersLog.isLoggable(PlatformLogger.FINE)) {
+        if (buffersLog.isLoggable(PlatformLogger.Level.FINE)) {
             buffersLog.fine("createBuffers(" + numBuffers + ", " + caps + ")");
         }
         // set the caps first, they're used when creating the bb
@@ -1201,7 +1184,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
     public void flip(int x1, int y1, int x2, int y2,
                      BufferCapabilities.FlipContents flipAction)
     {
-        if (buffersLog.isLoggable(PlatformLogger.FINE)) {
+        if (buffersLog.isLoggable(PlatformLogger.Level.FINE)) {
             buffersLog.fine("flip(" + flipAction + ")");
         }
         if (backBuffer == 0) {
@@ -1212,7 +1195,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
     }
 
     public Image getBackBuffer() {
-        if (buffersLog.isLoggable(PlatformLogger.FINE)) {
+        if (buffersLog.isLoggable(PlatformLogger.Level.FINE)) {
             buffersLog.fine("getBackBuffer()");
         }
         if (backBuffer == 0) {
@@ -1222,7 +1205,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
     }
 
     public void destroyBuffers() {
-        if (buffersLog.isLoggable(PlatformLogger.FINE)) {
+        if (buffersLog.isLoggable(PlatformLogger.Level.FINE)) {
             buffersLog.fine("destroyBuffers()");
         }
         graphicsConfig.destroyBackBuffer(backBuffer);
@@ -1257,7 +1240,9 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
      * ButtonPress, ButtonRelease, KeyPress, KeyRelease, EnterNotify, LeaveNotify, MotionNotify
      */
     protected boolean isEventDisabled(XEvent e) {
-        enableLog.finest("Component is {1}, checking for disabled event {0}", e, (isEnabled()?"enabled":"disable"));
+        if (enableLog.isLoggable(PlatformLogger.Level.FINEST)) {
+            enableLog.finest("Component is {1}, checking for disabled event {0}", e, (isEnabled()?"enabled":"disable"));
+        }
         if (!isEnabled()) {
             switch (e.get_type()) {
               case XConstants.ButtonPress:
@@ -1267,7 +1252,9 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
               case XConstants.EnterNotify:
               case XConstants.LeaveNotify:
               case XConstants.MotionNotify:
-                  enableLog.finer("Event {0} is disable", e);
+                  if (enableLog.isLoggable(PlatformLogger.Level.FINER)) {
+                      enableLog.finer("Event {0} is disable", e);
+                  }
                   return true;
             }
         }
@@ -1388,7 +1375,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
      */
     public void applyShape(Region shape) {
         if (XlibUtil.isShapingSupported()) {
-            if (shapeLog.isLoggable(PlatformLogger.FINER)) {
+            if (shapeLog.isLoggable(PlatformLogger.Level.FINER)) {
                 shapeLog.finer(
                         "*** INFO: Setting shape: PEER: " + this
                         + "; WINDOW: " + getWindow()
@@ -1418,7 +1405,7 @@ public class XComponentPeer extends XWindow implements ComponentPeer, DropTarget
                 XToolkit.awtUnlock();
             }
         } else {
-            if (shapeLog.isLoggable(PlatformLogger.FINER)) {
+            if (shapeLog.isLoggable(PlatformLogger.Level.FINER)) {
                 shapeLog.finer("*** WARNING: Shaping is NOT supported!");
             }
         }

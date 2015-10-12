@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,8 +51,6 @@
 #define PixelDecode             PixelDCM8Decode
 #define DecodeDeclared
 #endif
-
-#include "java_awt_image_DirectColorModel.h"
 
 #define DeclareDCM8Vars                                         \
     IfAlpha(unsigned int alpha_off;)                            \

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -549,6 +549,8 @@ class WPathGraphics extends PathGraphics {
                 userx += xAdvance;
                 userpos.x += xAdvance;
                 deviceTransform.transform(userpos, devpos);
+                devx = devpos.x;
+                devy = devpos.y;
             }
         } else {
             super.drawString(str, x, y, font, frc, targetW);
@@ -566,6 +568,10 @@ class WPathGraphics extends PathGraphics {
          */
         if ((gv.getLayoutFlags() & GlyphVector.FLAG_HAS_TRANSFORMS) != 0) {
             return false;
+        }
+
+        if (gv.getNumGlyphs() == 0) {
+            return true; // nothing to do.
         }
 
         AffineTransform deviceTransform = getTransform();
@@ -597,6 +603,10 @@ class WPathGraphics extends PathGraphics {
          * device space.
          */
         Point2D.Float userpos = new Point2D.Float(x, y);
+        /* Add the position of the first glyph - its not always 0,0 */
+        Point2D g0pos = gv.getGlyphPosition(0);
+        userpos.x += (float)g0pos.getX();
+        userpos.y += (float)g0pos.getY();
         Point2D.Float devpos = new Point2D.Float();
 
         /* Already have the translate from the deviceTransform,
@@ -868,7 +878,7 @@ class WPathGraphics extends PathGraphics {
      * drawn using GDI to the printer context.
      *
      * @param   img     The image to be drawn.
-     * @param   xform   Used to tranform the image before drawing.
+     * @param   xform   Used to transform the image before drawing.
      *                  This can be null.
      * @param   bgcolor This color is drawn where the image has transparent
      *                  pixels. If this parameter is null then the

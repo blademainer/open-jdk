@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,15 +23,15 @@
  */
 
 #include "precompiled.hpp"
-#include "asm/assembler.hpp"
+#include "asm/macroAssembler.hpp"
 #include "interpreter/bytecodeHistogram.hpp"
 #include "interpreter/interpreter.hpp"
 #include "interpreter/interpreterGenerator.hpp"
 #include "interpreter/interpreterRuntime.hpp"
 #include "interpreter/templateTable.hpp"
 #include "oops/arrayOop.hpp"
-#include "oops/methodDataOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/methodData.hpp"
+#include "oops/method.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/jvmtiThreadState.hpp"
@@ -44,6 +44,7 @@
 #include "runtime/timer.hpp"
 #include "runtime/vframeArray.hpp"
 #include "utilities/debug.hpp"
+#include "utilities/macros.hpp"
 
 #define __ _masm->
 
@@ -165,7 +166,7 @@ address TemplateInterpreterGenerator::generate_continuation_for(TosState state) 
 }
 
 
-address TemplateInterpreterGenerator::generate_return_entry_for(TosState state, int step) {
+address TemplateInterpreterGenerator::generate_return_entry_for(TosState state, int step, size_t index_size) {
   address entry = __ pc();
 
   // Restore stack bottom in case i2c adjusted stack
@@ -176,27 +177,21 @@ address TemplateInterpreterGenerator::generate_return_entry_for(TosState state, 
   __ restore_bcp();
   __ restore_locals();
 
-  Label L_got_cache, L_giant_index;
-  if (EnableInvokeDynamic) {
-    __ cmpb(Address(r13, 0), Bytecodes::_invokedynamic);
-    __ jcc(Assembler::equal, L_giant_index);
+  if (state == atos) {
+    Register mdp = rbx;
+    Register tmp = rcx;
+    __ profile_return_type(mdp, rax, tmp);
   }
-  __ get_cache_and_index_at_bcp(rbx, rcx, 1, sizeof(u2));
-  __ bind(L_got_cache);
-  __ movl(rbx, Address(rbx, rcx,
-                       Address::times_ptr,
-                       in_bytes(constantPoolCacheOopDesc::base_offset()) +
-                       3 * wordSize));
-  __ andl(rbx, 0xFF);
-  __ lea(rsp, Address(rsp, rbx, Address::times_8));
-  __ dispatch_next(state, step);
 
-  // out of the main line of code...
-  if (EnableInvokeDynamic) {
-    __ bind(L_giant_index);
-    __ get_cache_and_index_at_bcp(rbx, rcx, 1, sizeof(u4));
-    __ jmp(L_got_cache);
-  }
+  const Register cache = rbx;
+  const Register index = rcx;
+  __ get_cache_and_index_at_bcp(cache, index, 1, index_size);
+
+  const Register flags = cache;
+  __ movl(flags, Address(cache, index, Address::times_ptr, ConstantPoolCache::base_offset() + ConstantPoolCacheEntry::flags_offset()));
+  __ andl(flags, ConstantPoolCacheEntry::parameter_size_mask);
+  __ lea(rsp, Address(rsp, flags, Interpreter::stackElementScale()));
+  __ dispatch_next(state, step);
 
   return entry;
 }
@@ -299,44 +294,54 @@ void InterpreterGenerator::generate_counter_incr(
         Label* overflow,
         Label* profile_method,
         Label* profile_method_continue) {
-  const Address invocation_counter(rbx, in_bytes(methodOopDesc::invocation_counter_offset()) +
-                                        in_bytes(InvocationCounter::counter_offset()));
-  // Note: In tiered we increment either counters in methodOop or in MDO depending if we're profiling or not.
+  Label done;
+  // Note: In tiered we increment either counters in Method* or in MDO depending if we're profiling or not.
   if (TieredCompilation) {
     int increment = InvocationCounter::count_increment;
     int mask = ((1 << Tier0InvokeNotifyFreqLog)  - 1) << InvocationCounter::count_shift;
-    Label no_mdo, done;
+    Label no_mdo;
     if (ProfileInterpreter) {
       // Are we profiling?
-      __ movptr(rax, Address(rbx, methodOopDesc::method_data_offset()));
+      __ movptr(rax, Address(rbx, Method::method_data_offset()));
       __ testptr(rax, rax);
       __ jccb(Assembler::zero, no_mdo);
       // Increment counter in the MDO
-      const Address mdo_invocation_counter(rax, in_bytes(methodDataOopDesc::invocation_counter_offset()) +
+      const Address mdo_invocation_counter(rax, in_bytes(MethodData::invocation_counter_offset()) +
                                                 in_bytes(InvocationCounter::counter_offset()));
       __ increment_mask_and_jump(mdo_invocation_counter, increment, mask, rcx, false, Assembler::zero, overflow);
-      __ jmpb(done);
+      __ jmp(done);
     }
     __ bind(no_mdo);
-    // Increment counter in methodOop (we don't need to load it, it's in ecx).
-    __ increment_mask_and_jump(invocation_counter, increment, mask, rcx, true, Assembler::zero, overflow);
+    // Increment counter in MethodCounters
+    const Address invocation_counter(rax,
+                  MethodCounters::invocation_counter_offset() +
+                  InvocationCounter::counter_offset());
+    __ get_method_counters(rbx, rax, done);
+    __ increment_mask_and_jump(invocation_counter, increment, mask, rcx,
+                               false, Assembler::zero, overflow);
     __ bind(done);
   } else {
-    const Address backedge_counter(rbx,
-                                   methodOopDesc::backedge_counter_offset() +
-                                   InvocationCounter::counter_offset());
+    const Address backedge_counter(rax,
+                  MethodCounters::backedge_counter_offset() +
+                  InvocationCounter::counter_offset());
+    const Address invocation_counter(rax,
+                  MethodCounters::invocation_counter_offset() +
+                  InvocationCounter::counter_offset());
 
-    if (ProfileInterpreter) { // %%% Merge this into methodDataOop
-      __ incrementl(Address(rbx,
-                            methodOopDesc::interpreter_invocation_counter_offset()));
+    __ get_method_counters(rbx, rax, done);
+
+    if (ProfileInterpreter) {
+      __ incrementl(Address(rax,
+              MethodCounters::interpreter_invocation_counter_offset()));
     }
     // Update standard invocation counters
-    __ movl(rax, backedge_counter);   // load backedge counter
-
+    __ movl(rcx, invocation_counter);
     __ incrementl(rcx, InvocationCounter::count_increment);
+    __ movl(invocation_counter, rcx); // save invocation count
+
+    __ movl(rax, backedge_counter);   // load backedge counter
     __ andl(rax, InvocationCounter::count_mask_value); // mask out the status bits
 
-    __ movl(invocation_counter, rcx); // save invocation count
     __ addl(rcx, rax);                // add both counters
 
     // profile_method is non-null only for interpreted method so
@@ -353,6 +358,7 @@ void InterpreterGenerator::generate_counter_incr(
 
     __ cmp32(rcx, ExternalAddress((address)&InvocationCounter::InterpreterInvocationLimit));
     __ jcc(Assembler::aboveEqual, *overflow);
+    __ bind(done);
   }
 }
 
@@ -369,9 +375,6 @@ void InterpreterGenerator::generate_counter_overflow(Label* do_continue) {
   // Everything as it was on entry
   // rdx is not restored. Doesn't appear to really be set.
 
-  const Address size_of_parameters(rbx,
-                                   methodOopDesc::size_of_parameters_offset());
-
   // InterpreterRuntime::frequency_counter_overflow takes two
   // arguments, the first (thread) is passed by call_VM, the second
   // indicates if the counter overflow occurs at a backwards branch
@@ -385,7 +388,7 @@ void InterpreterGenerator::generate_counter_overflow(Label* do_continue) {
                               InterpreterRuntime::frequency_counter_overflow),
              c_rarg1);
 
-  __ movptr(rbx, Address(rbp, method_offset));   // restore methodOop
+  __ movptr(rbx, Address(rbp, method_offset));   // restore Method*
   // Preserve invariant that r13/r14 contain bcp/locals of sender frame
   // and jump to the interpreted entry.
   __ jmp(*do_continue, relocInfo::none);
@@ -401,7 +404,7 @@ void InterpreterGenerator::generate_counter_overflow(Label* do_continue) {
 //
 // Args:
 //      rdx: number of additional locals this frame needs (what we must check)
-//      rbx: methodOop
+//      rbx: Method*
 //
 // Kills:
 //      rax
@@ -467,8 +470,18 @@ void InterpreterGenerator::generate_stack_overflow_check(void) {
   __ cmpptr(rsp, rax);
   __ jcc(Assembler::above, after_frame_check);
 
-  __ pop(rax); // get return address
-  __ jump(ExternalAddress(Interpreter::throw_StackOverflowError_entry()));
+  // Restore sender's sp as SP. This is necessary if the sender's
+  // frame is an extended compiled frame (see gen_c2i_adapter())
+  // and safer anyway in case of JSR292 adaptations.
+
+  __ pop(rax); // return address must be moved if SP is changed
+  __ mov(rsp, r13);
+  __ push(rax);
+
+  // Note: the restored frame is not necessarily interpreted.
+  // Use the shared runtime version of the StackOverflowError.
+  assert(StubRoutines::throw_StackOverflowError_entry() != NULL, "stub not yet generated");
+  __ jump(ExternalAddress(StubRoutines::throw_StackOverflowError_entry()));
 
   // all done with frame size check
   __ bind(after_frame_check);
@@ -477,7 +490,7 @@ void InterpreterGenerator::generate_stack_overflow_check(void) {
 // Allocate monitor and lock method (asm interpreter)
 //
 // Args:
-//      rbx: methodOop
+//      rbx: Method*
 //      r14: locals
 //
 // Kills:
@@ -486,7 +499,7 @@ void InterpreterGenerator::generate_stack_overflow_check(void) {
 //      rscratch1, rscratch2 (scratch regs)
 void InterpreterGenerator::lock_method(void) {
   // synchronize method
-  const Address access_flags(rbx, methodOopDesc::access_flags_offset());
+  const Address access_flags(rbx, Method::access_flags_offset());
   const Address monitor_block_top(
         rbp,
         frame::interpreter_frame_monitor_block_top_offset * wordSize);
@@ -505,17 +518,17 @@ void InterpreterGenerator::lock_method(void) {
 
   // get synchronization object
   {
-    const int mirror_offset = klassOopDesc::klass_part_offset_in_bytes() +
-                              Klass::java_mirror_offset_in_bytes();
+    const int mirror_offset = in_bytes(Klass::java_mirror_offset());
     Label done;
     __ movl(rax, access_flags);
     __ testl(rax, JVM_ACC_STATIC);
     // get receiver (assume this is frequent case)
     __ movptr(rax, Address(r14, Interpreter::local_offset_in_bytes(0)));
     __ jcc(Assembler::zero, done);
-    __ movptr(rax, Address(rbx, methodOopDesc::constants_offset()));
+    __ movptr(rax, Address(rbx, Method::const_offset()));
+    __ movptr(rax, Address(rax, ConstMethod::constants_offset()));
     __ movptr(rax, Address(rax,
-                           constantPoolOopDesc::pool_holder_offset_in_bytes()));
+                           ConstantPool::pool_holder_offset_in_bytes()));
     __ movptr(rax, Address(rax, mirror_offset));
 
 #ifdef ASSERT
@@ -545,7 +558,7 @@ void InterpreterGenerator::lock_method(void) {
 //
 // Args:
 //      rax: return address
-//      rbx: methodOop
+//      rbx: Method*
 //      r14: pointer to locals
 //      r13: sender sp
 //      rdx: cp cache
@@ -555,23 +568,24 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call) {
   __ enter();          // save old & set new rbp
   __ push(r13);        // set sender sp
   __ push((int)NULL_WORD); // leave last_sp as null
-  __ movptr(r13, Address(rbx, methodOopDesc::const_offset()));      // get constMethodOop
-  __ lea(r13, Address(r13, constMethodOopDesc::codes_offset())); // get codebase
-  __ push(rbx);        // save methodOop
+  __ movptr(r13, Address(rbx, Method::const_offset()));      // get ConstMethod*
+  __ lea(r13, Address(r13, ConstMethod::codes_offset())); // get codebase
+  __ push(rbx);        // save Method*
   if (ProfileInterpreter) {
     Label method_data_continue;
-    __ movptr(rdx, Address(rbx, in_bytes(methodOopDesc::method_data_offset())));
+    __ movptr(rdx, Address(rbx, in_bytes(Method::method_data_offset())));
     __ testptr(rdx, rdx);
     __ jcc(Assembler::zero, method_data_continue);
-    __ addptr(rdx, in_bytes(methodDataOopDesc::data_offset()));
+    __ addptr(rdx, in_bytes(MethodData::data_offset()));
     __ bind(method_data_continue);
     __ push(rdx);      // set the mdp (method data pointer)
   } else {
     __ push(0);
   }
 
-  __ movptr(rdx, Address(rbx, methodOopDesc::constants_offset()));
-  __ movptr(rdx, Address(rdx, constantPoolOopDesc::cache_offset_in_bytes()));
+  __ movptr(rdx, Address(rbx, Method::const_offset()));
+  __ movptr(rdx, Address(rdx, ConstMethod::constants_offset()));
+  __ movptr(rdx, Address(rdx, ConstantPool::cache_offset_in_bytes()));
   __ push(rdx); // set constant pool cache
   __ push(r14); // set locals pointer
   if (native_call) {
@@ -593,7 +607,7 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call) {
 // Call an accessor method (assuming it is resolved, otherwise drop
 // into vanilla (slow path) entry
 address InterpreterGenerator::generate_accessor_entry(void) {
-  // rbx: methodOop
+  // rbx: Method*
 
   // r13: senderSP must preserver for slow path, set SP to it on fast path
 
@@ -620,15 +634,15 @@ address InterpreterGenerator::generate_accessor_entry(void) {
     __ testptr(rax, rax);
     __ jcc(Assembler::zero, slow_path);
 
-    __ movptr(rdi, Address(rbx, methodOopDesc::constants_offset()));
     // read first instruction word and extract bytecode @ 1 and index @ 2
-    __ movptr(rdx, Address(rbx, methodOopDesc::const_offset()));
-    __ movl(rdx, Address(rdx, constMethodOopDesc::codes_offset()));
+    __ movptr(rdx, Address(rbx, Method::const_offset()));
+    __ movptr(rdi, Address(rdx, ConstMethod::constants_offset()));
+    __ movl(rdx, Address(rdx, ConstMethod::codes_offset()));
     // Shift codes right to get the index on the right.
     // The bytecode fetched looks like <index><0xb4><0x2a>
     __ shrl(rdx, 2 * BitsPerByte);
     __ shll(rdx, exact_log2(in_words(ConstantPoolCacheEntry::size())));
-    __ movptr(rdi, Address(rdi, constantPoolOopDesc::cache_offset_in_bytes()));
+    __ movptr(rdi, Address(rdi, ConstantPool::cache_offset_in_bytes()));
 
     // rax: local 0
     // rbx: method
@@ -644,7 +658,7 @@ address InterpreterGenerator::generate_accessor_entry(void) {
             Address(rdi,
                     rdx,
                     Address::times_8,
-                    constantPoolCacheOopDesc::base_offset() +
+                    ConstantPoolCache::base_offset() +
                     ConstantPoolCacheEntry::indices_offset()));
     __ shrl(rcx, 2 * BitsPerByte);
     __ andl(rcx, 0xFF);
@@ -656,14 +670,14 @@ address InterpreterGenerator::generate_accessor_entry(void) {
               Address(rdi,
                       rdx,
                       Address::times_8,
-                      constantPoolCacheOopDesc::base_offset() +
+                      ConstantPoolCache::base_offset() +
                       ConstantPoolCacheEntry::f2_offset()));
     // edx: flags
     __ movl(rdx,
             Address(rdi,
                     rdx,
                     Address::times_8,
-                    constantPoolCacheOopDesc::base_offset() +
+                    ConstantPoolCache::base_offset() +
                     ConstantPoolCacheEntry::flags_offset()));
 
     Label notObj, notInt, notByte, notShort;
@@ -672,9 +686,9 @@ address InterpreterGenerator::generate_accessor_entry(void) {
     // Need to differentiate between igetfield, agetfield, bgetfield etc.
     // because they are different sizes.
     // Use the type from the constant pool cache
-    __ shrl(rdx, ConstantPoolCacheEntry::tosBits);
-    // Make sure we don't need to mask edx for tosBits after the above shift
-    ConstantPoolCacheEntry::verify_tosBits();
+    __ shrl(rdx, ConstantPoolCacheEntry::tos_state_shift);
+    // Make sure we don't need to mask edx after the above shift
+    ConstantPoolCacheEntry::verify_tos_state_shift();
 
     __ cmpl(rdx, atos);
     __ jcc(Assembler::notEqual, notObj);
@@ -734,7 +748,7 @@ address InterpreterGenerator::generate_accessor_entry(void) {
 
 // Method entry for java.lang.ref.Reference.get.
 address InterpreterGenerator::generate_Reference_get_entry(void) {
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   // Code: _aload_0, _getfield, _areturn
   // parameter size = 1
   //
@@ -760,7 +774,7 @@ address InterpreterGenerator::generate_Reference_get_entry(void) {
   //
   // This code is based on generate_accessor_enty.
   //
-  // rbx: methodOop
+  // rbx: Method*
 
   // r13: senderSP must preserve for slow path, set SP to it on fast path
 
@@ -813,13 +827,128 @@ address InterpreterGenerator::generate_Reference_get_entry(void) {
 
     return entry;
   }
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   // If G1 is not enabled then attempt to go through the accessor entry point
   // Reference.get is an accessor
   return generate_accessor_entry();
 }
 
+/**
+ * Method entry for static native methods:
+ *   int java.util.zip.CRC32.update(int crc, int b)
+ */
+address InterpreterGenerator::generate_CRC32_update_entry() {
+  if (UseCRC32Intrinsics) {
+    address entry = __ pc();
+
+    // rbx,: Method*
+    // r13: senderSP must preserved for slow path, set SP to it on fast path
+    // c_rarg0: scratch (rdi on non-Win64, rcx on Win64)
+    // c_rarg1: scratch (rsi on non-Win64, rdx on Win64)
+
+    Label slow_path;
+    // If we need a safepoint check, generate full interpreter entry.
+    ExternalAddress state(SafepointSynchronize::address_of_state());
+    __ cmp32(ExternalAddress(SafepointSynchronize::address_of_state()),
+             SafepointSynchronize::_not_synchronized);
+    __ jcc(Assembler::notEqual, slow_path);
+
+    // We don't generate local frame and don't align stack because
+    // we call stub code and there is no safepoint on this path.
+
+    // Load parameters
+    const Register crc = rax;  // crc
+    const Register val = c_rarg0;  // source java byte value
+    const Register tbl = c_rarg1;  // scratch
+
+    // Arguments are reversed on java expression stack
+    __ movl(val, Address(rsp,   wordSize)); // byte value
+    __ movl(crc, Address(rsp, 2*wordSize)); // Initial CRC
+
+    __ lea(tbl, ExternalAddress(StubRoutines::crc_table_addr()));
+    __ notl(crc); // ~crc
+    __ update_byte_crc32(crc, val, tbl);
+    __ notl(crc); // ~crc
+    // result in rax
+
+    // _areturn
+    __ pop(rdi);                // get return address
+    __ mov(rsp, r13);           // set sp to sender sp
+    __ jmp(rdi);
+
+    // generate a vanilla native entry as the slow path
+    __ bind(slow_path);
+
+    (void) generate_native_entry(false);
+
+    return entry;
+  }
+  return generate_native_entry(false);
+}
+
+/**
+ * Method entry for static native methods:
+ *   int java.util.zip.CRC32.updateBytes(int crc, byte[] b, int off, int len)
+ *   int java.util.zip.CRC32.updateByteBuffer(int crc, long buf, int off, int len)
+ */
+address InterpreterGenerator::generate_CRC32_updateBytes_entry(AbstractInterpreter::MethodKind kind) {
+  if (UseCRC32Intrinsics) {
+    address entry = __ pc();
+
+    // rbx,: Method*
+    // r13: senderSP must preserved for slow path, set SP to it on fast path
+
+    Label slow_path;
+    // If we need a safepoint check, generate full interpreter entry.
+    ExternalAddress state(SafepointSynchronize::address_of_state());
+    __ cmp32(ExternalAddress(SafepointSynchronize::address_of_state()),
+             SafepointSynchronize::_not_synchronized);
+    __ jcc(Assembler::notEqual, slow_path);
+
+    // We don't generate local frame and don't align stack because
+    // we call stub code and there is no safepoint on this path.
+
+    // Load parameters
+    const Register crc = c_rarg0;  // crc
+    const Register buf = c_rarg1;  // source java byte array address
+    const Register len = c_rarg2;  // length
+    const Register off = len;      // offset (never overlaps with 'len')
+
+    // Arguments are reversed on java expression stack
+    // Calculate address of start element
+    if (kind == Interpreter::java_util_zip_CRC32_updateByteBuffer) {
+      __ movptr(buf, Address(rsp, 3*wordSize)); // long buf
+      __ movl2ptr(off, Address(rsp, 2*wordSize)); // offset
+      __ addq(buf, off); // + offset
+      __ movl(crc,   Address(rsp, 5*wordSize)); // Initial CRC
+    } else {
+      __ movptr(buf, Address(rsp, 3*wordSize)); // byte[] array
+      __ addptr(buf, arrayOopDesc::base_offset_in_bytes(T_BYTE)); // + header size
+      __ movl2ptr(off, Address(rsp, 2*wordSize)); // offset
+      __ addq(buf, off); // + offset
+      __ movl(crc,   Address(rsp, 4*wordSize)); // Initial CRC
+    }
+    // Can now load 'len' since we're finished with 'off'
+    __ movl(len, Address(rsp, wordSize)); // Length
+
+    __ super_call_VM_leaf(CAST_FROM_FN_PTR(address, StubRoutines::updateBytesCRC32()), crc, buf, len);
+    // result in rax
+
+    // _areturn
+    __ pop(rdi);                // get return address
+    __ mov(rsp, r13);           // set sp to sender sp
+    __ jmp(rdi);
+
+    // generate a vanilla native entry as the slow path
+    __ bind(slow_path);
+
+    (void) generate_native_entry(false);
+
+    return entry;
+  }
+  return generate_native_entry(false);
+}
 
 // Interpreter stub for calling a native method. (asm interpreter)
 // This sets up a somewhat different looking stack for calling the
@@ -828,26 +957,26 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // determine code generation flags
   bool inc_counter  = UseCompiler || CountCompiledCalls;
 
-  // rbx: methodOop
+  // rbx: Method*
   // r13: sender sp
 
   address entry_point = __ pc();
 
-  const Address size_of_parameters(rbx, methodOopDesc::
+  const Address constMethod       (rbx, Method::const_offset());
+  const Address access_flags      (rbx, Method::access_flags_offset());
+  const Address size_of_parameters(rcx, ConstMethod::
                                         size_of_parameters_offset());
-  const Address invocation_counter(rbx, methodOopDesc::
-                                        invocation_counter_offset() +
-                                        InvocationCounter::counter_offset());
-  const Address access_flags      (rbx, methodOopDesc::access_flags_offset());
+
 
   // get parameter size (always needed)
+  __ movptr(rcx, constMethod);
   __ load_unsigned_short(rcx, size_of_parameters);
 
   // native calls don't need the stack size check since they have no
   // expression stack and the arguments are already on the stack and
   // we only add a handful of words to the stack
 
-  // rbx: methodOop
+  // rbx: Method*
   // rcx: size of parameters
   // r13: sender sp
   __ pop(rax);                                       // get return address
@@ -863,10 +992,6 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // slot for oop temp
   // (static native method holder mirror/jni oop result)
   __ push((int) NULL_WORD);
-
-  if (inc_counter) {
-    __ movl(rcx, invocation_counter);  // (pre-)fetch invocation count
-  }
 
   // initialize fixed part of activation frame
   generate_fixed_frame(true);
@@ -956,10 +1081,8 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
 
   // allocate space for parameters
   __ get_method(method);
-  __ verify_oop(method);
-  __ load_unsigned_short(t,
-                         Address(method,
-                                 methodOopDesc::size_of_parameters_offset()));
+  __ movptr(t, Address(method, Method::const_offset()));
+  __ load_unsigned_short(t, Address(t, ConstMethod::size_of_parameters_offset()));
   __ shll(t, Interpreter::logStackElementSize);
 
   __ subptr(rsp, t);
@@ -969,7 +1092,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // get signature handler
   {
     Label L;
-    __ movptr(t, Address(method, methodOopDesc::signature_handler_offset()));
+    __ movptr(t, Address(method, Method::signature_handler_offset()));
     __ testptr(t, t);
     __ jcc(Assembler::notZero, L);
     __ call_VM(noreg,
@@ -977,7 +1100,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
                                 InterpreterRuntime::prepare_native_call),
                method);
     __ get_method(method);
-    __ movptr(t, Address(method, methodOopDesc::signature_handler_offset()));
+    __ movptr(t, Address(method, Method::signature_handler_offset()));
     __ bind(L);
   }
 
@@ -1006,14 +1129,14 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // pass mirror handle if static call
   {
     Label L;
-    const int mirror_offset = klassOopDesc::klass_part_offset_in_bytes() +
-                              Klass::java_mirror_offset_in_bytes();
-    __ movl(t, Address(method, methodOopDesc::access_flags_offset()));
+    const int mirror_offset = in_bytes(Klass::java_mirror_offset());
+    __ movl(t, Address(method, Method::access_flags_offset()));
     __ testl(t, JVM_ACC_STATIC);
     __ jcc(Assembler::zero, L);
     // get mirror
-    __ movptr(t, Address(method, methodOopDesc::constants_offset()));
-    __ movptr(t, Address(t, constantPoolOopDesc::pool_holder_offset_in_bytes()));
+    __ movptr(t, Address(method, Method::const_offset()));
+    __ movptr(t, Address(t, ConstMethod::constants_offset()));
+    __ movptr(t, Address(t, ConstantPool::pool_holder_offset_in_bytes()));
     __ movptr(t, Address(t, mirror_offset));
     // copy mirror into activation frame
     __ movptr(Address(rbp, frame::interpreter_frame_oop_temp_offset * wordSize),
@@ -1027,7 +1150,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // get native function entry point
   {
     Label L;
-    __ movptr(rax, Address(method, methodOopDesc::native_function_offset()));
+    __ movptr(rax, Address(method, Method::native_function_offset()));
     ExternalAddress unsatisfied(SharedRuntime::native_method_throw_unsatisfied_link_error_entry());
     __ movptr(rscratch2, unsatisfied.addr());
     __ cmpptr(rax, rscratch2);
@@ -1037,8 +1160,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
                                 InterpreterRuntime::prepare_native_call),
                method);
     __ get_method(method);
-    __ verify_oop(method);
-    __ movptr(rax, Address(method, methodOopDesc::native_function_offset()));
+    __ movptr(rax, Address(method, Method::native_function_offset()));
     __ bind(L);
   }
 
@@ -1070,15 +1192,8 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   __ call(rax);
   // result potentially in rax or xmm0
 
-  // Depending on runtime options, either restore the MXCSR
-  // register after returning from the JNI Call or verify that
-  // it wasn't changed during -Xcheck:jni.
-  if (RestoreMXCSROnJNICalls) {
-    __ ldmxcsr(ExternalAddress(StubRoutines::x86::mxcsr_std()));
-  }
-  else if (CheckJNICalls) {
-    __ call(RuntimeAddress(CAST_FROM_FN_PTR(address, StubRoutines::x86::verify_mxcsr_entry())));
-  }
+  // Verify or restore cpu control state after JNI call
+  __ restore_cpu_control_state_after_jni();
 
   // NOTE: The order of these pushes is known to frame::interpreter_frame_result
   // in order to extract the result of a method call. If the order of these
@@ -1190,12 +1305,11 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // until here.  Also can't call_VM until the bcp has been
   // restored.  Need bcp for throwing exception below so get it now.
   __ get_method(method);
-  __ verify_oop(method);
 
   // restore r13 to have legal interpreter frame, i.e., bci == 0 <=>
   // r13 == code_base()
-  __ movptr(r13, Address(method, methodOopDesc::const_offset()));   // get constMethodOop
-  __ lea(r13, Address(r13, constMethodOopDesc::codes_offset()));    // get codebase
+  __ movptr(r13, Address(method, Method::const_offset()));   // get ConstMethod*
+  __ lea(r13, Address(r13, ConstMethod::codes_offset()));    // get codebase
   // handle exceptions (exception handling will handle unlocking!)
   {
     Label L;
@@ -1215,7 +1329,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // do unlocking if necessary
   {
     Label L;
-    __ movl(t, Address(method, methodOopDesc::access_flags_offset()));
+    __ movl(t, Address(method, Method::access_flags_offset()));
     __ testl(t, JVM_ACC_SYNCHRONIZED);
     __ jcc(Assembler::zero, L);
     // the code below should be shared with interpreter macro
@@ -1290,22 +1404,22 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
   // determine code generation flags
   bool inc_counter  = UseCompiler || CountCompiledCalls;
 
-  // ebx: methodOop
+  // ebx: Method*
   // r13: sender sp
   address entry_point = __ pc();
 
-  const Address size_of_parameters(rbx,
-                                   methodOopDesc::size_of_parameters_offset());
-  const Address size_of_locals(rbx, methodOopDesc::size_of_locals_offset());
-  const Address invocation_counter(rbx,
-                                   methodOopDesc::invocation_counter_offset() +
-                                   InvocationCounter::counter_offset());
-  const Address access_flags(rbx, methodOopDesc::access_flags_offset());
+  const Address constMethod(rbx, Method::const_offset());
+  const Address access_flags(rbx, Method::access_flags_offset());
+  const Address size_of_parameters(rdx,
+                                   ConstMethod::size_of_parameters_offset());
+  const Address size_of_locals(rdx, ConstMethod::size_of_locals_offset());
+
 
   // get parameter size (always needed)
+  __ movptr(rdx, constMethod);
   __ load_unsigned_short(rcx, size_of_parameters);
 
-  // rbx: methodOop
+  // rbx: Method*
   // rcx: size of parameters
   // r13: sender_sp (could differ from sp+wordSize if we were called via c2i )
 
@@ -1339,10 +1453,6 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
     __ bind(exit);
   }
 
-  // (pre-)fetch invocation count
-  if (inc_counter) {
-    __ movl(rcx, invocation_counter);
-  }
   // initialize fixed part of activation frame
   generate_fixed_frame(false);
 
@@ -1375,6 +1485,7 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
         in_bytes(JavaThread::do_not_unlock_if_synchronized_offset()));
   __ movbool(do_not_unlock_if_synchronized, true);
 
+  __ profile_parameters_type(rax, rcx, rdx);
   // increment invocation count & check for overflow
   Label invocation_counter_overflow;
   Label profile_method;
@@ -1469,7 +1580,7 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
 //
 // Arguments:
 //
-// rbx: methodOop
+// rbx: Method*
 //
 // Stack layout immediately at entry
 //
@@ -1494,7 +1605,7 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
 // [ expr. stack bottom ]
 // [ saved r13          ]
 // [ current r14        ]
-// [ methodOop          ]
+// [ Method*            ]
 // [ saved ebp          ] <--- rbp
 // [ return address     ]
 // [ local variable m   ]
@@ -1509,16 +1620,16 @@ address AbstractInterpreterGenerator::generate_method_entry(
   // determine code generation flags
   bool synchronized = false;
   address entry_point = NULL;
+  InterpreterGenerator* ig_this = (InterpreterGenerator*)this;
 
   switch (kind) {
-  case Interpreter::zerolocals             :                                                                             break;
-  case Interpreter::zerolocals_synchronized: synchronized = true;                                                        break;
-  case Interpreter::native                 : entry_point = ((InterpreterGenerator*) this)->generate_native_entry(false); break;
-  case Interpreter::native_synchronized    : entry_point = ((InterpreterGenerator*) this)->generate_native_entry(true);  break;
-  case Interpreter::empty                  : entry_point = ((InterpreterGenerator*) this)->generate_empty_entry();       break;
-  case Interpreter::accessor               : entry_point = ((InterpreterGenerator*) this)->generate_accessor_entry();    break;
-  case Interpreter::abstract               : entry_point = ((InterpreterGenerator*) this)->generate_abstract_entry();    break;
-  case Interpreter::method_handle          : entry_point = ((InterpreterGenerator*) this)->generate_method_handle_entry();break;
+  case Interpreter::zerolocals             :                                                      break;
+  case Interpreter::zerolocals_synchronized: synchronized = true;                                 break;
+  case Interpreter::native                 : entry_point = ig_this->generate_native_entry(false); break;
+  case Interpreter::native_synchronized    : entry_point = ig_this->generate_native_entry(true);  break;
+  case Interpreter::empty                  : entry_point = ig_this->generate_empty_entry();       break;
+  case Interpreter::accessor               : entry_point = ig_this->generate_accessor_entry();    break;
+  case Interpreter::abstract               : entry_point = ig_this->generate_abstract_entry();    break;
 
   case Interpreter::java_lang_math_sin     : // fall thru
   case Interpreter::java_lang_math_cos     : // fall thru
@@ -1526,18 +1637,27 @@ address AbstractInterpreterGenerator::generate_method_entry(
   case Interpreter::java_lang_math_abs     : // fall thru
   case Interpreter::java_lang_math_log     : // fall thru
   case Interpreter::java_lang_math_log10   : // fall thru
-  case Interpreter::java_lang_math_sqrt    : entry_point = ((InterpreterGenerator*) this)->generate_math_entry(kind);    break;
+  case Interpreter::java_lang_math_sqrt    : // fall thru
+  case Interpreter::java_lang_math_pow     : // fall thru
+  case Interpreter::java_lang_math_exp     : entry_point = ig_this->generate_math_entry(kind);      break;
   case Interpreter::java_lang_ref_reference_get
-                                           : entry_point = ((InterpreterGenerator*)this)->generate_Reference_get_entry(); break;
-  default                                  : ShouldNotReachHere();                                                       break;
+                                           : entry_point = ig_this->generate_Reference_get_entry(); break;
+  case Interpreter::java_util_zip_CRC32_update
+                                           : entry_point = ig_this->generate_CRC32_update_entry();  break;
+  case Interpreter::java_util_zip_CRC32_updateBytes
+                                           : // fall thru
+  case Interpreter::java_util_zip_CRC32_updateByteBuffer
+                                           : entry_point = ig_this->generate_CRC32_updateBytes_entry(kind); break;
+  default:
+    fatal(err_msg("unexpected method kind: %d", kind));
+    break;
   }
 
   if (entry_point) {
     return entry_point;
   }
 
-  return ((InterpreterGenerator*) this)->
-                                generate_normal_entry(synchronized);
+  return ig_this->generate_normal_entry(synchronized);
 }
 
 // These should never be compiled since the interpreter will prefer
@@ -1550,7 +1670,9 @@ bool AbstractInterpreter::can_be_compiled(methodHandle m) {
     case Interpreter::java_lang_math_abs     : // fall thru
     case Interpreter::java_lang_math_log     : // fall thru
     case Interpreter::java_lang_math_log10   : // fall thru
-    case Interpreter::java_lang_math_sqrt    :
+    case Interpreter::java_lang_math_sqrt    : // fall thru
+    case Interpreter::java_lang_math_pow     : // fall thru
+    case Interpreter::java_lang_math_exp     :
       return false;
     default:
       return true;
@@ -1558,7 +1680,7 @@ bool AbstractInterpreter::can_be_compiled(methodHandle m) {
 }
 
 // How much stack a method activation needs in words.
-int AbstractInterpreter::size_top_interpreter_activation(methodOop method) {
+int AbstractInterpreter::size_top_interpreter_activation(Method* method) {
   const int entry_size = frame::interpreter_frame_monitor_size();
 
   // total overhead size: entry_size + (saved rbp thru expr stack
@@ -1568,13 +1690,12 @@ int AbstractInterpreter::size_top_interpreter_activation(methodOop method) {
     -(frame::interpreter_frame_initial_sp_offset) + entry_size;
 
   const int stub_code = frame::entry_frame_after_call_words;
-  const int extra_stack = methodOopDesc::extra_stack_entries();
-  const int method_stack = (method->max_locals() + method->max_stack() + extra_stack) *
+  const int method_stack = (method->max_locals() + method->max_stack()) *
                            Interpreter::stackElementWords;
   return (overhead_size + method_stack + stub_code);
 }
 
-int AbstractInterpreter::layout_activation(methodOop method,
+int AbstractInterpreter::layout_activation(Method* method,
                                            int tempcount,
                                            int popframe_extra_args,
                                            int moncount,
@@ -1583,7 +1704,8 @@ int AbstractInterpreter::layout_activation(methodOop method,
                                            int callee_locals,
                                            frame* caller,
                                            frame* interpreter_frame,
-                                           bool is_top_frame) {
+                                           bool is_top_frame,
+                                           bool is_bottom_frame) {
   // Note: This calculation must exactly parallel the frame setup
   // in AbstractInterpreterGenerator::generate_method_entry.
   // If interpreter_frame!=NULL, set up the method, locals, and monitors.
@@ -1621,6 +1743,12 @@ int AbstractInterpreter::layout_activation(methodOop method,
     // the original sp of the caller (the unextended_sp) and
     // sender_sp is fp+16 XXX
     intptr_t* locals = interpreter_frame->sender_sp() + max_locals - 1;
+
+#ifdef ASSERT
+    if (caller->is_interpreted_frame()) {
+      assert(locals < caller->fp() + frame::interpreter_frame_initial_sp_offset, "bad placement");
+    }
+#endif
 
     interpreter_frame->interpreter_frame_set_locals(locals);
     BasicObjectLock* montop = interpreter_frame->interpreter_frame_monitor_begin();
@@ -1733,7 +1861,8 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
     // Compute size of arguments for saving when returning to
     // deoptimized caller
     __ get_method(rax);
-    __ load_unsigned_short(rax, Address(rax, in_bytes(methodOopDesc::
+    __ movptr(rax, Address(rax, Method::const_offset()));
+    __ load_unsigned_short(rax, Address(rax, in_bytes(ConstMethod::
                                                 size_of_parameters_offset())));
     __ shll(rax, Interpreter::logStackElementSize);
     __ restore_locals(); // XXX do we need this?
@@ -1799,6 +1928,29 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
   __ movl(Address(r15_thread, JavaThread::popframe_condition_offset()),
           JavaThread::popframe_inactive);
 
+#if INCLUDE_JVMTI
+  if (EnableInvokeDynamic) {
+    Label L_done;
+    const Register local0 = r14;
+
+    __ cmpb(Address(r13, 0), Bytecodes::_invokestatic);
+    __ jcc(Assembler::notEqual, L_done);
+
+    // The member name argument must be restored if _invokestatic is re-executed after a PopFrame call.
+    // Detect such a case in the InterpreterRuntime function and return the member name argument, or NULL.
+
+    __ get_method(rdx);
+    __ movptr(rax, Address(local0, 0));
+    __ call_VM(rax, CAST_FROM_FN_PTR(address, InterpreterRuntime::member_name_arg_or_null), rax, rdx, r13);
+
+    __ testptr(rax, rax);
+    __ jcc(Assembler::zero, L_done);
+
+    __ movptr(Address(rbx, 0), rax);
+    __ bind(L_done);
+  }
+#endif // INCLUDE_JVMTI
+
   __ dispatch_next(vtos);
   // end of PopFrame support
 
@@ -1810,9 +1962,7 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
   // remove the activation (without doing throws on illegalMonitorExceptions)
   __ remove_activation(vtos, rdx, false, true, false);
   // restore exception
-  __ movptr(rax, Address(r15_thread, JavaThread::vm_result_offset()));
-  __ movptr(Address(r15_thread, JavaThread::vm_result_offset()), (int32_t)NULL_WORD);
-  __ verify_oop(rax);
+  __ get_vm_result(rax, r15_thread);
 
   // In between activations - previous activation type unknown yet
   // compute continuation point - the continuation point expects the

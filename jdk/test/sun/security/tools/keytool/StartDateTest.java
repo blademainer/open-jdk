@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,8 @@
  * @test
  * @bug 6468285
  * @summary keytool ability to backdate self-signed certificates to compensate for clock skew
+ * @compile -XDignore.symbol.file StartDateTest.java
+ * @run main StartDateTest
  */
 
 import java.io.File;
@@ -35,7 +37,6 @@ import java.security.cert.X509Certificate;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
-import sun.security.tools.KeyTool;
 
 public class StartDateTest {
     public static void main(String[] args) throws Exception {
@@ -48,7 +49,7 @@ public class StartDateTest {
         new File("jks").delete();
 
         run("-keystore jks -storetype jks -storepass changeit -keypass changeit -alias me " +
-                "-genkeypair -dname CN=Haha -startdate +1y");
+                "-keyalg rsa -genkeypair -dname CN=Haha -startdate +1y");
         cal.setTime(getIssueDate());
         System.out.println(cal);
         if (cal.get(Calendar.YEAR) != year + 1) {
@@ -66,7 +67,8 @@ public class StartDateTest {
         new File("jks").delete();
 
         // Part 2: Test format
-        Method m = KeyTool.class.getDeclaredMethod("getStartDate", String.class);
+        Method m = sun.security.tools.keytool.Main.class.getDeclaredMethod(
+                   "getStartDate", String.class);
         m.setAccessible(true);
         for (String s: new String[] {
                 null,       //NOW!
@@ -127,12 +129,14 @@ public class StartDateTest {
     }
 
     static void run(String s) throws Exception {
-        KeyTool.main((s+" -debug").split(" "));
+        sun.security.tools.keytool.Main.main((s+" -debug").split(" "));
     }
 
     static Date getIssueDate() throws Exception {
         KeyStore ks = KeyStore.getInstance("jks");
-        ks.load(new FileInputStream("jks"), "changeit".toCharArray());
+        try (FileInputStream fis = new FileInputStream("jks")) {
+            ks.load(fis, "changeit".toCharArray());
+        }
         X509Certificate cert = (X509Certificate)ks.getCertificate("me");
         return cert.getNotBefore();
     }

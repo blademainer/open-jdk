@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2002, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,9 +21,9 @@
  * questions.
  */
 
-/* @test 01/02/14
- * @bug 4405354
- * @summary Exercise java.net.NetworkInterface
+/* @test
+ * @bug 4405354 6594296
+ * @summary Basic tests for NetworkInterface
  */
 import java.net.NetworkInterface;
 import java.net.InetAddress;
@@ -69,6 +69,12 @@ public class Test {
                 throw new Exception("hashCode contract broken");
             }
             System.out.println("hashCode() test passed.");
+
+            byte[] ba = ni.getHardwareAddress();
+            if (ba != null && ba.length == 0) {
+                throw new Exception("getHardwareAddress returned 0 length byte array");
+            }
+            System.out.println("getHardwareAddress() test passed.");
         }
 
         // misc tests :-

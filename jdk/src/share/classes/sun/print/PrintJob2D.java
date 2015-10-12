@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -812,7 +812,7 @@ public class PrintJob2D extends PrintJob implements Printable, Runnable {
             currentGraphics.translate(pageFormat.getImageableX(),
                                       pageFormat.getImageableY());
 
-            /* Scale to accomodate AWT's notion of printer resolution */
+            /* Scale to accommodate AWT's notion of printer resolution */
             double awtScale = 72.0/getPageResolutionInternal();
             currentGraphics.scale(awtScale, awtScale);
 

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+// Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
 // DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 //
 // This code is free software; you can redistribute it and/or modify it
@@ -37,10 +37,21 @@
       movl     %gs:0, %eax 
       .end
 
+  // Get current sp
+      .inline _get_current_sp,0
+      .volatile
+      movl     %esp, %eax 
+      .end
+
   // Get current fp
       .inline _get_current_fp,0
       .volatile
       movl     %ebp, %eax 
+      .end
+
+  // Support for os::rdtsc()
+      .inline _raw_rdtsc,0
+      rdtsc
       .end
 
   // Support for jint Atomic::add(jint inc, volatile jint* dest)
@@ -112,7 +123,6 @@
       movl     4(%esp), %eax   // dest
       fistpll   (%eax)
       .end
-
 
   // Support for OrderAccess::acquire()
       .inline _OrderAccess_acquire,0

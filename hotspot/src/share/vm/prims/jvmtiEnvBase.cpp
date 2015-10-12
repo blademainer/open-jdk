@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -74,10 +74,8 @@ JvmtiEnvBase::globally_initialize() {
 
   JvmtiManageCapabilities::initialize();
 
-#ifndef JVMTI_KERNEL
   // register extension functions and events
   JvmtiExtensions::register_extensions();
-#endif // !JVMTI_KERNEL
 
 #ifdef JVMTI_TRACE
   JvmtiTrace::initialize();
@@ -236,14 +234,12 @@ JvmtiEnvBase::env_dispose() {
   // Same situation as with events (see above)
   set_native_method_prefixes(0, NULL);
 
-#ifndef JVMTI_KERNEL
   JvmtiTagMap* tag_map_to_deallocate = _tag_map;
   set_tag_map(NULL);
   // A tag map can be big, deallocate it now
   if (tag_map_to_deallocate != NULL) {
     delete tag_map_to_deallocate;
   }
-#endif // !JVMTI_KERNEL
 
   _needs_clean_up = true;
 }
@@ -255,14 +251,12 @@ JvmtiEnvBase::~JvmtiEnvBase() {
   // There is a small window of time during which the tag map of a
   // disposed environment could have been reallocated.
   // Make sure it is gone.
-#ifndef JVMTI_KERNEL
   JvmtiTagMap* tag_map_to_deallocate = _tag_map;
   set_tag_map(NULL);
   // A tag map can be big, deallocate it now
   if (tag_map_to_deallocate != NULL) {
     delete tag_map_to_deallocate;
   }
-#endif // !JVMTI_KERNEL
 
   _magic = BAD_MAGIC;
 }
@@ -381,7 +375,7 @@ JvmtiEnvBase::set_native_method_prefixes(jint prefix_count, char** prefixes) {
     _native_method_prefixes = NULL;
   } else {
     // there are prefixes, allocate an array to hold them, and fill it
-    char** new_prefixes = (char**)os::malloc((prefix_count) * sizeof(char*));
+    char** new_prefixes = (char**)os::malloc((prefix_count) * sizeof(char*), mtInternal);
     if (new_prefixes == NULL) {
       return JVMTI_ERROR_OUT_OF_MEMORY;
     }
@@ -565,15 +559,6 @@ JvmtiEnvBase::get_JavaThread(jthread jni_thread) {
 }
 
 
-// update the access_flags for the field in the klass
-void
-JvmtiEnvBase::update_klass_field_access_flag(fieldDescriptor *fd) {
-  instanceKlass* ik = instanceKlass::cast(fd->field_holder());
-  typeArrayOop fields = ik->fields();
-  fields->ushort_at_put(fd->index(), (jushort)fd->access_flags().as_short());
-}
-
-
 // return the vframe on the specified thread and depth, NULL if no such frame
 vframe*
 JvmtiEnvBase::vframeFor(JavaThread* java_thread, jint depth) {
@@ -597,19 +582,17 @@ JvmtiEnvBase::vframeFor(JavaThread* java_thread, jint depth) {
 
 
 jclass
-JvmtiEnvBase::get_jni_class_non_null(klassOop k) {
+JvmtiEnvBase::get_jni_class_non_null(Klass* k) {
   assert(k != NULL, "k != NULL");
-  return (jclass)jni_reference(Klass::cast(k)->java_mirror());
+  return (jclass)jni_reference(k->java_mirror());
 }
-
-#ifndef JVMTI_KERNEL
 
 //
 // Field Information
 //
 
 bool
-JvmtiEnvBase::get_field_descriptor(klassOop k, jfieldID field, fieldDescriptor* fd) {
+JvmtiEnvBase::get_field_descriptor(Klass* k, jfieldID field, fieldDescriptor* fd) {
   if (!jfieldIDWorkaround::is_valid_jfieldID(k, field)) {
     return false;
   }
@@ -620,7 +603,7 @@ JvmtiEnvBase::get_field_descriptor(klassOop k, jfieldID field, fieldDescriptor* 
   } else {
     // Non-static field. The fieldID is really the offset of the field within the object.
     int offset = jfieldIDWorkaround::from_instance_jfieldID(k, field);
-    found = instanceKlass::cast(k)->find_field_from_offset(offset, false, fd);
+    found = InstanceKlass::cast(k)->find_field_from_offset(offset, false, fd);
   }
   return found;
 }
@@ -939,7 +922,7 @@ JvmtiEnvBase::get_frame_location(JavaThread *java_thread, jint depth,
 
   HandleMark hm(current_thread);
   javaVFrame *jvf = javaVFrame::cast(vf);
-  methodOop method = jvf->method();
+  Method* method = jvf->method();
   if (method->is_native()) {
     *location_ptr = -1;
   } else {
@@ -1014,13 +997,19 @@ JvmtiEnvBase::get_object_monitor_usage(JavaThread* calling_thread, jobject objec
       // move our object at this point. However, our owner value is safe
       // since it is either the Lock word on a stack or a JavaThread *.
       owning_thread = Threads::owning_thread_from_monitor_owner(owner, !at_safepoint);
-      assert(owning_thread != NULL, "sanity check");
-      if (owning_thread != NULL) {  // robustness
+      // Cannot assume (owning_thread != NULL) here because this function
+      // may not have been called at a safepoint and the owning_thread
+      // might not be suspended.
+      if (owning_thread != NULL) {
         // The monitor's owner either has to be the current thread, at safepoint
         // or it has to be suspended. Any of these conditions will prevent both
         // contending and waiting threads from modifying the state of
         // the monitor.
         if (!at_safepoint && !JvmtiEnv::is_thread_fully_suspended(owning_thread, true, &debug_bits)) {
+          // Don't worry! This return of JVMTI_ERROR_THREAD_NOT_SUSPENDED
+          // will not make it back to the JVM/TI agent. The error code will
+          // get intercepted in JvmtiEnv::GetObjectMonitorUsage() which
+          // will retry the call via a VM_GetObjectMonitorUsage VM op.
           return JVMTI_ERROR_THREAD_NOT_SUSPENDED;
         }
         HandleMark hm;
@@ -1159,7 +1148,7 @@ JvmtiEnvBase::get_object_monitor_usage(JavaThread* calling_thread, jobject objec
 
 ResourceTracker::ResourceTracker(JvmtiEnv* env) {
   _env = env;
-  _allocations = new (ResourceObj::C_HEAP) GrowableArray<unsigned char*>(20, true);
+  _allocations = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<unsigned char*>(20, true);
   _failed = false;
 }
 ResourceTracker::~ResourceTracker() {
@@ -1374,7 +1363,7 @@ JvmtiEnvBase::check_top_frame(JavaThread* current_thread, JavaThread* java_threa
     // Method return type signature.
     char* ty_sign = 1 + strchr(signature->as_C_string(), ')');
 
-    if (!VM_GetOrSetLocal::is_assignable(ty_sign, Klass::cast(ob_kh()), current_thread)) {
+    if (!VM_GetOrSetLocal::is_assignable(ty_sign, ob_kh(), current_thread)) {
       return JVMTI_ERROR_TYPE_MISMATCH;
     }
     *ret_ob_h = ob_h;
@@ -1491,5 +1480,3 @@ JvmtiMonitorClosure::do_monitor(ObjectMonitor* mon) {
     }
   }
 }
-
-#endif // !JVMTI_KERNEL

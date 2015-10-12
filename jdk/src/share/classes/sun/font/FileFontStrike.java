@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -189,7 +189,7 @@ public class FileFontStrike extends PhysicalStrike {
 
         /* Always segment for fonts with > 256 glyphs, but also for smaller
          * fonts with non-typical sizes and transforms.
-         * Segmenting for all non-typical pt sizes helps to minimise memory
+         * Segmenting for all non-typical pt sizes helps to minimize memory
          * usage when very many distinct strikes are created.
          * The size range of 0->5 and 37->INF for segmenting is arbitrary
          * but the intention is that typical GUI integer point sizes (6->36)
@@ -747,14 +747,9 @@ public class FileFontStrike extends PhysicalStrike {
             return origMinX;
         }
 
-        long pixelData;
-        if (StrikeCache.nativeAddressSize == 4) {
-            pixelData = 0xffffffff &
-                StrikeCache.unsafe.getInt(ptr + StrikeCache.pixelDataOffset);
-        } else {
-            pixelData =
-                StrikeCache.unsafe.getLong(ptr + StrikeCache.pixelDataOffset);
-        }
+        long pixelData =
+            StrikeCache.unsafe.getAddress(ptr + StrikeCache.pixelDataOffset);
+
         if (pixelData == 0L) {
             return origMinX;
         }

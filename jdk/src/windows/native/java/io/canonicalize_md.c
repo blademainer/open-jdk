@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -161,7 +161,7 @@ dots(char *start)
 {
     char *p = start;
     while (*p) {
-        if ((p = strchr(p, '.')) == NULL) // find next occurence of '.'
+        if ((p = strchr(p, '.')) == NULL) // find next occurrence of '.'
             return 0; // no more dots
         p++; // next char
         while ((*p) == '.') // go to the end of dots
@@ -179,8 +179,12 @@ static int
 wdots(WCHAR *start)
 {
     WCHAR *p = start;
+    // Skip "\\.\" prefix
+    if (wcslen(p) > 4 && !wcsncmp(p, L"\\\\.\\", 4))
+        p = p + 4;
+
     while (*p) {
-        if ((p = wcschr(p, L'.')) == NULL) // find next occurence of '.'
+        if ((p = wcschr(p, L'.')) == NULL) // find next occurrence of '.'
             return 0; // no more dots
         p++; // next char
         while ((*p) == L'.') // go to the end of dots

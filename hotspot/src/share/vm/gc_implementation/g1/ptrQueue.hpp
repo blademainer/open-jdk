@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,6 +38,7 @@
 
 class PtrQueueSet;
 class PtrQueue VALUE_OBJ_CLASS_SPEC {
+  friend class VMStructs;
 
 protected:
   // The ptr queue set to which this queue belongs.
@@ -70,7 +71,7 @@ public:
   // given PtrQueueSet.
   PtrQueue(PtrQueueSet* qset, bool perm = false, bool active = false);
   // Release any contained resources.
-  void flush();
+  virtual void flush();
   // Calls flush() when destroyed.
   ~PtrQueue() { flush(); }
 
@@ -78,6 +79,10 @@ public:
   void set_lock(Mutex* lock) { _lock = lock; }
 
   void reset() { if (_buf != NULL) _index = _sz; }
+
+  void enqueue(volatile void* ptr) {
+    enqueue((void*)(ptr));
+  }
 
   // Enqueues the given "obj".
   void enqueue(void* ptr) {

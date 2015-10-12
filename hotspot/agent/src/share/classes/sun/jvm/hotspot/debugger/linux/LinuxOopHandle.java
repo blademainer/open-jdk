@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,8 +26,8 @@ package sun.jvm.hotspot.debugger.linux;
 
 import sun.jvm.hotspot.debugger.*;
 
-class LinuxOopHandle extends LinuxAddress implements OopHandle {
-  LinuxOopHandle(LinuxDebugger debugger, long addr) {
+public class LinuxOopHandle extends LinuxAddress implements OopHandle {
+  public LinuxOopHandle(LinuxDebugger debugger, long addr) {
     super(debugger, addr);
   }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -102,7 +102,7 @@ Java_java_lang_System_identityHashCode(JNIEnv *env, jobject this, jobject x)
 #define VENDOR_URL_BUG "http://bugreport.sun.com/bugreport/"
 #endif
 
-#define JAVA_MAX_SUPPORTED_VERSION 51
+#define JAVA_MAX_SUPPORTED_VERSION 52
 #define JAVA_MAX_SUPPORTED_MINOR_VERSION 0
 
 #ifdef JAVA_SPECIFICATION_VENDOR /* Third party may NOT overwrite this. */
@@ -206,11 +206,20 @@ Java_java_lang_System_initProperties(JNIEnv *env, jclass cla, jobject props)
     if (sprops->awt_toolkit) {
         PUTPROP(props, "awt.toolkit", sprops->awt_toolkit);
     }
+#ifdef MACOSX
+    if (sprops->awt_headless) {
+        PUTPROP(props, "java.awt.headless", sprops->awt_headless);
+    }
+#endif
 
     /* os properties */
     PUTPROP(props, "os.name", sprops->os_name);
     PUTPROP(props, "os.version", sprops->os_version);
     PUTPROP(props, "os.arch", sprops->os_arch);
+
+#ifdef JDK_ARCH_ABI_PROP_NAME
+    PUTPROP(props, "sun.arch.abi", sprops->sun_arch_abi);
+#endif
 
     /* file system properties */
     PUTPROP(props, "file.separator", sprops->file_separator);
@@ -235,12 +244,61 @@ Java_java_lang_System_initProperties(JNIEnv *env, jclass cla, jobject props)
     }
     PUTPROP(props, "file.encoding", sprops->encoding);
     PUTPROP(props, "sun.jnu.encoding", sprops->sun_jnu_encoding);
+    if (sprops->sun_stdout_encoding != NULL) {
+        PUTPROP(props, "sun.stdout.encoding", sprops->sun_stdout_encoding);
+    }
+    if (sprops->sun_stderr_encoding != NULL) {
+        PUTPROP(props, "sun.stderr.encoding", sprops->sun_stderr_encoding);
+    }
     PUTPROP(props, "file.encoding.pkg", "sun.io");
+
     /* unicode_encoding specifies the default endianness */
     PUTPROP(props, "sun.io.unicode.encoding", sprops->unicode_encoding);
     PUTPROP(props, "sun.cpu.isalist",
             (sprops->cpu_isalist ? sprops->cpu_isalist : ""));
     PUTPROP(props, "sun.cpu.endian",  sprops->cpu_endian);
+
+
+#ifdef MACOSX
+    /* Proxy setting properties */
+    if (sprops->httpProxyEnabled) {
+        PUTPROP(props, "http.proxyHost", sprops->httpHost);
+        PUTPROP(props, "http.proxyPort", sprops->httpPort);
+    }
+
+    if (sprops->httpsProxyEnabled) {
+        PUTPROP(props, "https.proxyHost", sprops->httpsHost);
+        PUTPROP(props, "https.proxyPort", sprops->httpsPort);
+    }
+
+    if (sprops->ftpProxyEnabled) {
+        PUTPROP(props, "ftp.proxyHost", sprops->ftpHost);
+        PUTPROP(props, "ftp.proxyPort", sprops->ftpPort);
+    }
+
+    if (sprops->socksProxyEnabled) {
+        PUTPROP(props, "socksProxyHost", sprops->socksHost);
+        PUTPROP(props, "socksProxyPort", sprops->socksPort);
+    }
+
+    if (sprops->gopherProxyEnabled) {
+        // The gopher client is different in that it expects an 'is this set?' flag that the others don't.
+        PUTPROP(props, "gopherProxySet", "true");
+        PUTPROP(props, "gopherProxyHost", sprops->gopherHost);
+        PUTPROP(props, "gopherProxyPort", sprops->gopherPort);
+    } else {
+        PUTPROP(props, "gopherProxySet", "false");
+    }
+
+    // Mac OS X only has a single proxy exception list which applies
+    // to all protocols
+    if (sprops->exceptionList) {
+        PUTPROP(props, "http.nonProxyHosts", sprops->exceptionList);
+        // HTTPS: implementation in jsse.jar uses http.nonProxyHosts
+        PUTPROP(props, "ftp.nonProxyHosts", sprops->exceptionList);
+        PUTPROP(props, "socksNonProxyHosts", sprops->exceptionList);
+    }
+#endif
 
     /* !!! DO NOT call PUTPROP_ForPlatformNString before this line !!!
      * !!! I18n properties have not been set up yet !!!
@@ -340,11 +398,19 @@ Java_java_lang_System_initProperties(JNIEnv *env, jclass cla, jobject props)
         sprops->display_variant, sprops->format_variant, putID, getPropID);
     GETPROP(props, "file.encoding", jVMVal);
     if (jVMVal == NULL) {
+#ifdef MACOSX
+        /*
+         * Since sun_jnu_encoding is now hard-coded to UTF-8 on Mac, we don't
+         * want to use it to overwrite file.encoding
+         */
+        PUTPROP(props, "file.encoding", sprops->encoding);
+#else
         if (fmtdefault) {
             PUTPROP(props, "file.encoding", sprops->encoding);
         } else {
             PUTPROP(props, "file.encoding", sprops->sun_jnu_encoding);
         }
+#endif
     } else {
         (*env)->DeleteLocalRef(env, jVMVal);
     }

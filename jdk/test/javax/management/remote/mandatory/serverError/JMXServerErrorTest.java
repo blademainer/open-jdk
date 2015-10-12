@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -120,7 +120,7 @@ public class JMXServerErrorTest {
         try {
             cs=JMXConnectorServerFactory.newJMXConnectorServer(jurl,null,kbs);
         } catch (MalformedURLException m) {
-            if ("jmxmp".equals(jurl.getProtocol())) {
+            if ("jmxmp".equals(jurl.getProtocol()) || "iiop".equals(jurl.getProtocol())) {
                 // OK, we may not have this in the classpath...
                 System.out.println("WARNING: Skipping protocol: " + jurl);
                 return;

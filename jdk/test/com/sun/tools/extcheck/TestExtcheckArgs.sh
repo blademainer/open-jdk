@@ -1,7 +1,7 @@
 #! /bin/sh
 
 #
-# Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2008, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -39,7 +39,7 @@ if [ $rc != 0 ]; then
     exit $rc
 fi
 
-${TESTJAVA}/bin/java -classpath ${TESTJAVA}/lib/tools.jar${PS}${TESTCLASSES} TestExtcheckArgs
+${TESTJAVA}/bin/java ${TESTVMOPTS} -classpath ${TESTJAVA}/lib/tools.jar${PS}${TESTCLASSES} TestExtcheckArgs
 rc=$?
 if [ $rc != 0 ]; then
     echo Execution failure with exit status $rc

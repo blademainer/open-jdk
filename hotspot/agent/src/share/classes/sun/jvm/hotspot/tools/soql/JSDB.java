@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,16 +24,25 @@
 
 package sun.jvm.hotspot.tools.soql;
 
+import sun.jvm.hotspot.debugger.JVMDebugger;
 import sun.jvm.hotspot.tools.*;
 import sun.jvm.hotspot.utilities.*;
 import sun.jvm.hotspot.utilities.soql.*;
 
 /** This is command line JavaScript debugger console */
 public class JSDB extends Tool {
+
+    public JSDB() {
+        super();
+    }
+
+    public JSDB(JVMDebugger d) {
+        super(d);
+    }
+
     public static void main(String[] args) {
         JSDB jsdb = new JSDB();
-        jsdb.start(args);
-        jsdb.stop();
+        jsdb.execute(args);
     }
 
     public void run() {

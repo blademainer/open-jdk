@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,6 @@ package sun.tools.jconsole;
 
 import com.sun.management.HotSpotDiagnosticMXBean;
 import com.sun.tools.jconsole.JConsoleContext;
-import com.sun.tools.jconsole.JConsoleContext.ConnectionState;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeEvent;
 import java.io.IOException;
@@ -208,7 +207,7 @@ public class ProxyClient implements JConsoleContext {
             serverStubClass = Class.forName(rmiServerImplStubClassName).asSubclass(Remote.class);
         } catch (ClassNotFoundException e) {
             // should never reach here
-            throw (InternalError) new InternalError(e.getMessage()).initCause(e);
+            throw new InternalError(e.getMessage(), e);
         }
         rmiServerImplStubClass = serverStubClass;
     }
@@ -308,10 +307,10 @@ public class ProxyClient implements JConsoleContext {
         }
     }
 
-    void connect() {
+    void connect(boolean requireSSL) {
         setConnectionState(ConnectionState.CONNECTING);
         try {
-            tryConnect();
+            tryConnect(requireSSL);
             setConnectionState(ConnectionState.CONNECTED);
         } catch (Exception e) {
             if (JConsole.isDebug()) {
@@ -321,7 +320,7 @@ public class ProxyClient implements JConsoleContext {
         }
     }
 
-    private void tryConnect() throws IOException {
+    private void tryConnect(boolean requireRemoteSSL) throws IOException {
         if (jmxUrl == null && "localhost".equals(hostName) && port == 0) {
             // Monitor self
             this.jmxc = null;
@@ -341,6 +340,10 @@ public class ProxyClient implements JConsoleContext {
                     this.jmxUrl = new JMXServiceURL(lvm.connectorAddress());
                 }
             }
+            Map<String, Object> env = new HashMap<String, Object>();
+            if (requireRemoteSSL) {
+                env.put("jmx.remote.x.check.stub", "true");
+            }
             // Need to pass in credentials ?
             if (userName == null && password == null) {
                 if (isVmConnector()) {
@@ -349,12 +352,11 @@ public class ProxyClient implements JConsoleContext {
                         checkSslConfig();
                     }
                     this.jmxc = new RMIConnector(stub, null);
-                    jmxc.connect();
+                    jmxc.connect(env);
                 } else {
-                    this.jmxc = JMXConnectorFactory.connect(jmxUrl);
+                    this.jmxc = JMXConnectorFactory.connect(jmxUrl, env);
                 }
             } else {
-                Map<String, String[]> env = new HashMap<String, String[]>();
                 env.put(JMXConnector.CREDENTIALS,
                         new String[] {userName, password});
                 if (isVmConnector()) {
@@ -395,18 +397,10 @@ public class ProxyClient implements JConsoleContext {
         } catch (MalformedObjectNameException e) {
             // should not reach here
             throw new InternalError(e.getMessage());
-        } catch (IntrospectionException e) {
-            InternalError ie = new InternalError(e.getMessage());
-            ie.initCause(e);
-            throw ie;
-        } catch (InstanceNotFoundException e) {
-            InternalError ie = new InternalError(e.getMessage());
-            ie.initCause(e);
-            throw ie;
-        } catch (ReflectionException e) {
-            InternalError ie = new InternalError(e.getMessage());
-            ie.initCause(e);
-            throw ie;
+        } catch (IntrospectionException |
+                 InstanceNotFoundException |
+                 ReflectionException e) {
+            throw new InternalError(e.getMessage(), e);
         }
 
         if (hasPlatformMXBeans) {
@@ -512,7 +506,7 @@ public class ProxyClient implements JConsoleContext {
 
     public String toString() {
         if (!isConnected()) {
-            return Resources.getText("ConnectionName (disconnected)", displayName);
+            return Resources.format(Messages.CONNECTION_NAME__DISCONNECTED_, displayName);
         } else {
             return displayName;
         }
@@ -603,10 +597,10 @@ public class ProxyClient implements JConsoleContext {
                 assert(false);
             }
         }
-        Set mbeans = server.queryNames(name, null);
+        Set<ObjectName> mbeans = server.queryNames(name, null);
         Map<ObjectName,MBeanInfo> result =
             new HashMap<ObjectName,MBeanInfo>(mbeans.size());
-        Iterator iterator = mbeans.iterator();
+        Iterator<ObjectName> iterator = mbeans.iterator();
         while (iterator.hasNext()) {
             Object object = iterator.next();
             if (object instanceof ObjectName) {
@@ -712,10 +706,10 @@ public class ProxyClient implements JConsoleContext {
                 // should not reach here
                 assert(false);
             }
-            Set mbeans = server.queryNames(poolName, null);
+            Set<ObjectName> mbeans = server.queryNames(poolName, null);
             if (mbeans != null) {
                 memoryPoolProxies = new ArrayList<MemoryPoolProxy>();
-                Iterator iterator = mbeans.iterator();
+                Iterator<ObjectName> iterator = mbeans.iterator();
                 while (iterator.hasNext()) {
                     ObjectName objName = (ObjectName) iterator.next();
                     MemoryPoolProxy p = new MemoryPoolProxy(this, objName);
@@ -738,10 +732,10 @@ public class ProxyClient implements JConsoleContext {
                 // should not reach here
                 assert(false);
             }
-            Set mbeans = server.queryNames(gcName, null);
+            Set<ObjectName> mbeans = server.queryNames(gcName, null);
             if (mbeans != null) {
                 garbageCollectorMBeans = new ArrayList<GarbageCollectorMXBean>();
-                Iterator iterator = mbeans.iterator();
+                Iterator<ObjectName> iterator = mbeans.iterator();
                 while (iterator.hasNext()) {
                     ObjectName on = (ObjectName) iterator.next();
                     String name = GARBAGE_COLLECTOR_MXBEAN_DOMAIN_TYPE +

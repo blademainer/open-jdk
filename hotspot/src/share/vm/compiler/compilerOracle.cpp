@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,13 +28,13 @@
 #include "memory/oopFactory.hpp"
 #include "memory/resourceArea.hpp"
 #include "oops/klass.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/method.hpp"
 #include "oops/oop.inline.hpp"
 #include "oops/symbol.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/jniHandles.hpp"
 
-class MethodMatcher : public CHeapObj {
+class MethodMatcher : public CHeapObj<mtCompiler> {
  public:
   enum Mode {
     Exact,
@@ -67,7 +67,7 @@ class MethodMatcher : public CHeapObj {
 
   // utility method
   MethodMatcher* find(methodHandle method) {
-    Symbol* class_name  = Klass::cast(method->method_holder())->name();
+    Symbol* class_name  = method->method_holder()->name();
     Symbol* method_name = method->name();
     for (MethodMatcher* current = this; current != NULL; current = current->_next) {
       if (match(class_name, current->class_name(), current->_class_mode) &&
@@ -236,13 +236,6 @@ static const char * command_names[] = {
   "quiet",
   "help"
 };
-
-static const char * command_name(OracleCommand command) {
-  if (command < OracleFirstCommand || command >= OracleCommandCount) {
-    return "unknown command";
-  }
-  return command_names[command];
-}
 
 class MethodMatcher;
 static MethodMatcher* lists[OracleCommandCount] = { 0, };
@@ -455,7 +448,7 @@ void CompilerOracle::parse_from_line(char* line) {
     //      exclude java/lang/String indexOf
     //      exclude,java/lang/String,indexOf
     // For easy cut-and-paste of method names, allow VM output format
-    // as produced by methodOopDesc::print_short_name:
+    // as produced by Method::print_short_name:
     //      exclude java.lang.String::indexOf
     // For simple implementation convenience here, convert them all to space.
     if (have_colon) {
@@ -538,6 +531,7 @@ void CompilerOracle::parse_from_line(char* line) {
 
   if (match != NULL) {
     if (!_quiet) {
+      ResourceMark rm;
       tty->print("CompilerOracle: %s ", command_names[command]);
       match->print();
     }
@@ -550,21 +544,31 @@ void CompilerOracle::parse_from_line(char* line) {
   }
 }
 
+static const char* default_cc_file = ".hotspot_compiler";
+
 static const char* cc_file() {
+#ifdef ASSERT
   if (CompileCommandFile == NULL)
-    return ".hotspot_compiler";
+    return default_cc_file;
+#endif
   return CompileCommandFile;
 }
+
+bool CompilerOracle::has_command_file() {
+  return cc_file() != NULL;
+}
+
 bool CompilerOracle::_quiet = false;
 
 void CompilerOracle::parse_from_file() {
+  assert(has_command_file(), "command file must be specified");
   FILE* stream = fopen(cc_file(), "rt");
   if (stream == NULL) return;
 
   char token[1024];
   int  pos = 0;
   int  c = getc(stream);
-  while(c != EOF) {
+  while(c != EOF && pos < (int)(sizeof(token)-1)) {
     if (c == '\n') {
       token[pos++] = '\0';
       parse_from_line(token);
@@ -585,7 +589,7 @@ void CompilerOracle::parse_from_string(const char* str, void (*parse_line)(char*
   int  pos = 0;
   const char* sp = str;
   int  c = *sp++;
-  while (c != '\0') {
+  while (c != '\0' && pos < (int)(sizeof(token)-1)) {
     if (c == '\n') {
       token[pos++] = '\0';
       parse_line(token);
@@ -600,6 +604,7 @@ void CompilerOracle::parse_from_string(const char* str, void (*parse_line)(char*
 }
 
 void CompilerOracle::append_comment_to_file(const char* message) {
+  assert(has_command_file(), "command file must be specified");
   fileStream stream(fopen(cc_file(), "at"));
   stream.print("# ");
   for (int index = 0; message[index] != '\0'; index++) {
@@ -610,9 +615,10 @@ void CompilerOracle::append_comment_to_file(const char* message) {
 }
 
 void CompilerOracle::append_exclude_to_file(methodHandle method) {
+  assert(has_command_file(), "command file must be specified");
   fileStream stream(fopen(cc_file(), "at"));
   stream.print("exclude ");
-  Klass::cast(method->method_holder())->name()->print_symbol_on(&stream);
+  method->method_holder()->name()->print_symbol_on(&stream);
   stream.print(".");
   method->name()->print_symbol_on(&stream);
   method->signature()->print_symbol_on(&stream);
@@ -624,10 +630,19 @@ void CompilerOracle::append_exclude_to_file(methodHandle method) {
 void compilerOracle_init() {
   CompilerOracle::parse_from_string(CompileCommand, CompilerOracle::parse_from_line);
   CompilerOracle::parse_from_string(CompileOnly, CompilerOracle::parse_compile_only);
-  CompilerOracle::parse_from_file();
+  if (CompilerOracle::has_command_file()) {
+    CompilerOracle::parse_from_file();
+  } else {
+    struct stat buf;
+    if (os::stat(default_cc_file, &buf) == 0) {
+      warning("%s file is present but has been ignored.  "
+              "Run with -XX:CompileCommandFile=%s to load the file.",
+              default_cc_file, default_cc_file);
+    }
+  }
   if (lists[PrintCommand] != NULL) {
     if (PrintAssembly) {
-      warning("CompileCommand and/or .hotspot_compiler file contains 'print' commands, but PrintAssembly is also enabled");
+      warning("CompileCommand and/or %s file contains 'print' commands, but PrintAssembly is also enabled", default_cc_file);
     } else if (FLAG_IS_DEFAULT(DebugNonSafepoints)) {
       warning("printing of assembly code is enabled; turning on DebugNonSafepoints to gain additional output");
       DebugNonSafepoints = true;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -150,6 +150,7 @@ AwtFont::AwtFont(int num, JNIEnv *env, jobject javaFont)
 
 AwtFont::~AwtFont()
 {
+    delete[] m_hFont;
 }
 
 void AwtFont::Dispose() {
@@ -160,11 +161,12 @@ void AwtFont::Dispose() {
             /*  NOTE: delete of windows HFONT happens in FontCache::Remove
                       only when the final reference to the font is disposed */
         } else if (font != NULL) {
-         // if font was not in cache, its not shared and we delete it now
-           VERIFY(::DeleteObject(font));
+            // if font was not in cache, its not shared and we delete it now
+            DASSERT(::GetObjectType(font) == OBJ_FONT);
+            VERIFY(::DeleteObject(font));
         }
+        m_hFont[i] = NULL;
     }
-    delete[] m_hFont;
 
     AwtObject::Dispose();
 }
@@ -364,17 +366,6 @@ AwtFont* AwtFont::Create(JNIEnv *env, jobject font, jint angle, jfloat awScale)
     return awtFont;
 }
 
-int CALLBACK FindFamilyName (ENUMLOGFONTEX *lpelfe,
-          NEWTEXTMETRICEX *lpntme, int FontType, LPARAM lParam)
-{
-    if(_tcsstr((LPTSTR)lParam, lpelfe->elfLogFont.lfFaceName)) {
-        _tcscpy((LPTSTR)lParam, lpelfe->elfLogFont.lfFaceName);
-        return 0;
-    } else {
-        return 1;
-    }
-}
-
 static void strip_tail(wchar_t* text, wchar_t* tail) { // strips tail and any possible whitespace before it from the end of text
     if (wcslen(text)<=wcslen(tail)) {
         return;
@@ -507,6 +498,11 @@ void AwtFont::LoadMetrics(JNIEnv *env, jobject fontMetrics)
     }
     jobject font = env->GetObjectField(fontMetrics, AwtFont::fontID);
     AwtFont* awtFont = AwtFont::GetFont(env, font);
+
+    if (!awtFont) {
+        /* failed to get font */
+        return;
+    }
 
     HDC hDC = ::GetDC(0);
     DASSERT(hDC != NULL);

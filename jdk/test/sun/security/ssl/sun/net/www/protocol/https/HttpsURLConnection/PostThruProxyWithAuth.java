@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -152,7 +152,7 @@ public class PostThruProxyWithAuth {
         /*
          * setup up a proxy
          */
-        setupProxy();
+        SocketAddress pAddr = setupProxy();
 
         /*
          * we want to avoid URLspoofCheck failures in cases where the cert
@@ -162,7 +162,8 @@ public class PostThruProxyWithAuth {
                                       new NameVerifier());
         URL url = new URL("https://" + hostname + ":" + serverPort);
 
-        HttpsURLConnection https = (HttpsURLConnection)url.openConnection();
+        Proxy p = new Proxy(Proxy.Type.HTTP, pAddr);
+        HttpsURLConnection https = (HttpsURLConnection)url.openConnection(p);
         https.setDoOutput(true);
         https.setRequestMethod("POST");
         PrintStream ps = null;
@@ -195,7 +196,7 @@ public class PostThruProxyWithAuth {
         }
     }
 
-    static void setupProxy() throws IOException {
+    static SocketAddress setupProxy() throws IOException {
         ProxyTunnelServer pserver = new ProxyTunnelServer();
 
         /*
@@ -209,9 +210,8 @@ public class PostThruProxyWithAuth {
         pserver.setUserAuth("Test", "test123");
 
         pserver.start();
-        System.setProperty("https.proxyHost", "localhost");
-        System.setProperty("https.proxyPort", String.valueOf(
-                                        pserver.getPort()));
+
+        return new InetSocketAddress("localhost", pserver.getPort());
     }
 
     public static class TestAuthenticator extends Authenticator {
@@ -220,6 +220,4 @@ public class PostThruProxyWithAuth {
                                          "test123".toCharArray());
         }
     }
-
-
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,10 @@
 #ifndef SHARE_VM_GC_IMPLEMENTATION_SHARED_CONCURRENTGCTHREAD_HPP
 #define SHARE_VM_GC_IMPLEMENTATION_SHARED_CONCURRENTGCTHREAD_HPP
 
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "runtime/thread.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
 class VoidClosure;
 
@@ -94,8 +95,6 @@ protected:
   static bool CGC_flag_is_set(int b)       { return (_CGC_flag & b) != 0; }
   static int set_CGC_flag(int b)           { return _CGC_flag |= b; }
   static int reset_CGC_flag(int b)         { return _CGC_flag &= ~b; }
-
-  void stopWorldAndDo(VoidClosure* op);
 
   // All instances share this one set.
   static SuspendibleThreadSet _sts;

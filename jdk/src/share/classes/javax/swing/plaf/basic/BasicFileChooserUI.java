@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,7 +43,7 @@ import sun.swing.*;
 import sun.swing.SwingUtilities2;
 
 /**
- * Basic L&F implementation of a FileChooser.
+ * Basic L&amp;F implementation of a FileChooser.
  *
  * @author Jeff Dinkins
  */
@@ -456,7 +456,7 @@ public class BasicFileChooserUI extends FileChooserUI {
 
         public void mouseClicked(MouseEvent evt) {
             // Note: we can't depend on evt.getSource() because of backward
-            // compatability
+            // compatibility
             if (list != null &&
                 SwingUtilities.isLeftMouseButton(evt) &&
                 (evt.getClickCount()%2 == 0)) {
@@ -565,7 +565,7 @@ public class BasicFileChooserUI extends FileChooserUI {
     }
 
     protected class DoubleClickListener extends MouseAdapter {
-        // NOTE: This class exists only for backward compatability. All
+        // NOTE: This class exists only for backward compatibility. All
         // its functionality has been moved into Handler. If you need to add
         // new functionality add it to the Handler, but make sure this
         // class calls into the Handler.
@@ -591,7 +591,7 @@ public class BasicFileChooserUI extends FileChooserUI {
     }
 
     protected class SelectionListener implements ListSelectionListener {
-        // NOTE: This class exists only for backward compatability. All
+        // NOTE: This class exists only for backward compatibility. All
         // its functionality has been moved into Handler. If you need to add
         // new functionality add it to the Handler, but make sure this
         // class calls into the Handler.
@@ -810,10 +810,7 @@ public class BasicFileChooserUI extends FileChooserUI {
             putValue(Action.ACTION_COMMAND_KEY, FilePane.ACTION_CHANGE_TO_PARENT_DIRECTORY);
         }
         public void actionPerformed(ActionEvent e) {
-            Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-            if (focusOwner == null || !(focusOwner instanceof javax.swing.text.JTextComponent)) {
-                getFileChooser().changeToParentDirectory();
-            }
+            getFileChooser().changeToParentDirectory();
         }
     }
 
@@ -1156,10 +1153,15 @@ public class BasicFileChooserUI extends FileChooserUI {
                 if (shellFolder.isLink()) {
                     File linkedTo = shellFolder.getLinkLocation();
 
-                    if (linkedTo != null && fc.isTraversable(linkedTo)) {
-                        dir = linkedTo;
+                    // If linkedTo is null we try to use dir
+                    if (linkedTo != null) {
+                        if (fc.isTraversable(linkedTo)) {
+                            dir = linkedTo;
+                        } else {
+                            return;
+                        }
                     } else {
-                        return;
+                        dir = shellFolder;
                     }
                 }
             } catch (FileNotFoundException ex) {

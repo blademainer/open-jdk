@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,23 +36,24 @@
 #include "runtime/osThread.hpp"
 #include "runtime/stubRoutines.hpp"
 #include "runtime/synchronizer.hpp"
+#include "runtime/thread.inline.hpp"
 #include "utilities/dtrace.hpp"
 #include "utilities/events.hpp"
 #include "utilities/preserveException.hpp"
 #ifdef TARGET_OS_FAMILY_linux
 # include "os_linux.inline.hpp"
-# include "thread_linux.inline.hpp"
 #endif
 #ifdef TARGET_OS_FAMILY_solaris
 # include "os_solaris.inline.hpp"
-# include "thread_solaris.inline.hpp"
 #endif
 #ifdef TARGET_OS_FAMILY_windows
 # include "os_windows.inline.hpp"
-# include "thread_windows.inline.hpp"
+#endif
+#ifdef TARGET_OS_FAMILY_bsd
+# include "os_bsd.inline.hpp"
 #endif
 
-#if defined(__GNUC__) && !defined(IA64)
+#if defined(__GNUC__)
   // Need to inhibit inlining for older versions of GCC to avoid build-time failures
   #define ATTR __attribute__((noinline))
 #else
@@ -73,43 +74,67 @@
 // Only bother with this argument setup if dtrace is available
 // TODO-FIXME: probes should not fire when caller is _blocked.  assert() accordingly.
 
-HS_DTRACE_PROBE_DECL5(hotspot, monitor__wait,
-  jlong, uintptr_t, char*, int, long);
-HS_DTRACE_PROBE_DECL4(hotspot, monitor__waited,
-  jlong, uintptr_t, char*, int);
-
-#define DTRACE_MONITOR_PROBE_COMMON(klassOop, thread)                      \
+#define DTRACE_MONITOR_PROBE_COMMON(obj, thread)                           \
   char* bytes = NULL;                                                      \
   int len = 0;                                                             \
   jlong jtid = SharedRuntime::get_java_tid(thread);                        \
-  Symbol* klassname = ((oop)(klassOop))->klass()->klass_part()->name();  \
+  Symbol* klassname = ((oop)(obj))->klass()->name();                       \
   if (klassname != NULL) {                                                 \
     bytes = (char*)klassname->bytes();                                     \
     len = klassname->utf8_length();                                        \
   }
 
-#define DTRACE_MONITOR_WAIT_PROBE(monitor, klassOop, thread, millis)       \
+#ifndef USDT2
+HS_DTRACE_PROBE_DECL5(hotspot, monitor__wait,
+  jlong, uintptr_t, char*, int, long);
+HS_DTRACE_PROBE_DECL4(hotspot, monitor__waited,
+  jlong, uintptr_t, char*, int);
+
+#define DTRACE_MONITOR_WAIT_PROBE(monitor, obj, thread, millis)            \
   {                                                                        \
     if (DTraceMonitorProbes) {                                            \
-      DTRACE_MONITOR_PROBE_COMMON(klassOop, thread);                       \
+      DTRACE_MONITOR_PROBE_COMMON(obj, thread);                            \
       HS_DTRACE_PROBE5(hotspot, monitor__wait, jtid,                       \
                        (monitor), bytes, len, (millis));                   \
     }                                                                      \
   }
 
-#define DTRACE_MONITOR_PROBE(probe, monitor, klassOop, thread)             \
+#define DTRACE_MONITOR_PROBE(probe, monitor, obj, thread)                  \
   {                                                                        \
     if (DTraceMonitorProbes) {                                            \
-      DTRACE_MONITOR_PROBE_COMMON(klassOop, thread);                       \
+      DTRACE_MONITOR_PROBE_COMMON(obj, thread);                            \
       HS_DTRACE_PROBE4(hotspot, monitor__##probe, jtid,                    \
                        (uintptr_t)(monitor), bytes, len);                  \
     }                                                                      \
   }
 
+#else /* USDT2 */
+
+#define DTRACE_MONITOR_WAIT_PROBE(monitor, obj, thread, millis)            \
+  {                                                                        \
+    if (DTraceMonitorProbes) {                                            \
+      DTRACE_MONITOR_PROBE_COMMON(obj, thread);                            \
+      HOTSPOT_MONITOR_WAIT(jtid,                                           \
+                           (uintptr_t)(monitor), bytes, len, (millis));  \
+    }                                                                      \
+  }
+
+#define HOTSPOT_MONITOR_PROBE_waited HOTSPOT_MONITOR_PROBE_WAITED
+
+#define DTRACE_MONITOR_PROBE(probe, monitor, obj, thread)                  \
+  {                                                                        \
+    if (DTraceMonitorProbes) {                                            \
+      DTRACE_MONITOR_PROBE_COMMON(obj, thread);                            \
+      HOTSPOT_MONITOR_PROBE_##probe(jtid, /* probe = waited */             \
+                       (uintptr_t)(monitor), bytes, len);                  \
+    }                                                                      \
+  }
+
+#endif /* USDT2 */
 #else //  ndef DTRACE_ENABLED
 
-#define DTRACE_MONITOR_WAIT_PROBE(klassOop, thread, millis, mon)    {;}
-#define DTRACE_MONITOR_PROBE(probe, klassOop, thread, mon)          {;}
+#define DTRACE_MONITOR_WAIT_PROBE(obj, thread, millis, mon)    {;}
+#define DTRACE_MONITOR_PROBE(probe, obj, thread, mon)          {;}
 
 #endif // ndef DTRACE_ENABLED
 
@@ -129,7 +154,7 @@ int ObjectSynchronizer::gOmInUseCount = 0;
 static volatile intptr_t ListLock = 0 ;      // protects global monitor free-list cache
 static volatile int MonitorFreeCount  = 0 ;      // # on gFreeList
 static volatile int MonitorPopulation = 0 ;      // # Extant -- in circulation
-#define CHAINMARKER ((oop)-1)
+#define CHAINMARKER (cast_to_oop<intptr_t>(-1))
 
 // -----------------------------------------------------------------------------
 //  Fast Monitor Enter/Exit
@@ -188,7 +213,7 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
      }
   }
 
-  ObjectSynchronizer::inflate(THREAD, object)->exit (THREAD) ;
+  ObjectSynchronizer::inflate(THREAD, object)->exit (true, THREAD) ;
 }
 
 // -----------------------------------------------------------------------------
@@ -308,7 +333,9 @@ bool ObjectSynchronizer::jni_try_enter(Handle obj, Thread* THREAD) {
 void ObjectSynchronizer::jni_exit(oop obj, Thread* THREAD) {
   TEVENT (jni_exit) ;
   if (UseBiasedLocking) {
-    BiasedLocking::revoke_and_rebias(obj, false, THREAD);
+    Handle h_obj(THREAD, obj);
+    BiasedLocking::revoke_and_rebias(h_obj, false, THREAD);
+    obj = h_obj();
   }
   assert(!obj->mark()->has_bias_pattern(), "biases should be revoked by now");
 
@@ -316,7 +343,7 @@ void ObjectSynchronizer::jni_exit(oop obj, Thread* THREAD) {
   // If this thread has locked the object, exit the monitor.  Note:  can't use
   // monitor->check(CHECK); must exit even if an exception is pending.
   if (monitor->check(THREAD)) {
-     monitor->exit(THREAD);
+     monitor->exit(true, THREAD);
   }
 }
 
@@ -422,8 +449,6 @@ void ObjectSynchronizer::notifyall(Handle obj, TRAPS) {
 // and explicit fences (barriers) to control for architectural reordering performed
 // by the CPU(s) or platform.
 
-static int  MBFence (int x) { OrderAccess::fence(); return x; }
-
 struct SharedGlobals {
     // These are highly shared mostly-read variables.
     // To avoid false-sharing they need to be the sole occupants of a $ line.
@@ -485,7 +510,7 @@ static markOop ReadStableMark (oop obj) {
          // then for each thread on the list, set the flag and unpark() the thread.
          // This is conceptually similar to muxAcquire-muxRelease, except that muxRelease
          // wakes at most one thread whereas we need to wake the entire list.
-         int ix = (intptr_t(obj) >> 5) & (NINFLATIONLOCKS-1) ;
+         int ix = (cast_from_oop<intptr_t>(obj) >> 5) & (NINFLATIONLOCKS-1) ;
          int YieldThenBlock = 0 ;
          assert (ix >= 0 && ix < NINFLATIONLOCKS, "invariant") ;
          assert ((NINFLATIONLOCKS & (NINFLATIONLOCKS-1)) == 0, "invariant") ;
@@ -540,7 +565,7 @@ static inline intptr_t get_next_hash(Thread * Self, oop obj) {
      // This variation has the property of being stable (idempotent)
      // between STW operations.  This can be useful in some of the 1-0
      // synchronization schemes.
-     intptr_t addrBits = intptr_t(obj) >> 3 ;
+     intptr_t addrBits = cast_from_oop<intptr_t>(obj) >> 3 ;
      value = addrBits ^ (addrBits >> 5) ^ GVars.stwRandom ;
   } else
   if (hashCode == 2) {
@@ -550,7 +575,7 @@ static inline intptr_t get_next_hash(Thread * Self, oop obj) {
      value = ++GVars.hcSequence ;
   } else
   if (hashCode == 4) {
-     value = intptr_t(obj) ;
+     value = cast_from_oop<intptr_t>(obj) ;
   } else {
      // Marsaglia's xor-shift scheme with thread-specific state
      // This is probably the best overall implementation -- we'll
@@ -786,6 +811,7 @@ JavaThread* ObjectSynchronizer::get_lock_owner(Handle h_obj, bool doLock) {
   }
 
   if (owner != NULL) {
+    // owning_thread_from_monitor_owner() may also return NULL here
     return Threads::owning_thread_from_monitor_owner(owner, doLock);
   }
 
@@ -992,7 +1018,8 @@ ObjectMonitor * ATTR ObjectSynchronizer::omAlloc (Thread * Self) {
         // We might be able to induce a STW safepoint and scavenge enough
         // objectMonitors to permit progress.
         if (temp == NULL) {
-            vm_exit_out_of_memory (sizeof (ObjectMonitor[_BLOCKSIZE]), "Allocate ObjectMonitors") ;
+            vm_exit_out_of_memory (sizeof (ObjectMonitor[_BLOCKSIZE]), OOM_MALLOC_ERROR,
+                                   "Allocate ObjectMonitors");
         }
 
         // Format the block.
@@ -1294,8 +1321,8 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
             if (object->is_instance()) {
               ResourceMark rm;
               tty->print_cr("Inflating object " INTPTR_FORMAT " , mark " INTPTR_FORMAT " , type %s",
-                (intptr_t) object, (intptr_t) object->mark(),
-                Klass::cast(object->klass())->external_name());
+                (void *) object, (intptr_t) object->mark(),
+                object->klass()->external_name());
             }
           }
           return m ;
@@ -1344,8 +1371,8 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
         if (object->is_instance()) {
           ResourceMark rm;
           tty->print_cr("Inflating object " INTPTR_FORMAT " , mark " INTPTR_FORMAT " , type %s",
-            (intptr_t) object, (intptr_t) object->mark(),
-            Klass::cast(object->klass())->external_name());
+            (void *) object, (intptr_t) object->mark(),
+            object->klass()->external_name());
         }
       }
       return m ;
@@ -1412,7 +1439,7 @@ bool ObjectSynchronizer::deflate_monitor(ObjectMonitor* mid, oop obj,
        if (obj->is_instance()) {
          ResourceMark rm;
            tty->print_cr("Deflating object " INTPTR_FORMAT " , mark " INTPTR_FORMAT " , type %s",
-                (intptr_t) obj, (intptr_t) obj->mark(), Klass::cast(obj->klass())->external_name());
+                (void *) obj, (intptr_t) obj->mark(), obj->klass()->external_name());
        }
      }
 
@@ -1610,11 +1637,6 @@ void ObjectSynchronizer::release_monitors_owned_by_thread(TRAPS) {
 // Non-product code
 
 #ifndef PRODUCT
-
-void ObjectSynchronizer::trace_locking(Handle locking_obj, bool is_compiled,
-                                       bool is_method, bool is_locking) {
-  // Don't know what to do here
-}
 
 // Verify all monitors in the monitor cache, the verification is weak.
 void ObjectSynchronizer::verify() {

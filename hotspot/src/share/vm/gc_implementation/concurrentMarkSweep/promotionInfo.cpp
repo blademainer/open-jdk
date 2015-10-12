@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -118,10 +118,10 @@ void PromotionInfo::track(PromotedObject* trackOop) {
   track(trackOop, oop(trackOop)->klass());
 }
 
-void PromotionInfo::track(PromotedObject* trackOop, klassOop klassOfOop) {
+void PromotionInfo::track(PromotedObject* trackOop, Klass* klassOfOop) {
   // make a copy of header as it may need to be spooled
   markOop mark = oop(trackOop)->mark();
-  trackOop->clearNext();
+  trackOop->clear_next();
   if (mark->must_be_preserved_for_cms_scavenge(klassOfOop)) {
     // save non-prototypical header, and mark oop
     saveDisplacedHeader(mark);

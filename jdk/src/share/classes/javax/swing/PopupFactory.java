@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -200,12 +200,6 @@ public class PopupFactory {
             if (c instanceof JComponent) {
                 if (((JComponent)c).getClientProperty(
                             PopupFactory_FORCE_HEAVYWEIGHT_POPUP) == Boolean.TRUE) {
-                    popupType = HEAVY_WEIGHT_POPUP;
-                    break;
-                }
-            } else if (c instanceof Window) {
-                Window w = (Window) c;
-                if (!w.isOpaque() || w.getOpacity() < 1 || w.getShape() != null) {
                     popupType = HEAVY_WEIGHT_POPUP;
                     break;
                 }

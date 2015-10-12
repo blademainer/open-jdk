@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,11 +40,21 @@ public class HotSpotDiagnostic implements HotSpotDiagnosticMXBean {
     public HotSpotDiagnostic() {
     }
 
-    public native void dumpHeap(String outputFile, boolean live) throws IOException;
+    public void dumpHeap(String outputFile, boolean live) throws IOException {
+        SecurityManager security = System.getSecurityManager();
+        if (security != null) {
+            security.checkWrite(outputFile);
+            Util.checkControlAccess();
+        }
+
+        dumpHeap0(outputFile, live);
+    }
+
+    private native void dumpHeap0(String outputFile, boolean live) throws IOException;
 
     public List<VMOption> getDiagnosticOptions() {
         List<Flag> allFlags = Flag.getAllFlags();
-        List<VMOption> result = new ArrayList<VMOption>();
+        List<VMOption> result = new ArrayList<>();
         for (Flag flag : allFlags) {
             if (flag.isWriteable() && flag.isExternal()) {
                 result.add(flag.getVMOption());

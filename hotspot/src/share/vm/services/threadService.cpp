@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -200,6 +200,12 @@ void ThreadService::oops_do(OopClosure* f) {
   }
 }
 
+void ThreadService::metadata_do(void f(Metadata*)) {
+  for (ThreadDumpResult* dump = _threaddump_list; dump != NULL; dump = dump->next()) {
+    dump->metadata_do(f);
+  }
+}
+
 void ThreadService::add_thread_dump(ThreadDumpResult* dump) {
   MutexLocker ml(Management_lock);
   if (_threaddump_list == NULL) {
@@ -249,9 +255,9 @@ Handle ThreadService::dump_stack_traces(GrowableArray<instanceHandle>* threads,
   // Allocate the resulting StackTraceElement[][] object
 
   ResourceMark rm(THREAD);
-  klassOop k = SystemDictionary::resolve_or_fail(vmSymbols::java_lang_StackTraceElement_array(), true, CHECK_NH);
-  objArrayKlassHandle ik (THREAD, k);
-  objArrayOop r = oopFactory::new_objArray(ik(), num_threads, CHECK_NH);
+  Klass* k = SystemDictionary::resolve_or_fail(vmSymbols::java_lang_StackTraceElement_array(), true, CHECK_NH);
+  ObjArrayKlass* ik = ObjArrayKlass::cast(k);
+  objArrayOop r = oopFactory::new_objArray(ik, num_threads, CHECK_NH);
   objArrayHandle result_obj(THREAD, r);
 
   int num_snapshots = dump_result.num_snapshots();
@@ -327,8 +333,31 @@ DeadlockCycle* ThreadService::find_deadlocks_at_safepoint(bool concurrent_locks)
     while (waitingToLockMonitor != NULL || waitingToLockBlocker != NULL) {
       cycle->add_thread(currentThread);
       if (waitingToLockMonitor != NULL) {
-        currentThread = Threads::owning_thread_from_monitor_owner((address)waitingToLockMonitor->owner(),
-                                                                  false /* no locking needed */);
+        address currentOwner = (address)waitingToLockMonitor->owner();
+        if (currentOwner != NULL) {
+          currentThread = Threads::owning_thread_from_monitor_owner(
+                            currentOwner,
+                            false /* no locking needed */);
+          if (currentThread == NULL) {
+            // This function is called at a safepoint so the JavaThread
+            // that owns waitingToLockMonitor should be findable, but
+            // if it is not findable, then the previous currentThread is
+            // blocked permanently. We record this as a deadlock.
+            num_deadlocks++;
+
+            cycle->set_deadlock(true);
+
+            // add this cycle to the deadlocks list
+            if (deadlocks == NULL) {
+              deadlocks = cycle;
+            } else {
+              last->set_next(cycle);
+            }
+            last = cycle;
+            cycle = new DeadlockCycle();
+            break;
+          }
+        }
       } else {
         if (concurrent_locks) {
           if (waitingToLockBlocker->is_a(SystemDictionary::abstract_ownable_synchronizer_klass())) {
@@ -377,14 +406,14 @@ DeadlockCycle* ThreadService::find_deadlocks_at_safepoint(bool concurrent_locks)
     }
 
   }
-
+  delete cycle;
   return deadlocks;
 }
 
 ThreadDumpResult::ThreadDumpResult() : _num_threads(0), _num_snapshots(0), _snapshots(NULL), _next(NULL), _last(NULL) {
 
   // Create a new ThreadDumpResult object and append to the list.
-  // If GC happens before this function returns, methodOop
+  // If GC happens before this function returns, Method*
   // in the stack trace will be visited.
   ThreadService::add_thread_dump(this);
 }
@@ -428,16 +457,23 @@ void ThreadDumpResult::oops_do(OopClosure* f) {
   }
 }
 
+void ThreadDumpResult::metadata_do(void f(Metadata*)) {
+  for (ThreadSnapshot* ts = _snapshots; ts != NULL; ts = ts->next()) {
+    ts->metadata_do(f);
+  }
+}
+
 StackFrameInfo::StackFrameInfo(javaVFrame* jvf, bool with_lock_info) {
   _method = jvf->method();
   _bci = jvf->bci();
+  _class_holder = _method->method_holder()->klass_holder();
   _locked_monitors = NULL;
   if (with_lock_info) {
     ResourceMark rm;
     GrowableArray<MonitorInfo*>* list = jvf->locked_monitors();
     int length = list->length();
     if (length > 0) {
-      _locked_monitors = new (ResourceObj::C_HEAP) GrowableArray<oop>(length, true);
+      _locked_monitors = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<oop>(length, true);
       for (int i = 0; i < length; i++) {
         MonitorInfo* monitor = list->at(i);
         assert(monitor->owner(), "This monitor must have an owning object");
@@ -448,13 +484,17 @@ StackFrameInfo::StackFrameInfo(javaVFrame* jvf, bool with_lock_info) {
 }
 
 void StackFrameInfo::oops_do(OopClosure* f) {
-  f->do_oop((oop*) &_method);
   if (_locked_monitors != NULL) {
     int length = _locked_monitors->length();
     for (int i = 0; i < length; i++) {
       f->do_oop((oop*) _locked_monitors->adr_at(i));
     }
   }
+  f->do_oop(&_class_holder);
+}
+
+void StackFrameInfo::metadata_do(void f(Metadata*)) {
+  f(_method);
 }
 
 void StackFrameInfo::print_on(outputStream* st) const {
@@ -463,7 +503,7 @@ void StackFrameInfo::print_on(outputStream* st) const {
   int len = (_locked_monitors != NULL ? _locked_monitors->length() : 0);
   for (int i = 0; i < len; i++) {
     oop o = _locked_monitors->at(i);
-    instanceKlass* ik = instanceKlass::cast(o->klass());
+    InstanceKlass* ik = InstanceKlass::cast(o->klass());
     st->print_cr("\t- locked <" INTPTR_FORMAT "> (a %s)", (address)o, ik->external_name());
   }
 
@@ -491,11 +531,11 @@ public:
 
 ThreadStackTrace::ThreadStackTrace(JavaThread* t, bool with_locked_monitors) {
   _thread = t;
-  _frames = new (ResourceObj::C_HEAP) GrowableArray<StackFrameInfo*>(INITIAL_ARRAY_SIZE, true);
+  _frames = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<StackFrameInfo*>(INITIAL_ARRAY_SIZE, true);
   _depth = 0;
   _with_locked_monitors = with_locked_monitors;
   if (_with_locked_monitors) {
-    _jni_locked_monitors = new (ResourceObj::C_HEAP) GrowableArray<oop>(INITIAL_ARRAY_SIZE, true);
+    _jni_locked_monitors = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<oop>(INITIAL_ARRAY_SIZE, true);
   } else {
     _jni_locked_monitors = NULL;
   }
@@ -564,7 +604,7 @@ bool ThreadStackTrace::is_owned_monitor_on_stack(oop object) {
 }
 
 Handle ThreadStackTrace::allocate_fill_stack_trace_element_array(TRAPS) {
-  klassOop k = SystemDictionary::StackTraceElement_klass();
+  Klass* k = SystemDictionary::StackTraceElement_klass();
   assert(k != NULL, "must be loaded in 1.4+");
   instanceKlassHandle ik(THREAD, k);
 
@@ -597,6 +637,14 @@ void ThreadStackTrace::oops_do(OopClosure* f) {
     f->do_oop((oop*) _jni_locked_monitors->adr_at(j));
   }
 }
+
+void ThreadStackTrace::metadata_do(void f(Metadata*)) {
+  int length = _frames->length();
+  for (int i = 0; i < length; i++) {
+    _frames->at(i)->metadata_do(f);
+  }
+}
+
 
 ConcurrentLocksDump::~ConcurrentLocksDump() {
   if (_retain_map_on_free) {
@@ -681,7 +729,7 @@ void ConcurrentLocksDump::print_locks_on(JavaThread* t, outputStream* st) {
 
   for (int i = 0; i < locks->length(); i++) {
     instanceOop obj = locks->at(i);
-    instanceKlass* ik = instanceKlass::cast(obj->klass());
+    InstanceKlass* ik = InstanceKlass::cast(obj->klass());
     st->print_cr("\t- <" INTPTR_FORMAT "> (a %s)", (address)obj, ik->external_name());
   }
   st->cr();
@@ -689,7 +737,7 @@ void ConcurrentLocksDump::print_locks_on(JavaThread* t, outputStream* st) {
 
 ThreadConcurrentLocks::ThreadConcurrentLocks(JavaThread* thread) {
   _thread = thread;
-  _owned_locks = new (ResourceObj::C_HEAP) GrowableArray<instanceOop>(INITIAL_ARRAY_SIZE, true);
+  _owned_locks = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<instanceOop>(INITIAL_ARRAY_SIZE, true);
   _next = NULL;
 }
 
@@ -751,7 +799,7 @@ ThreadSnapshot::ThreadSnapshot(JavaThread* thread) {
       _blocker_object = obj();
       JavaThread* owner = ObjectSynchronizer::get_lock_owner(obj, false);
       if ((owner == NULL && _thread_status == java_lang_Thread::BLOCKED_ON_MONITOR_ENTER)
-          || (owner != NULL && owner->is_attaching())) {
+          || (owner != NULL && owner->is_attaching_via_jni())) {
         // ownership information of the monitor is not available
         // (may no longer be owned or releasing to some other thread)
         // make this thread in RUNNABLE state.
@@ -801,9 +849,16 @@ void ThreadSnapshot::oops_do(OopClosure* f) {
   }
 }
 
+void ThreadSnapshot::metadata_do(void f(Metadata*)) {
+  if (_stack_trace != NULL) {
+    _stack_trace->metadata_do(f);
+  }
+}
+
+
 DeadlockCycle::DeadlockCycle() {
   _is_deadlock = false;
-  _threads = new (ResourceObj::C_HEAP) GrowableArray<JavaThread*>(INITIAL_ARRAY_SIZE, true);
+  _threads = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<JavaThread*>(INITIAL_ARRAY_SIZE, true);
   _next = NULL;
 }
 
@@ -832,7 +887,7 @@ void DeadlockCycle::print_on(outputStream* st) const {
       oop obj = (oop)waitingToLockMonitor->object();
       if (obj != NULL) {
         st->print(" (object "INTPTR_FORMAT ", a %s)", (address)obj,
-                   (instanceKlass::cast(obj->klass()))->external_name());
+                   (InstanceKlass::cast(obj->klass()))->external_name());
 
         if (!currentThread->current_pending_monitor_is_from_java()) {
           owner_desc = "\n  in JNI, which is held by";
@@ -842,11 +897,21 @@ void DeadlockCycle::print_on(outputStream* st) const {
         owner_desc = " (JVMTI raw monitor),\n  which is held by";
       }
       currentThread = Threads::owning_thread_from_monitor_owner(
-        (address)waitingToLockMonitor->owner(), false /* no locking needed */);
+                        (address)waitingToLockMonitor->owner(),
+                        false /* no locking needed */);
+      if (currentThread == NULL) {
+        // The deadlock was detected at a safepoint so the JavaThread
+        // that owns waitingToLockMonitor should be findable, but
+        // if it is not findable, then the previous currentThread is
+        // blocked permanently.
+        st->print("%s UNKNOWN_owner_addr=" PTR_FORMAT, owner_desc,
+                  (address)waitingToLockMonitor->owner());
+        continue;
+      }
     } else {
       st->print("  waiting for ownable synchronizer " INTPTR_FORMAT ", (a %s)",
                 (address)waitingToLockBlocker,
-                (instanceKlass::cast(waitingToLockBlocker->klass()))->external_name());
+                (InstanceKlass::cast(waitingToLockBlocker->klass()))->external_name());
       assert(waitingToLockBlocker->is_a(SystemDictionary::abstract_ownable_synchronizer_klass()),
              "Must be an AbstractOwnableSynchronizer");
       oop ownerObj = java_util_concurrent_locks_AbstractOwnableSynchronizer::get_owner_threadObj(waitingToLockBlocker);
@@ -899,7 +964,7 @@ ThreadsListEnumerator::ThreadsListEnumerator(Thread* cur_thread,
     }
 
     // skip jni threads in the process of attaching
-    if (!include_jni_attaching_threads && jt->is_attaching()) {
+    if (!include_jni_attaching_threads && jt->is_attaching_via_jni()) {
       continue;
     }
 

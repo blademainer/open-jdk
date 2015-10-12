@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,6 +35,7 @@
 #include "runtime/thread.hpp"
 #include "runtime/vm_operations.hpp"
 #include "utilities/growableArray.hpp"
+#include "utilities/macros.hpp"
 
 //
 // Forward Declarations
@@ -52,11 +53,13 @@ class JvmtiTagMap;
 // done via JNI GetEnv() call. Multiple attachments are
 // allowed in jvmti.
 
-class JvmtiEnvBase : public CHeapObj {
+class JvmtiEnvBase : public CHeapObj<mtInternal> {
 
  private:
 
+#if INCLUDE_JVMTI
   static JvmtiEnvBase*     _head_environment;  // head of environment list
+#endif // INCLUDE_JVMTI
 
   static bool              _globally_initialized;
   static jvmtiPhase        _phase;
@@ -67,7 +70,7 @@ class JvmtiEnvBase : public CHeapObj {
   enum {
     JDK15_JVMTI_VERSION = JVMTI_VERSION_1_0 +  33,  /* version: 1.0.33  */
     JDK16_JVMTI_VERSION = JVMTI_VERSION_1_1 + 102,  /* version: 1.1.102 */
-    JDK17_JVMTI_VERSION = JVMTI_VERSION_1_2 +   1   /* version: 1.2.1   */
+    JDK17_JVMTI_VERSION = JVMTI_VERSION_1_2 +   2   /* version: 1.2.2   */
   };
 
   static jvmtiPhase  get_phase()                    { return _phase; }
@@ -129,7 +132,10 @@ class JvmtiEnvBase : public CHeapObj {
   friend class JvmtiEnvIterator;
   JvmtiEnv* next_environment()                     { return (JvmtiEnv*)_next; }
   void set_next_environment(JvmtiEnvBase* env)     { _next = env; }
-  static JvmtiEnv* head_environment()              { return (JvmtiEnv*)_head_environment; }
+  static JvmtiEnv* head_environment()              {
+    JVMTI_ONLY(return (JvmtiEnv*)_head_environment);
+    NOT_JVMTI(return NULL);
+  }
 
  public:
 
@@ -175,7 +181,7 @@ class JvmtiEnvBase : public CHeapObj {
     if (size == 0) {
       *mem_ptr = NULL;
     } else {
-      *mem_ptr = (unsigned char *)os::malloc((size_t)size);
+      *mem_ptr = (unsigned char *)os::malloc((size_t)size, mtInternal);
       if (*mem_ptr == NULL) {
         return JVMTI_ERROR_OUT_OF_MEMORY;
       }
@@ -185,7 +191,7 @@ class JvmtiEnvBase : public CHeapObj {
 
   jvmtiError deallocate(unsigned char* mem) {
     if (mem != NULL) {
-      os::free(mem);
+      os::free(mem, mtInternal);
     }
     return JVMTI_ERROR_NONE;
   }
@@ -264,10 +270,8 @@ class JvmtiEnvBase : public CHeapObj {
   // convert from JNIHandle to JavaThread *
   JavaThread  * get_JavaThread(jthread jni_thread);
 
-  // convert to a jni jclass from a non-null klassOop
-  jclass get_jni_class_non_null(klassOop k);
-
-  void update_klass_field_access_flag(fieldDescriptor *fd);
+  // convert to a jni jclass from a non-null Klass*
+  jclass get_jni_class_non_null(Klass* k);
 
   jint count_locked_objects(JavaThread *java_thread, Handle hobj);
   jvmtiError get_locked_objects_in_frame(JavaThread *calling_thread,
@@ -279,7 +283,7 @@ class JvmtiEnvBase : public CHeapObj {
 
  public:
   // get a field descriptor for the specified class and field
-  static bool get_field_descriptor(klassOop k, jfieldID field, fieldDescriptor* fd);
+  static bool get_field_descriptor(Klass* k, jfieldID field, fieldDescriptor* fd);
   // test for suspend - most (all?) of these should go away
   static bool is_thread_fully_suspended(JavaThread *thread,
                                         bool wait_for_suspend,
@@ -402,7 +406,11 @@ public:
   VMOp_Type type() const { return VMOp_GetCurrentContendedMonitor; }
   jvmtiError result() { return _result; }
   void doit() {
-    _result = ((JvmtiEnvBase *)_env)->get_current_contended_monitor(_calling_thread,_java_thread,_owned_monitor_ptr);
+    _result = JVMTI_ERROR_THREAD_NOT_ALIVE;
+    if (Threads::includes(_java_thread) && !_java_thread->is_exiting() &&
+        _java_thread->threadObj() != NULL) {
+      _result = ((JvmtiEnvBase *)_env)->get_current_contended_monitor(_calling_thread,_java_thread,_owned_monitor_ptr);
+    }
   }
 };
 

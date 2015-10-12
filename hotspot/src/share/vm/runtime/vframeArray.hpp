@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -47,12 +47,14 @@ class StackValueCollection;
 // represent an interpreter frame which will eventually be created.
 
 class vframeArrayElement : public _ValueObj {
+  friend class VMStructs;
+
   private:
 
     frame _frame;                                                // the interpreter frame we will unpack into
     int  _bci;                                                   // raw bci for this vframe
     bool _reexecute;                                             // whether sould we reexecute this bytecode
-    methodOop  _method;                                          // the method for this vframe
+    Method*    _method;                                          // the method for this vframe
     MonitorChunk* _monitors;                                     // active monitors for this vframe
     StackValueCollection* _locals;
     StackValueCollection* _expressions;
@@ -66,7 +68,7 @@ class vframeArrayElement : public _ValueObj {
   int raw_bci(void) const            { return _bci; }
   bool should_reexecute(void) const  { return _reexecute; }
 
-  methodOop method(void) const       { return _method; }
+  Method* method(void) const       { return _method; }
 
   MonitorChunk* monitors(void) const { return _monitors; }
 
@@ -86,6 +88,7 @@ class vframeArrayElement : public _ValueObj {
   int on_stack_size(int caller_actual_parameters,
                     int callee_parameters,
                     int callee_locals,
+                    bool is_bottom_frame,
                     bool is_top_frame,
                     int popframe_extra_stack_expression_els) const;
 
@@ -95,6 +98,7 @@ class vframeArrayElement : public _ValueObj {
                        int callee_locals,
                        frame* caller,
                        bool is_top_frame,
+                       bool is_bottom_frame,
                        int exec_mode);
 
 #ifndef PRODUCT
@@ -106,7 +110,9 @@ class vframeArrayElement : public _ValueObj {
 // but it does make debugging easier even if we can't look
 // at the data in each vframeElement
 
-class vframeArray: public CHeapObj {
+class vframeArray: public CHeapObj<mtCompiler> {
+  friend class VMStructs;
+
  private:
 
 

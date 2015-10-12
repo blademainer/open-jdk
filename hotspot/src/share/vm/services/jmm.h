@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,7 +48,9 @@ enum {
   JMM_VERSION_1_0 = 0x20010000,
   JMM_VERSION_1_1 = 0x20010100, // JDK 6
   JMM_VERSION_1_2 = 0x20010200, // JDK 7
-  JMM_VERSION     = 0x20010201
+  JMM_VERSION_1_2_1 = 0x20010201, // JDK 7 GA
+  JMM_VERSION_1_2_2 = 0x20010202,
+  JMM_VERSION     = 0x20010203
 };
 
 typedef struct {
@@ -61,7 +63,8 @@ typedef struct {
   unsigned int isObjectMonitorUsageSupported : 1;
   unsigned int isSynchronizerUsageSupported : 1;
   unsigned int isThreadAllocatedMemorySupported : 1;
-  unsigned int : 23;
+  unsigned int isRemoteDiagnosticCommandsSupported : 1;
+  unsigned int : 22;
 } jmmOptionalSupport;
 
 typedef enum {
@@ -75,6 +78,7 @@ typedef enum {
   JMM_COMPILE_TOTAL_TIME_MS          = 8,    /* Total accumulated time spent in compilation */
   JMM_GC_TIME_MS                     = 9,    /* Total accumulated time spent in collection */
   JMM_GC_COUNT                       = 10,   /* Total number of collections */
+  JMM_JVM_UPTIME_MS                  = 11,   /* The JVM uptime in milliseconds */
 
   JMM_INTERNAL_ATTRIBUTE_INDEX       = 100,
   JMM_CLASS_LOADED_BYTES             = 101,  /* Number of bytes loaded instance classes */
@@ -188,6 +192,30 @@ typedef struct {
                                                /* -1 indicates gc_ext_attribute_values is not big enough */
 } jmmGCStat;
 
+typedef struct {
+  const char* name;                /* Name of the diagnostic command */
+  const char* description;         /* Short description */
+  const char* impact;              /* Impact on the JVM */
+  const char* permission_class;    /* Class name of the required permission if any */
+  const char* permission_name;     /* Permission name of the required permission if any */
+  const char* permission_action;   /* Action name of the required permission if any*/
+  int         num_arguments;       /* Number of supported options or arguments */
+  jboolean    enabled;             /* True if the diagnostic command can be invoked, false otherwise */
+} dcmdInfo;
+
+typedef struct {
+  const char* name;                /* Option/Argument name*/
+  const char* description;         /* Short description */
+  const char* type;                /* Type: STRING, BOOLEAN, etc. */
+  const char* default_string;      /* Default value in a parsable string */
+  jboolean    mandatory;           /* True if the option/argument is mandatory */
+  jboolean    option;              /* True if it is an option, false if it is an argument */
+                                   /* (see diagnosticFramework.hpp for option/argument definitions) */
+  jboolean    multiple;            /* True if the option can be specified several time */
+  int         position;            /* Expected position for this argument (this field is */
+                                   /* meaningless for options) */
+} dcmdArgInfo;
+
 typedef struct jmmInterface_1_ {
   void*        reserved1;
   void*        reserved2;
@@ -296,6 +324,21 @@ typedef struct jmmInterface_1_ {
   void         (JNICALL *SetGCNotificationEnabled) (JNIEnv *env,
                                                     jobject mgr,
                                                     jboolean enabled);
+  jobjectArray (JNICALL *GetDiagnosticCommands)  (JNIEnv *env);
+  void         (JNICALL *GetDiagnosticCommandInfo)
+                                                 (JNIEnv *env,
+                                                  jobjectArray cmds,
+                                                  dcmdInfo *infoArray);
+  void         (JNICALL *GetDiagnosticCommandArgumentsInfo)
+                                                 (JNIEnv *env,
+                                                  jstring commandName,
+                                                  dcmdArgInfo *infoArray);
+  jstring      (JNICALL *ExecuteDiagnosticCommand)
+                                                 (JNIEnv *env,
+                                                  jstring command);
+  void         (JNICALL *SetDiagnosticFrameworkNotificationEnabled)
+                                                 (JNIEnv *env,
+                                                  jboolean enabled);
 } JmmInterface;
 
 #ifdef __cplusplus

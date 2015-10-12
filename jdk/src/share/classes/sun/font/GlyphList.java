@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -361,16 +361,10 @@ public final class GlyphList {
                 graybits = new byte[len];
             }
         }
-        long pixelDataAddress;
-        if (StrikeCache.nativeAddressSize == 4) {
-            pixelDataAddress = 0xffffffff &
-                StrikeCache.unsafe.getInt(images[glyphindex] +
+        long pixelDataAddress =
+            StrikeCache.unsafe.getAddress(images[glyphindex] +
                                           StrikeCache.pixelDataOffset);
-        } else {
-            pixelDataAddress =
-            StrikeCache.unsafe.getLong(images[glyphindex] +
-                                       StrikeCache.pixelDataOffset);
-        }
+
         if (pixelDataAddress == 0L) {
             return graybits;
         }

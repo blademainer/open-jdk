@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2000, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -29,16 +29,21 @@
 
 if [ "${TESTJAVA}" = "" ]
 then
-	echo "TESTJAVA not set.  Test cannot execute.  Failed."
+    echo "TESTJAVA not set.  Test cannot execute.  Failed."
 exit 1
+fi
+
+if [ "${COMPILEJAVA}" = "" ] ; then
+    COMPILEJAVA="${TESTJAVA}"
 fi
 
 if [ "${TESTSRC}" = "" ]
 then
-	TESTSRC="."
+    TESTSRC="."
 fi
 
 set -ex
 
-${TESTJAVA}/bin/javac -d . ${TESTSRC}/A.java ${TESTSRC}/Test.java
-${TESTJAVA}/bin/java Test
+${COMPILEJAVA}/bin/javac ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} -d . \
+    ${TESTSRC}/A.java ${TESTSRC}/Test.java
+${TESTJAVA}/bin/java ${TESTVMOPTS} Test

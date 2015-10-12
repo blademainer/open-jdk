@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -50,7 +50,9 @@ class   PhaseChaitin;
 //------------------------------LRG--------------------------------------------
 // Live-RanGe structure.
 class LRG : public ResourceObj {
+  friend class VMStructs;
 public:
+  static const uint AllStack_size = 0xFFFFF; // This mask size is used to tell that the mask of this LRG supports stack positions
   enum { SPILL_REG=29999 };     // Register number of a spilled LRG
 
   double _cost;                 // 2 for loads/1 for stores times block freq
@@ -79,14 +81,21 @@ public:
 private:
   uint _eff_degree;             // Effective degree: Sum of neighbors _num_regs
 public:
-  int degree() const { assert( _degree_valid, "" ); return _eff_degree; }
+  int degree() const { assert( _degree_valid , "" ); return _eff_degree; }
   // Degree starts not valid and any change to the IFG neighbor
   // set makes it not valid.
-  void set_degree( uint degree ) { _eff_degree = degree; debug_only(_degree_valid = 1;) }
+  void set_degree( uint degree ) {
+    _eff_degree = degree;
+    debug_only(_degree_valid = 1;)
+    assert(!_mask.is_AllStack() || (_mask.is_AllStack() && lo_degree()), "_eff_degree can't be bigger than AllStack_size - _num_regs if the mask supports stack registers");
+  }
   // Made a change that hammered degree
   void invalid_degree() { debug_only(_degree_valid=0;) }
   // Incrementally modify degree.  If it was correct, it should remain correct
-  void inc_degree( uint mod ) { _eff_degree += mod; }
+  void inc_degree( uint mod ) {
+    _eff_degree += mod;
+    assert(!_mask.is_AllStack() || (_mask.is_AllStack() && lo_degree()), "_eff_degree can't be bigger than AllStack_size - _num_regs if the mask supports stack registers");
+  }
   // Compute the degree between 2 live ranges
   int compute_degree( LRG &l ) const;
 
@@ -94,12 +103,19 @@ private:
   RegMask _mask;                // Allowed registers for this LRG
   uint _mask_size;              // cache of _mask.Size();
 public:
-  int compute_mask_size() const { return _mask.is_AllStack() ? 65535 : _mask.Size(); }
+  int compute_mask_size() const { return _mask.is_AllStack() ? AllStack_size : _mask.Size(); }
   void set_mask_size( int size ) {
-    assert((size == 65535) || (size == (int)_mask.Size()), "");
+    assert((size == (int)AllStack_size) || (size == (int)_mask.Size()), "");
     _mask_size = size;
-    debug_only(_msize_valid=1;)
-    debug_only( if( _num_regs == 2 && !_fat_proj ) _mask.VerifyPairs(); )
+#ifdef ASSERT
+    _msize_valid=1;
+    if (_is_vector) {
+      assert(!_fat_proj, "sanity");
+      _mask.verify_sets(_num_regs);
+    } else if (_num_regs == 2 && !_fat_proj) {
+      _mask.verify_pairs();
+    }
+#endif
   }
   void compute_set_mask_size() { set_mask_size(compute_mask_size()); }
   int mask_size() const { assert( _msize_valid, "mask size not valid" );
@@ -115,7 +131,8 @@ public:
   void Set_All() { _mask.Set_All(); debug_only(_msize_valid=1); _mask_size = RegMask::CHUNK_SIZE; }
   void Insert( OptoReg::Name reg ) { _mask.Insert(reg);  debug_only(_msize_valid=0;) }
   void Remove( OptoReg::Name reg ) { _mask.Remove(reg);  debug_only(_msize_valid=0;) }
-  void ClearToPairs() { _mask.ClearToPairs(); debug_only(_msize_valid=0;) }
+  void clear_to_pairs() { _mask.clear_to_pairs(); debug_only(_msize_valid=0;) }
+  void clear_to_sets()  { _mask.clear_to_sets(_num_regs); debug_only(_msize_valid=0;) }
 
   // Number of registers this live range uses when it colors
 private:
@@ -149,6 +166,7 @@ public:
 
   uint   _is_oop:1,             // Live-range holds an oop
          _is_float:1,           // True if in float registers
+         _is_vector:1,          // True if in vector registers
          _was_spilled1:1,       // True if prior spilling on def
          _was_spilled2:1,       // True if twice prior spilling on def
          _is_bound:1,           // live range starts life with no
@@ -177,30 +195,6 @@ public:
 #endif
 };
 
-//------------------------------LRG_List---------------------------------------
-// Map Node indices to Live RanGe indices.
-// Array lookup in the optimized case.
-class LRG_List : public ResourceObj {
-  uint _cnt, _max;
-  uint* _lidxs;
-  ReallocMark _nesting;         // assertion check for reallocations
-public:
-  LRG_List( uint max );
-
-  uint lookup( uint nidx ) const {
-    return _lidxs[nidx];
-  }
-  uint operator[] (uint nidx) const { return lookup(nidx); }
-
-  void map( uint nidx, uint lidx ) {
-    assert( nidx < _cnt, "oob" );
-    _lidxs[nidx] = lidx;
-  }
-  void extend( uint nidx, uint lidx );
-
-  uint Size() const { return _cnt; }
-};
-
 //------------------------------IFG--------------------------------------------
 //                         InterFerence Graph
 // An undirected graph implementation.  Created with a fixed number of
@@ -211,6 +205,7 @@ public:
 // abstract!  It needs abstraction so I can fiddle with the implementation to
 // get even more speed.
 class PhaseIFG : public Phase {
+  friend class VMStructs;
   // Current implementation: a triangular adjacency list.
 
   // Array of adjacency-lists, indexed by live-range number
@@ -278,43 +273,133 @@ public:
   int effective_degree( uint lidx ) const;
 };
 
-// TEMPORARILY REPLACED WITH COMMAND LINE FLAG
+// The LiveRangeMap class is responsible for storing node to live range id mapping.
+// Each node is mapped to a live range id (a virtual register). Nodes that are
+// not considered for register allocation are given live range id 0.
+class LiveRangeMap VALUE_OBJ_CLASS_SPEC {
 
-//// !!!!! Magic Constants need to move into ad file
-#ifdef SPARC
-//#define FLOAT_PRESSURE 30  /*     SFLT_REG_mask.Size() - 1 */
-//#define INT_PRESSURE   23  /* NOTEMP_I_REG_mask.Size() - 1 */
-#define FLOAT_INCREMENT(regs) regs
-#else
-//#define FLOAT_PRESSURE 6
-//#define INT_PRESSURE   6
-#define FLOAT_INCREMENT(regs) 1
-#endif
+private:
+
+  uint _max_lrg_id;
+
+  // Union-find map.  Declared as a short for speed.
+  // Indexed by live-range number, it returns the compacted live-range number
+  LRG_List _uf_map;
+
+  // Map from Nodes to live ranges
+  LRG_List _names;
+
+  // Straight out of Tarjan's union-find algorithm
+  uint find_compress(const Node *node) {
+    uint lrg_id = find_compress(_names.at(node->_idx));
+    _names.at_put(node->_idx, lrg_id);
+    return lrg_id;
+  }
+
+  uint find_compress(uint lrg);
+
+public:
+
+  const LRG_List& names() {
+    return _names;
+  }
+
+  uint max_lrg_id() const {
+    return _max_lrg_id;
+  }
+
+  void set_max_lrg_id(uint max_lrg_id) {
+    _max_lrg_id = max_lrg_id;
+  }
+
+  uint size() const {
+    return _names.length();
+  }
+
+  uint live_range_id(uint idx) const {
+    return _names.at(idx);
+  }
+
+  uint live_range_id(const Node *node) const {
+    return _names.at(node->_idx);
+  }
+
+  uint uf_live_range_id(uint lrg_id) const {
+    return _uf_map.at(lrg_id);
+  }
+
+  void map(uint idx, uint lrg_id) {
+    _names.at_put(idx, lrg_id);
+  }
+
+  void uf_map(uint dst_lrg_id, uint src_lrg_id) {
+    _uf_map.at_put(dst_lrg_id, src_lrg_id);
+  }
+
+  void extend(uint idx, uint lrg_id) {
+    _names.at_put_grow(idx, lrg_id);
+  }
+
+  void uf_extend(uint dst_lrg_id, uint src_lrg_id) {
+    _uf_map.at_put_grow(dst_lrg_id, src_lrg_id);
+  }
+
+  LiveRangeMap(Arena* arena, uint unique)
+  : _names(arena, unique, unique, 0)
+  , _uf_map(arena, unique, unique, 0)
+  , _max_lrg_id(0) {}
+
+  uint find_id( const Node *n ) {
+    uint retval = live_range_id(n);
+    assert(retval == find(n),"Invalid node to lidx mapping");
+    return retval;
+  }
+
+  // Reset the Union-Find map to identity
+  void reset_uf_map(uint max_lrg_id);
+
+  // Make all Nodes map directly to their final live range; no need for
+  // the Union-Find mapping after this call.
+  void compress_uf_map_for_nodes();
+
+  uint find(uint lidx) {
+    uint uf_lidx = _uf_map.at(lidx);
+    return (uf_lidx == lidx) ? uf_lidx : find_compress(lidx);
+  }
+
+  // Convert a Node into a Live Range Index - a lidx
+  uint find(const Node *node) {
+    uint lidx = live_range_id(node);
+    uint uf_lidx = _uf_map.at(lidx);
+    return (uf_lidx == lidx) ? uf_lidx : find_compress(node);
+  }
+
+  // Like Find above, but no path compress, so bad asymptotic behavior
+  uint find_const(uint lrg) const;
+
+  // Like Find above, but no path compress, so bad asymptotic behavior
+  uint find_const(const Node *node) const {
+    if(node->_idx >= (uint)_names.length()) {
+      return 0; // not mapped, usual for debug dump
+    }
+    return find_const(_names.at(node->_idx));
+  }
+};
 
 //------------------------------Chaitin----------------------------------------
 // Briggs-Chaitin style allocation, mostly.
 class PhaseChaitin : public PhaseRegAlloc {
+  friend class VMStructs;
 
   int _trip_cnt;
   int _alternate;
 
-  uint _maxlrg;                 // Max live range number
   LRG &lrgs(uint idx) const { return _ifg->lrgs(idx); }
   PhaseLive *_live;             // Liveness, used in the interference graph
   PhaseIFG *_ifg;               // Interference graph (for original chunk)
   Node_List **_lrg_nodes;       // Array of node; lists for lrgs which spill
   VectorSet _spilled_once;      // Nodes that have been spilled
   VectorSet _spilled_twice;     // Nodes that have been spilled twice
-
-  LRG_List _names;              // Map from Nodes to Live RanGes
-
-  // Union-find map.  Declared as a short for speed.
-  // Indexed by live-range number, it returns the compacted live-range number
-  LRG_List _uf_map;
-  // Reset the Union-Find map to identity
-  void reset_uf_map( uint maxlrg );
-  // Remove the need for the Union-Find mapping
-  void compress_uf_map_for_nodes( );
 
   // Combine the Live Range Indices for these 2 Nodes into a single live
   // range.  Future requests for any Node in either live range will
@@ -334,7 +419,23 @@ class PhaseChaitin : public PhaseRegAlloc {
   // Helper functions for Split()
   uint split_DEF( Node *def, Block *b, int loc, uint max, Node **Reachblock, Node **debug_defs, GrowableArray<uint> splits, int slidx );
   uint split_USE( Node *def, Block *b, Node *use, uint useidx, uint max, bool def_down, bool cisc_sp, GrowableArray<uint> splits, int slidx );
-  int clone_projs( Block *b, uint idx, Node *con, Node *copy, uint &maxlrg );
+
+  //------------------------------clone_projs------------------------------------
+  // After cloning some rematerialized instruction, clone any MachProj's that
+  // follow it.  Example: Intel zero is XOR, kills flags.  Sparc FP constants
+  // use G3 as an address temp.
+  int clone_projs(Block* b, uint idx, Node* orig, Node* copy, uint& max_lrg_id);
+
+  int clone_projs(Block* b, uint idx, Node* orig, Node* copy, LiveRangeMap& lrg_map) {
+    uint max_lrg_id = lrg_map.max_lrg_id();
+    int found_projs = clone_projs(b, idx, orig, copy, max_lrg_id);
+    if (found_projs > 0) {
+      // max_lrg_id is updated during call above
+      lrg_map.set_max_lrg_id(max_lrg_id);
+    }
+    return found_projs;
+  }
+
   Node *split_Rematerialize(Node *def, Block *b, uint insidx, uint &maxlrg, GrowableArray<uint> splits,
                             int slidx, uint *lrg2reach, Node **Reachblock, bool walkThru);
   // True if lidx is used before any real register is def'd in the block
@@ -361,19 +462,10 @@ public:
   PhaseChaitin( uint unique, PhaseCFG &cfg, Matcher &matcher );
   ~PhaseChaitin() {}
 
-  // Convert a Node into a Live Range Index - a lidx
-  uint Find( const Node *n ) {
-    uint lidx = n2lidx(n);
-    uint uf_lidx = _uf_map[lidx];
-    return (uf_lidx == lidx) ? uf_lidx : Find_compress(n);
-  }
-  uint Find_const( uint lrg ) const;
-  uint Find_const( const Node *n ) const;
+  LiveRangeMap _lrg_map;
 
   // Do all the real work of allocate
   void Register_Allocate();
-
-  uint n2lidx( const Node *n ) const { return _names[n->_idx]; }
 
   float high_frequency_lrg() const { return _high_frequency_lrg; }
 
@@ -386,18 +478,6 @@ private:
   // all inputs to a PhiNode, effectively coalescing live ranges.  Insert
   // copies as needed.
   void de_ssa();
-  uint Find_compress( const Node *n );
-  uint Find( uint lidx ) {
-    uint uf_lidx = _uf_map[lidx];
-    return (uf_lidx == lidx) ? uf_lidx : Find_compress(lidx);
-  }
-  uint Find_compress( uint lidx );
-
-  uint Find_id( const Node *n ) {
-    uint retval = n2lidx(n);
-    assert(retval == Find(n),"Invalid node to lidx mapping");
-    return retval;
-  }
 
   // Add edge between reg and everything in the vector.
   // Same as _ifg->add_vector(reg,live) EXCEPT use the RegMask
@@ -457,7 +537,7 @@ private:
 
   // Split uncolorable live ranges
   // Return new number of live ranges
-  uint Split( uint maxlrg );
+  uint Split(uint maxlrg, ResourceArea* split_arena);
 
   // Copy 'was_spilled'-edness from one Node to another.
   void copy_was_spilled( Node *src, Node *dst );
@@ -481,7 +561,12 @@ private:
     return yank_if_dead(old, current_block, &value, &regnd);
   }
 
-  int yank_if_dead( Node *old, Block *current_block, Node_List *value, Node_List *regnd );
+  int yank_if_dead( Node *old, Block *current_block, Node_List *value, Node_List *regnd ) {
+    return yank_if_dead_recurse(old, old, current_block, value, regnd);
+  }
+  int yank_if_dead_recurse(Node *old, Node *orig_old, Block *current_block,
+                           Node_List *value, Node_List *regnd);
+  int yank( Node *old, Block *current_block, Node_List *value, Node_List *regnd );
   int elide_copy( Node *n, int k, Block *current_block, Node_List &value, Node_List &regnd, bool can_change_regs );
   int use_prior_register( Node *copy, uint idx, Node *def, Block *current_block, Node_List &value, Node_List &regnd );
   bool may_be_copy_of_callee( Node *def ) const;

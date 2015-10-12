@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -73,14 +73,23 @@ class GtkFileDialogPeer extends XDialogPeer implements FileDialogPeer {
         if (filenames == null) {
             accessor.setDirectory(fd, null);
             accessor.setFile(fd, null);
-            accessor.setFiles(fd, null, null);
+            accessor.setFiles(fd, null);
         } else {
             // Fix 6987233: add the trailing slash if it's absent
-            accessor.setDirectory(fd, directory +
-                    (directory.endsWith(File.separator) ?
-                     "" : File.separator));
+            String with_separator = directory;
+            if (directory != null) {
+                with_separator = directory.endsWith(File.separator) ?
+                        directory : (directory + File.separator);
+            }
+            accessor.setDirectory(fd, with_separator);
             accessor.setFile(fd, filenames[0]);
-            accessor.setFiles(fd, directory, filenames);
+
+            int filesNumber = (filenames != null) ? filenames.length : 0;
+            File[] files = new File[filesNumber];
+            for (int i = 0; i < filesNumber; i++) {
+                files[i] = new File(directory, filenames[i]);
+            }
+            accessor.setFiles(fd, files);
         }
     }
 

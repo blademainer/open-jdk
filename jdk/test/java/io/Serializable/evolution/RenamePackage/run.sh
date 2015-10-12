@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -36,12 +36,16 @@ then
   exit 1
 fi
 
+if [ "${COMPILEJAVA}" = "" ] ; then
+  COMPILEJAVA="${TESTJAVA}"
+fi
+
 
 OS=`uname -s`
 # Need to determine the classpath separator and filepath separator based on the
 # operating system.
 case "$OS" in
-SunOS | Linux )
+SunOS | Linux | Darwin )
   PS=":"  ;;
 Windows* | CYGWIN* )
   PS=";"  ;;
@@ -51,23 +55,23 @@ Windows* | CYGWIN* )
 esac
 
 JAVA=${TESTJAVA}/bin/java
-JAVAC=${TESTJAVA}/bin/javac
+JAVAC=${COMPILEJAVA}/bin/javac
 MKDIR=mkdir
 RDEL="rm -r"
 
-if [ -d ${TESTCLASSES}/oclasses ] 
+if [ -d ${TESTCLASSES}/oclasses ]
 then
-   ${RDEL} ${TESTCLASSES}/oclasses 
+   ${RDEL} ${TESTCLASSES}/oclasses
 fi
-if [ -d ${TESTCLASSES}/nclasses ] 
+if [ -d ${TESTCLASSES}/nclasses ]
 then
-   ${RDEL} ${TESTCLASSES}/nclasses 
+   ${RDEL} ${TESTCLASSES}/nclasses
 fi
-if [ -d ${TESTCLASSES}/share ] 
+if [ -d ${TESTCLASSES}/share ]
 then
-   ${RDEL} ${TESTCLASSES}/share 
+   ${RDEL} ${TESTCLASSES}/share
 fi
-if [ -f ${TESTCLASSES}/stream.ser ] 
+if [ -f ${TESTCLASSES}/stream.ser ]
 then
    ${RDEL} ${TESTCLASSES}/stream.ser
 fi
@@ -77,22 +81,25 @@ mkdir ${TESTCLASSES}/share
 mkdir ${TESTCLASSES}/nclasses
 
 # Build sources
-set -e 
-${JAVAC} -d ${TESTCLASSES}/share ${TESTSRC}/extension/ExtendedObjectInputStream.java
+set -e
+${JAVAC} ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} -d ${TESTCLASSES}/share \
+    ${TESTSRC}/extension/ExtendedObjectInputStream.java
 CLASSPATH=${TESTCLASSES}/share; export CLASSPATH;
-${JAVAC} -d ${TESTCLASSES}/oclasses ${TESTSRC}/test/SerialDriver.java
+${JAVAC} ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} -d ${TESTCLASSES}/oclasses \
+    ${TESTSRC}/test/SerialDriver.java
 CLASSPATH=${TESTCLASSES}/share; export CLASSPATH;
-${JAVAC} -d ${TESTCLASSES}/nclasses ${TESTSRC}/install/SerialDriver.java
+${JAVAC} ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} -d ${TESTCLASSES}/nclasses \
+    ${TESTSRC}/install/SerialDriver.java
 
 # Run Case 1. Map test.SerialDriver within stream to install.SerialDriver.
 CLASSPATH="${TESTCLASSES}/oclasses${PS}${TESTCLASSES}/share"; export CLASSPATH;
-${JAVA} test.SerialDriver -s
+${JAVA} ${TESTVMOPTS} test.SerialDriver -s
 CLASSPATH="${TESTCLASSES}/nclasses${PS}${TESTCLASSES}/share"; export CLASSPATH;
-${JAVA} install.SerialDriver -d
+${JAVA} ${TESTVMOPTS} install.SerialDriver -d
 rm stream.ser
 
 # Run Case 2. Map install.SerialDriver within stream to test.SerialDriver.
 CLASSPATH="${TESTCLASSES}/nclasses${PS}${TESTCLASSES}/share"; export CLASSPATH;
-${JAVA} install.SerialDriver -s
+${JAVA} ${TESTVMOPTS} install.SerialDriver -s
 CLASSPATH="${TESTCLASSES}/oclasses${PS}${TESTCLASSES}/share"; export CLASSPATH;
-${JAVA} test.SerialDriver -d
+${JAVA} ${TESTVMOPTS} test.SerialDriver -d

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -153,7 +153,10 @@
     jint PREFIX ## rgb;
 
 #define InitByteBinaryAlphaLoadData(TYPE, PREFIX, pRasInfo) \
-    PREFIX ## Lut = (pRasInfo)->lutBase
+    do { \
+        PREFIX ## Lut = (pRasInfo)->lutBase; \
+        PREFIX ## rgb = 0; \
+    } while (0)
 
 #define LoadAlphaFromByteBinaryFor4ByteArgb(TYPE, pRas, PREFIX, COMP_PREFIX) \
     do { \

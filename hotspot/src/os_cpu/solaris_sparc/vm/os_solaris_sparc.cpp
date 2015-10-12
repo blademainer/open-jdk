@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
  */
 
 // no precompiled headers
-#include "assembler_sparc.inline.hpp"
+#include "asm/macroAssembler.hpp"
 #include "classfile/classLoader.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "classfile/vmSymbols.hpp"
@@ -48,17 +48,10 @@
 #include "runtime/osThread.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/timer.hpp"
-#include "thread_solaris.inline.hpp"
 #include "utilities/events.hpp"
 #include "utilities/vmError.hpp"
-#ifdef COMPILER1
-#include "c1/c1_Runtime1.hpp"
-#endif
-#ifdef COMPILER2
-#include "opto/runtime.hpp"
-#endif
-
 
 # include <signal.h>        // needed first to avoid name collision for "std" with SC 5.0
 
@@ -201,6 +194,11 @@ intptr_t* os::Solaris::ucontext_get_fp(ucontext_t *uc) {
   return NULL;
 }
 
+address os::Solaris::ucontext_get_pc(ucontext_t *uc) {
+  return (address) uc->uc_mcontext.gregs[REG_PC];
+}
+
+
 // For Forte Analyzer AsyncGetCallTrace profiling support - thread
 // is currently interrupted by SIGPROF.
 //
@@ -251,6 +249,15 @@ frame os::get_sender_for_C_frame(frame* fr) {
   return frame(fr->sender_sp(), frame::unpatchable, fr->sender_pc());
 }
 
+// Returns an estimate of the current stack pointer. Result must be guaranteed to
+// point into the calling threads stack, and be no lower than the current stack
+// pointer.
+address os::current_stack_pointer() {
+  volatile int dummy;
+  address sp = (address)&dummy + 8;     // %%%% need to confirm if this is right
+  return sp;
+}
+
 frame os::current_frame() {
   intptr_t* sp = StubRoutines::Sparc::flush_callers_register_windows_func()();
   frame myframe(sp, frame::unpatchable,
@@ -262,22 +269,6 @@ frame os::current_frame() {
     return os::get_sender_for_C_frame(&myframe);
   }
 }
-
-
-void GetThreadPC_Callback::execute(OSThread::InterruptArguments *args) {
-  Thread*     thread = args->thread();
-  ucontext_t* uc     = args->ucontext();
-  intptr_t* sp;
-
-  assert(ProfileVM && thread->is_VM_thread(), "just checking");
-
-  // Skip the mcontext corruption verification. If if occasionally
-  // things get corrupt, it is ok for profiling - we will just get an unresolved
-  // function name
-  ExtendedPC new_addr((address)uc->uc_mcontext.gregs[REG_PC]);
-  _addr = new_addr;
-}
-
 
 static int threadgetstate(thread_t tid, int *flags, lwpid_t *lwp, stack_t *ss, gregset_t rs, lwpstatus_t *lwpstatus) {
   char lwpstatusfile[PROCFILE_LENGTH];
@@ -312,17 +303,16 @@ bool os::is_allocatable(size_t bytes) {
 #endif
 }
 
-extern "C" void Fetch32PFI () ;
-extern "C" void Fetch32Resume () ;
-extern "C" void FetchNPFI () ;
-extern "C" void FetchNResume () ;
-
 extern "C" JNIEXPORT int
 JVM_handle_solaris_signal(int sig, siginfo_t* info, void* ucVoid,
                           int abort_if_unrecognized) {
   ucontext_t* uc = (ucontext_t*) ucVoid;
 
   Thread* t = ThreadLocalStorage::get_thread_slow();
+
+  // Must do this before SignalHandlerMark, if crash protection installed we will longjmp away
+  // (no destructors can be run)
+  os::WatcherThreadCrashProtection::check_crash_protection(sig, t);
 
   SignalHandlerMark shm(t);
 
@@ -356,13 +346,8 @@ JVM_handle_solaris_signal(int sig, siginfo_t* info, void* ucVoid,
   guarantee(sig != os::Solaris::SIGinterrupt(), "Can not chain VM interrupt signal, try -XX:+UseAltSigs");
 
   if (sig == os::Solaris::SIGasync()) {
-    if (thread) {
-      OSThread::InterruptArguments args(thread, uc);
-      thread->osthread()->do_interrupt_callbacks_at_interrupt(&args);
-      return true;
-    } else if (vmthread) {
-      OSThread::InterruptArguments args(vmthread, uc);
-      vmthread->osthread()->do_interrupt_callbacks_at_interrupt(&args);
+    if (thread || vmthread) {
+      OSThread::SR_handler(t, uc);
       return true;
     } else if (os::Solaris::chained_handler(sig, info, ucVoid)) {
       return true;
@@ -393,17 +378,10 @@ JVM_handle_solaris_signal(int sig, siginfo_t* info, void* ucVoid,
     npc = (address) uc->uc_mcontext.gregs[REG_nPC];
 
     // SafeFetch() support
-    // Implemented with either a fixed set of addresses such
-    // as Fetch32*, or with Thread._OnTrap.
-    if (uc->uc_mcontext.gregs[REG_PC] == intptr_t(Fetch32PFI)) {
-      uc->uc_mcontext.gregs [REG_PC]  = intptr_t(Fetch32Resume) ;
-      uc->uc_mcontext.gregs [REG_nPC] = intptr_t(Fetch32Resume) + 4 ;
-      return true ;
-    }
-    if (uc->uc_mcontext.gregs[REG_PC] == intptr_t(FetchNPFI)) {
-      uc->uc_mcontext.gregs [REG_PC]  = intptr_t(FetchNResume) ;
-      uc->uc_mcontext.gregs [REG_nPC] = intptr_t(FetchNResume) + 4 ;
-      return true ;
+    if (StubRoutines::is_safefetch_fault(pc)) {
+      uc->uc_mcontext.gregs[REG_PC] = intptr_t(StubRoutines::continuation_for_safefetch_fault(pc));
+      uc->uc_mcontext.gregs[REG_nPC] = uc->uc_mcontext.gregs[REG_PC] + 4;
+      return 1;
     }
 
     // Handle ALL stack overflow variations here
@@ -589,7 +567,7 @@ JVM_handle_solaris_signal(int sig, siginfo_t* info, void* ucVoid,
   // on the thread stack, which could get a mapping error when touched.
   address addr = (address) info->si_addr;
   if (sig == SIGBUS && info->si_code == BUS_OBJERR && info->si_errno == ENOMEM) {
-    vm_exit_out_of_memory(0, "Out of swap space to map in thread stack.");
+    vm_exit_out_of_memory(0, OOM_MMAP_ERROR, "Out of swap space to map in thread stack.");
   }
 
   VMError err(t, sig, pc, info, ucVoid);
@@ -815,3 +793,8 @@ add_func_t*          os::atomic_add_func          = os::atomic_add_bootstrap;
    __asm__ __volatile__ ("wr %%g0, 0, %%fprs \n\t" : : :);
   }
 #endif //defined(__sparc) && defined(COMPILER2)
+
+#ifndef PRODUCT
+void os::verify_stack_alignment() {
+}
+#endif

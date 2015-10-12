@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,6 +32,7 @@
 #include "memory/resourceArea.hpp"
 #include "runtime/threadLocalStorage.hpp"
 #include "utilities/hashtable.hpp"
+#include "utilities/macros.hpp"
 
 class AdapterHandlerEntry;
 class AdapterHandlerTable;
@@ -45,6 +46,8 @@ class vframeStream;
 // information, etc.
 
 class SharedRuntime: AllStatic {
+  friend class VMStructs;
+
  private:
   static methodHandle resolve_sub_helper(JavaThread *thread,
                                      bool is_virtual,
@@ -53,14 +56,15 @@ class SharedRuntime: AllStatic {
   // Shared stub locations
 
   static RuntimeStub*        _wrong_method_blob;
+  static RuntimeStub*        _wrong_method_abstract_blob;
   static RuntimeStub*        _ic_miss_blob;
   static RuntimeStub*        _resolve_opt_virtual_call_blob;
   static RuntimeStub*        _resolve_virtual_call_blob;
   static RuntimeStub*        _resolve_static_call_blob;
 
   static DeoptimizationBlob* _deopt_blob;
-  static RicochetBlob*       _ricochet_blob;
 
+  static SafepointBlob*      _polling_page_vectors_safepoint_handler_blob;
   static SafepointBlob*      _polling_page_safepoint_handler_blob;
   static SafepointBlob*      _polling_page_return_handler_blob;
 
@@ -74,7 +78,8 @@ class SharedRuntime: AllStatic {
 #endif // !PRODUCT
 
  private:
-  static SafepointBlob* generate_handler_blob(address call_ptr, bool cause_return);
+  enum { POLL_AT_RETURN,  POLL_AT_LOOP, POLL_AT_VECTOR_LOOP };
+  static SafepointBlob* generate_handler_blob(address call_ptr, int poll_type);
   static RuntimeStub*   generate_resolve_blob(address destination, const char* name);
 
  public:
@@ -165,11 +170,11 @@ class SharedRuntime: AllStatic {
   static address raw_exception_handler_for_return_address(JavaThread* thread, address return_address);
   static address exception_handler_for_return_address(JavaThread* thread, address return_address);
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   // G1 write barriers
   static void g1_wb_pre(oopDesc* orig, JavaThread *thread);
   static void g1_wb_post(void* card_addr, JavaThread* thread);
-#endif // !SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   // exception handling and implicit exceptions
   static address compute_compiled_exc_handler(nmethod* nm, address ret_pc, Handle& exception,
@@ -185,7 +190,6 @@ class SharedRuntime: AllStatic {
   static void    throw_NullPointerException(JavaThread* thread);
   static void    throw_NullPointerException_at_call(JavaThread* thread);
   static void    throw_StackOverflowError(JavaThread* thread);
-  static void    throw_WrongMethodTypeException(JavaThread* thread, oopDesc* required, oopDesc* actual);
   static address continuation_for_implicit_exception(JavaThread* thread,
                                                      address faulting_pc,
                                                      ImplicitExceptionKind exception_kind);
@@ -201,6 +205,11 @@ class SharedRuntime: AllStatic {
   static address get_handle_wrong_method_stub() {
     assert(_wrong_method_blob!= NULL, "oops");
     return _wrong_method_blob->entry_point();
+  }
+
+  static address get_handle_wrong_method_abstract_stub() {
+    assert(_wrong_method_abstract_blob!= NULL, "oops");
+    return _wrong_method_abstract_blob->entry_point();
   }
 
 #ifdef COMPILER2
@@ -221,18 +230,9 @@ class SharedRuntime: AllStatic {
     return _resolve_static_call_blob->entry_point();
   }
 
-  static RicochetBlob* ricochet_blob() {
-#ifdef X86
-    // Currently only implemented on x86
-    assert(!EnableInvokeDynamic || _ricochet_blob != NULL, "oops");
-#endif
-    return _ricochet_blob;
-  }
-
-  static void generate_ricochet_blob();
-
   static SafepointBlob* polling_page_return_handler_blob()     { return _polling_page_return_handler_blob; }
   static SafepointBlob* polling_page_safepoint_handler_blob()  { return _polling_page_safepoint_handler_blob; }
+  static SafepointBlob* polling_page_vectors_safepoint_handler_blob()  { return _polling_page_vectors_safepoint_handler_blob; }
 
   // Counters
 #ifndef PRODUCT
@@ -244,10 +244,11 @@ class SharedRuntime: AllStatic {
   static void throw_and_post_jvmti_exception(JavaThread *thread, Symbol* name, const char *message = NULL);
 
   // RedefineClasses() tracing support for obsolete method entry
-  static int rc_trace_method_entry(JavaThread* thread, methodOopDesc* m);
+  static int rc_trace_method_entry(JavaThread* thread, Method* m);
 
   // To be used as the entry point for unresolved native methods.
   static address native_method_throw_unsatisfied_link_error_entry();
+  static address native_method_throw_unsupported_operation_exception_entry();
 
   // bytecode tracing is only used by the TraceBytecodes
   static intptr_t trace_bytecode(JavaThread* thread, intptr_t preserve_this_value, intptr_t tos, intptr_t tos2) PRODUCT_RETURN0;
@@ -262,8 +263,8 @@ class SharedRuntime: AllStatic {
   // dtrace notifications
   static int dtrace_object_alloc(oopDesc* o);
   static int dtrace_object_alloc_base(Thread* thread, oopDesc* o);
-  static int dtrace_method_entry(JavaThread* thread, methodOopDesc* m);
-  static int dtrace_method_exit(JavaThread* thread, methodOopDesc* m);
+  static int dtrace_method_entry(JavaThread* thread, Method* m);
+  static int dtrace_method_exit(JavaThread* thread, Method* m);
 
   // Utility method for retrieving the Java thread id, returns 0 if the
   // thread is not a well formed Java thread.
@@ -287,27 +288,6 @@ class SharedRuntime: AllStatic {
    * in order to correctly free the result.
    */
   static char* generate_class_cast_message(JavaThread* thr, const char* name);
-
-  /**
-   * Fill in the message for a WrongMethodTypeException
-   *
-   * @param thr the current thread
-   * @param mtype (optional) expected method type (or argument class)
-   * @param mhandle (optional) actual method handle (or argument)
-   * @return the dynamically allocated exception message
-   *
-   * BCP for the frame on top of the stack must refer to an
-   * 'invokevirtual' op for a method handle, or an 'invokedyamic' op.
-   * The caller (or one of its callers) must use a ResourceMark
-   * in order to correctly free the result.
-   */
-  static char* generate_wrong_method_type_message(JavaThread* thr,
-                                                  oopDesc* mtype = NULL,
-                                                  oopDesc* mhandle = NULL);
-
-  /** Return non-null if the mtype is a klass or Class, not a MethodType. */
-  static oop wrong_method_type_is_for_single_argument(JavaThread* thr,
-                                                      oopDesc* mtype);
 
   /**
    * Fill in the "X cannot be cast to a Y" message for ClassCastException
@@ -375,7 +355,11 @@ class SharedRuntime: AllStatic {
   // the bottom of the frame the first 16 words will be skipped and SharedInfo::stack0
   // will be just above it. (
   // return value is the maximum number of VMReg stack slots the convention will use.
-  static int java_calling_convention(const BasicType *sig_bt, VMRegPair *regs, int total_args_passed, int is_outgoing);
+  static int java_calling_convention(const BasicType* sig_bt, VMRegPair* regs, int total_args_passed, int is_outgoing);
+
+  static void check_member_name_argument_is_last_argument(methodHandle method,
+                                                          const BasicType* sig_bt,
+                                                          const VMRegPair* regs) NOT_DEBUG_RETURN;
 
   // Ditto except for calling C
   static int c_calling_convention(const BasicType *sig_bt, VMRegPair *regs, int total_args_passed);
@@ -432,7 +416,7 @@ class SharedRuntime: AllStatic {
 
   // Convert a sig into a calling convention register layout
   // and find interesting things about it.
-  static VMRegPair* find_callee_arguments(Symbol* sig, bool has_receiver, int *arg_size);
+  static VMRegPair* find_callee_arguments(Symbol* sig, bool has_receiver, bool has_appendix, int *arg_size);
   static VMReg     name_for_receiver();
 
   // "Top of Stack" slots that may be unused by the calling convention but must
@@ -441,6 +425,10 @@ class SharedRuntime: AllStatic {
   // On Sparc this describes the words reserved for storing a register window
   // when an interrupt occurs.
   static uint out_preserve_stack_slots();
+
+  // Is vector's size (in bytes) bigger than a size saved by default?
+  // For example, on x86 16 bytes XMM registers are saved by default.
+  static bool is_wide_vector(int size);
 
   // Save and restore a native result
   static void    save_native_result(MacroAssembler *_masm, BasicType ret_type, int frame_slots );
@@ -451,14 +439,19 @@ class SharedRuntime: AllStatic {
   // convention (handlizes oops, etc), transitions to native, makes the call,
   // returns to java state (possibly blocking), unhandlizes any result and
   // returns.
-  static nmethod *generate_native_wrapper(MacroAssembler* masm,
+  //
+  // The wrapper may contain special-case code if the given method
+  // is a JNI critical method, or a compiled method handle adapter,
+  // such as _invokeBasic, _linkToVirtual, etc.
+  static nmethod* generate_native_wrapper(MacroAssembler* masm,
                                           methodHandle method,
                                           int compile_id,
-                                          int total_args_passed,
-                                          int max_arg,
-                                          BasicType *sig_bt,
-                                          VMRegPair *regs,
+                                          BasicType* sig_bt,
+                                          VMRegPair* regs,
                                           BasicType ret_type );
+
+  // Block before entering a JNI critical method
+  static void block_for_jni_critical(JavaThread* thread);
 
 #ifdef HAVE_DTRACE_H
   // Generate a dtrace wrapper for a given method.  The method takes arguments
@@ -475,7 +468,7 @@ class SharedRuntime: AllStatic {
 
   // A compiled caller has just called the interpreter, but compiled code
   // exists.  Patch the caller so he no longer calls into the interpreter.
-  static void fixup_callers_callsite(methodOopDesc* moop, address ret_pc);
+  static void fixup_callers_callsite(Method* moop, address ret_pc);
 
   // Slow-path Locking and Unlocking
   static void complete_monitor_locking_C(oopDesc* obj, BasicLock* lock, JavaThread* thread);
@@ -494,6 +487,7 @@ class SharedRuntime: AllStatic {
   // handle ic miss with caller being compiled code
   // wrong method handling (inline cache misses, zombie methods)
   static address handle_wrong_method(JavaThread* thread);
+  static address handle_wrong_method_abstract(JavaThread* thread);
   static address handle_wrong_method_ic_miss(JavaThread* thread);
 
 #ifndef PRODUCT
@@ -605,7 +599,7 @@ class SharedRuntime: AllStatic {
 // used by the adapters.  The code generation happens here because it's very
 // similar to what the adapters have to do.
 
-class AdapterHandlerEntry : public BasicHashtableEntry {
+class AdapterHandlerEntry : public BasicHashtableEntry<mtCode> {
   friend class AdapterHandlerTable;
 
  private:
@@ -642,16 +636,17 @@ class AdapterHandlerEntry : public BasicHashtableEntry {
   AdapterHandlerEntry();
 
  public:
-  address get_i2c_entry()            { return _i2c_entry; }
-  address get_c2i_entry()            { return _c2i_entry; }
-  address get_c2i_unverified_entry() { return _c2i_unverified_entry; }
+  address get_i2c_entry()            const { return _i2c_entry; }
+  address get_c2i_entry()            const { return _c2i_entry; }
+  address get_c2i_unverified_entry() const { return _c2i_unverified_entry; }
 
+  address base_address();
   void relocate(address new_base);
 
-  AdapterFingerPrint* fingerprint()  { return _fingerprint; }
+  AdapterFingerPrint* fingerprint() const { return _fingerprint; }
 
   AdapterHandlerEntry* next() {
-    return (AdapterHandlerEntry*)BasicHashtableEntry::next();
+    return (AdapterHandlerEntry*)BasicHashtableEntry<mtCode>::next();
   }
 
 #ifdef ASSERT
@@ -660,7 +655,8 @@ class AdapterHandlerEntry : public BasicHashtableEntry {
   bool compare_code(unsigned char* code, int length, int total_args_passed, BasicType* sig_bt);
 #endif
 
-  void print();
+  //virtual void print_on(outputStream* st) const;  DO NOT USE
+  void print_adapter_on(outputStream* st) const;
 };
 
 class AdapterHandlerLibrary: public AllStatic {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2002, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,8 @@
 
 package sun.nio.ch;
 
+import java.lang.annotation.Native;
+
 /**
  * Manipulates a native array of structs corresponding to (fd, events) pairs.
  *
@@ -46,19 +48,19 @@ class PollArrayWrapper {
 
     long pollArrayAddress; // pollArrayAddress
 
-    private static final short FD_OFFSET     = 0; // fd offset in pollfd
-    private static final short EVENT_OFFSET  = 4; // events offset in pollfd
+    @Native private static final short FD_OFFSET     = 0; // fd offset in pollfd
+    @Native private static final short EVENT_OFFSET  = 4; // events offset in pollfd
 
     static short SIZE_POLLFD = 8; // sizeof pollfd struct
 
     // events masks
-    static final short POLLIN     = AbstractPollArrayWrapper.POLLIN;
-    static final short POLLOUT    = AbstractPollArrayWrapper.POLLOUT;
-    static final short POLLERR    = AbstractPollArrayWrapper.POLLERR;
-    static final short POLLHUP    = AbstractPollArrayWrapper.POLLHUP;
-    static final short POLLNVAL   = AbstractPollArrayWrapper.POLLNVAL;
-    static final short POLLREMOVE = AbstractPollArrayWrapper.POLLREMOVE;
-    static final short POLLCONN   = 0x0002;
+    @Native static final short POLLIN     = AbstractPollArrayWrapper.POLLIN;
+    @Native static final short POLLOUT    = AbstractPollArrayWrapper.POLLOUT;
+    @Native static final short POLLERR    = AbstractPollArrayWrapper.POLLERR;
+    @Native static final short POLLHUP    = AbstractPollArrayWrapper.POLLHUP;
+    @Native static final short POLLNVAL   = AbstractPollArrayWrapper.POLLNVAL;
+    @Native static final short POLLREMOVE = AbstractPollArrayWrapper.POLLREMOVE;
+    @Native static final short POLLCONN   = 0x0002;
 
     private int size; // Size of the pollArray
 

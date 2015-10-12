@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,8 +33,8 @@ import java.security.PrivilegedExceptionAction;
 import java.security.PrivilegedActionException;
 import java.security.SecureRandom;
 import java.net.InetAddress;
+import java.security.PrivilegedAction;
 
-import javax.crypto.SecretKey;
 import javax.security.auth.kerberos.KerberosTicket;
 import javax.security.auth.kerberos.KerberosKey;
 import javax.security.auth.kerberos.KerberosPrincipal;
@@ -44,18 +44,19 @@ import sun.security.jgss.GSSCaller;
 import sun.security.krb5.EncryptionKey;
 import sun.security.krb5.EncryptedData;
 import sun.security.krb5.PrincipalName;
-import sun.security.krb5.Realm;
 import sun.security.krb5.internal.Ticket;
 import sun.security.krb5.internal.EncTicketPart;
 import sun.security.krb5.internal.crypto.KeyUsage;
 
 import sun.security.jgss.krb5.Krb5Util;
+import sun.security.jgss.krb5.ServiceCreds;
 import sun.security.krb5.KrbException;
 import sun.security.krb5.internal.Krb5;
 
 import sun.security.ssl.Debug;
 import sun.security.ssl.HandshakeInStream;
 import sun.security.ssl.HandshakeOutStream;
+import sun.security.ssl.Krb5Helper;
 import sun.security.ssl.ProtocolVersion;
 
 /**
@@ -104,12 +105,12 @@ public final class KerberosClientKeyExchangeImpl
      *          secret
      */
     @Override
-    public void init(String serverName, boolean isLoopback,
+    public void init(String serverName,
         AccessControlContext acc, ProtocolVersion protocolVersion,
         SecureRandom rand) throws IOException {
 
          // Get service ticket
-         KerberosTicket ticket = getServiceTicket(serverName, isLoopback, acc);
+         KerberosTicket ticket = getServiceTicket(serverName, acc);
          encodedTicket = ticket.getEncoded();
 
          // Record the Kerberos principals
@@ -138,15 +139,14 @@ public final class KerberosClientKeyExchangeImpl
      * @param rand random number generator used for generating random
      *          premaster secret if ticket and/or premaster verification fails
      * @param input inputstream from which to get ASN.1-encoded KerberosWrapper
-     * @param serverKey server's master secret key
+     * @param acc the AccessControlContext of the handshaker
+     * @param serviceCreds server's creds
      */
     @Override
     public void init(ProtocolVersion protocolVersion,
         ProtocolVersion clientVersion,
-        SecureRandom rand, HandshakeInStream input, SecretKey[] secretKeys)
+        SecureRandom rand, HandshakeInStream input, AccessControlContext acc, Object serviceCreds)
         throws IOException {
-
-        KerberosKey[] serverKeys = (KerberosKey[])secretKeys;
 
         // Read ticket
         encodedTicket = input.getBytes16();
@@ -163,9 +163,42 @@ public final class KerberosClientKeyExchangeImpl
 
             EncryptedData encPart = t.encPart;
             PrincipalName ticketSname = t.sname;
-            Realm ticketRealm = t.realm;
 
-            String serverPrincipal = serverKeys[0].getPrincipal().getName();
+            final ServiceCreds creds = (ServiceCreds)serviceCreds;
+            final KerberosPrincipal princ =
+                    new KerberosPrincipal(ticketSname.toString());
+
+            // For bound service, permission already checked at setup
+            if (creds.getName() == null) {
+                SecurityManager sm = System.getSecurityManager();
+                try {
+                    if (sm != null) {
+                        // Eliminate dependency on ServicePermission
+                        sm.checkPermission(Krb5Helper.getServicePermission(
+                                ticketSname.toString(), "accept"), acc);
+                    }
+                } catch (SecurityException se) {
+                    serviceCreds = null;
+                    // Do not destroy keys. Will affect Subject
+                    if (debug != null && Debug.isOn("handshake")) {
+                        System.out.println("Permission to access Kerberos"
+                                + " secret key denied");
+                    }
+                    throw new IOException("Kerberos service not allowedy");
+                }
+            }
+            KerberosKey[] serverKeys = AccessController.doPrivileged(
+                    new PrivilegedAction<KerberosKey[]>() {
+                        @Override
+                        public KerberosKey[] run() {
+                            return creds.getKKeys(princ);
+                        }
+                    });
+            if (serverKeys.length == 0) {
+                throw new IOException("Found no key for " + princ +
+                        (creds.getName() == null ? "" :
+                        (", this keytab is for " + creds.getName() + " only")));
+            }
 
             /*
              * permission to access and use the secret key of the Kerberized
@@ -173,18 +206,6 @@ public final class KerberosClientKeyExchangeImpl
              * to ensure server has the permission to use the secret key
              * before promising the client
              */
-
-            // Check that ticket Sname matches serverPrincipal
-            String ticketPrinc = ticketSname.toString().concat("@" +
-                                        ticketRealm.toString());
-            if (!ticketPrinc.equals(serverPrincipal)) {
-                if (debug != null && Debug.isOn("handshake"))
-                   System.out.println("Service principal in Ticket does not"
-                        + " match associated principal in KerberosKey");
-                throw new IOException("Server principal is " +
-                    serverPrincipal + " but ticket is for " +
-                    ticketPrinc);
-            }
 
             // See if we have the right key to decrypt the ticket to get
             // the session key.
@@ -199,9 +220,8 @@ public final class KerberosClientKeyExchangeImpl
             }
             if (dkey == null) {
                 // %%% Should print string repr of etype
-                throw new IOException(
-        "Cannot find key of appropriate type to decrypt ticket - need etype " +
-                                   encPartKeyType);
+                throw new IOException("Cannot find key of appropriate type" +
+                        " to decrypt ticket - need etype " + encPartKeyType);
             }
 
             EncryptionKey secretKey = new EncryptionKey(
@@ -223,8 +243,7 @@ public final class KerberosClientKeyExchangeImpl
             sessionKey = encTicketPart.key;
 
             if (debug != null && Debug.isOn("handshake")) {
-                System.out.println("server principal: " + serverPrincipal);
-                System.out.println("realm: " + encTicketPart.crealm.toString());
+                System.out.println("server principal: " + ticketSname);
                 System.out.println("cname: " + encTicketPart.cname.toString());
             }
         } catch (IOException e) {
@@ -273,25 +292,33 @@ public final class KerberosClientKeyExchangeImpl
     }
 
     // Similar to sun.security.jgss.krb5.Krb5InitCredenetial/Krb5Context
-    private static KerberosTicket getServiceTicket(String srvName,
-        boolean isLoopback, final AccessControlContext acc) throws IOException {
+    private static KerberosTicket getServiceTicket(String serverName,
+        final AccessControlContext acc) throws IOException {
 
-        // get the local hostname if srvName is loopback address
-        String serverName = srvName;
-        if (isLoopback) {
+        if ("localhost".equals(serverName) ||
+                "localhost.localdomain".equals(serverName)) {
+
+            if (debug != null && Debug.isOn("handshake")) {
+                System.out.println("Get the local hostname");
+            }
             String localHost = java.security.AccessController.doPrivileged(
                 new java.security.PrivilegedAction<String>() {
                 public String run() {
-                    String hostname;
                     try {
-                        hostname = InetAddress.getLocalHost().getHostName();
+                        return InetAddress.getLocalHost().getHostName();
                     } catch (java.net.UnknownHostException e) {
-                        hostname = "localhost";
+                        if (debug != null && Debug.isOn("handshake")) {
+                            System.out.println("Warning,"
+                                + " cannot get the local hostname: "
+                                + e.getMessage());
+                        }
+                        return null;
                     }
-                    return hostname;
                 }
             });
-          serverName = localHost;
+            if (localHost != null) {
+                serverName = localHost;
+            }
         }
 
         // Resolve serverName (possibly in IP addr form) to Kerberos principal
@@ -384,12 +411,22 @@ public final class KerberosClientKeyExchangeImpl
             KerberosKey[] keys) throws KrbException {
         int ktype;
         boolean etypeFound = false;
+
+        // When no matched kvno is found, returns tke key of the same
+        // etype with the highest kvno
+        int kvno_found = 0;
+        KerberosKey key_found = null;
+
         for (int i = 0; i < keys.length; i++) {
             ktype = keys[i].getKeyType();
             if (etype == ktype) {
+                int kv = keys[i].getVersionNumber();
                 etypeFound = true;
-                if (versionMatches(version, keys[i].getVersionNumber())) {
+                if (versionMatches(version, kv)) {
                     return keys[i];
+                } else if (kv > kvno_found) {
+                    key_found = keys[i];
+                    kvno_found = kv;
                 }
             }
         }
@@ -401,18 +438,25 @@ public final class KerberosClientKeyExchangeImpl
                 ktype = keys[i].getKeyType();
                 if (ktype == EncryptedData.ETYPE_DES_CBC_CRC ||
                         ktype == EncryptedData.ETYPE_DES_CBC_MD5) {
+                    int kv = keys[i].getVersionNumber();
                     etypeFound = true;
-                    if (versionMatches(version, keys[i].getVersionNumber())) {
+                    if (versionMatches(version, kv)) {
                         return new KerberosKey(keys[i].getPrincipal(),
                             keys[i].getEncoded(),
                             etype,
-                            keys[i].getVersionNumber());
+                            kv);
+                    } else if (kv > kvno_found) {
+                        key_found = new KerberosKey(keys[i].getPrincipal(),
+                                keys[i].getEncoded(),
+                                etype,
+                                kv);
+                        kvno_found = kv;
                     }
                 }
             }
         }
         if (etypeFound) {
-            throw new KrbException(Krb5.KRB_AP_ERR_BADKEYVER);
+            return key_found;
         }
         return null;
     }

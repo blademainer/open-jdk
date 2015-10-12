@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,7 +39,12 @@
 #include "runtime/vm_operations.hpp"
 
 #ifdef JVMTI_TRACE
-#define EC_TRACE(out) if (JvmtiTrace::trace_event_controller()) { SafeResourceMark rm; tty->print_cr out; } while (0)
+#define EC_TRACE(out) do { \
+  if (JvmtiTrace::trace_event_controller()) { \
+    SafeResourceMark rm; \
+    tty->print_cr out; \
+  } \
+} while (0)
 #else
 #define EC_TRACE(out)
 #endif /*JVMTI_TRACE */

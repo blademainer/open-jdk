@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,13 +30,12 @@
 
 #include <stdlib.h>
 #include <dlfcn.h>
-#include <link.h>
 
 #ifdef __solaris__
 #include <strings.h>
 #endif
 
-#ifdef __linux__
+#if defined(__linux__)
 #include <string.h>
 #endif
 

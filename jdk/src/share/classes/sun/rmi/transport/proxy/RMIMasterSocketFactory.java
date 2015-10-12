@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,6 +34,7 @@ import sun.rmi.runtime.Log;
 import sun.rmi.runtime.NewThreadAction;
 import sun.security.action.GetBooleanAction;
 import sun.security.action.GetLongAction;
+import sun.security.action.GetPropertyAction;
 
 /**
  * RMIMasterSocketFactory attempts to create a socket connection to the
@@ -44,6 +45,7 @@ import sun.security.action.GetLongAction;
  * connect to the same host will automatically use the same
  * mechanism.
  */
+@SuppressWarnings("deprecation")
 public class RMIMasterSocketFactory extends RMISocketFactory {
 
     /** "proxy" package log level */
@@ -74,20 +76,21 @@ public class RMIMasterSocketFactory extends RMISocketFactory {
             "sun.rmi.transport.proxy.eagerHttpFallback")).booleanValue();
 
     /** table of hosts successfully connected to and the factory used */
-    private Hashtable successTable = new Hashtable();
+    private Hashtable<String, RMISocketFactory> successTable =
+        new Hashtable<>();
 
     /** maximum number of hosts to remember successful connection to */
     private static final int MaxRememberedHosts = 64;
 
     /** list of the hosts in successTable in initial connection order */
-    private Vector hostList = new Vector(MaxRememberedHosts);
+    private Vector<String> hostList = new Vector<>(MaxRememberedHosts);
 
-    /** default factory to initally use for direct socket connection */
+    /** default factory for initial use for direct socket connection */
     protected RMISocketFactory initialFactory = new RMIDirectSocketFactory();
 
     /** ordered list of factories to try as alternate connection
       * mechanisms if a direct socket connections fails */
-    protected Vector altFactoryList;
+    protected Vector<RMISocketFactory> altFactoryList;
 
     /**
      * Create a RMIMasterSocketFactory object.  Establish order of
@@ -95,28 +98,27 @@ public class RMIMasterSocketFactory extends RMISocketFactory {
      * socket connection fails.
      */
     public RMIMasterSocketFactory() {
-        altFactoryList = new Vector(2);
+        altFactoryList = new Vector<>(2);
         boolean setFactories = false;
 
         try {
             String proxyHost;
             proxyHost = java.security.AccessController.doPrivileged(
-                new sun.security.action.GetPropertyAction("http.proxyHost"));
+                new GetPropertyAction("http.proxyHost"));
 
             if (proxyHost == null)
                 proxyHost = java.security.AccessController.doPrivileged(
-                    new sun.security.action.GetPropertyAction("proxyHost"));
+                    new GetPropertyAction("proxyHost"));
 
-            Boolean tmp = java.security.AccessController.doPrivileged(
-                new sun.security.action.GetBooleanAction("java.rmi.server.disableHttp"));
+            boolean disable = java.security.AccessController.doPrivileged(
+                new GetPropertyAction("java.rmi.server.disableHttp", "true"))
+                .equalsIgnoreCase("true");
 
-            if (!tmp.booleanValue() &&
-                (proxyHost != null && proxyHost.length() > 0)) {
+            if (!disable && proxyHost != null && proxyHost.length() > 0) {
                 setFactories = true;
             }
         } catch (Exception e) {
-            // unable to obtain the properties, so assume default behavior.
-            setFactories = true;
+            // unable to obtain the properties, so use the default behavior.
         }
 
         if (setFactories) {
@@ -152,7 +154,7 @@ public class RMIMasterSocketFactory extends RMISocketFactory {
          * If we remember successfully connecting to this host before,
          * use the same factory.
          */
-        factory = (RMISocketFactory) successTable.get(host);
+        factory = successTable.get(host);
         if (factory != null) {
             if (proxyLog.isLoggable(Log.BRIEF)) {
                 proxyLog.log(Log.BRIEF,
@@ -207,9 +209,7 @@ public class RMIMasterSocketFactory extends RMISocketFactory {
 
             return initialSocket;
 
-        } catch (UnknownHostException e) {
-            initialFailure = e;
-        } catch (NoRouteToHostException e) {
+        } catch (UnknownHostException | NoRouteToHostException e) {
             initialFailure = e;
         } catch (SocketException e) {
             if (eagerHttpFallback) {
@@ -227,22 +227,20 @@ public class RMIMasterSocketFactory extends RMISocketFactory {
 
                 // Finally, try any alternate connection mechanisms.
                 for (int i = 0; i < altFactoryList.size(); ++ i) {
-                    factory = (RMISocketFactory) altFactoryList.elementAt(i);
-                    try {
-                        if (proxyLog.isLoggable(Log.BRIEF)) {
-                            proxyLog.log(Log.BRIEF,
-                                "trying with factory: " + factory);
-                        }
-
+                    factory = altFactoryList.elementAt(i);
+                    if (proxyLog.isLoggable(Log.BRIEF)) {
+                        proxyLog.log(Log.BRIEF,
+                            "trying with factory: " + factory);
+                    }
+                    try (Socket testSocket =
+                            factory.createSocket(host, port)) {
                         // For HTTP connections, the output (POST request) must
                         // be sent before we verify a successful connection.
                         // So, sacrifice a socket for the sake of testing...
                         // The following sequence should verify a successful
                         // HTTP connection if no IOException is thrown.
-                        Socket testSocket = factory.createSocket(host, port);
                         InputStream in = testSocket.getInputStream();
                         int b = in.read(); // probably -1 for EOF...
-                        testSocket.close();
                     } catch (IOException ex) {
                         if (proxyLog.isLoggable(Log.BRIEF)) {
                             proxyLog.log(Log.BRIEF, "factory failed: ", ex);
@@ -276,9 +274,7 @@ public class RMIMasterSocketFactory extends RMISocketFactory {
                 }
                 // if connector ever does get socket, it won't be used
                 connector.notUsed();
-            } catch (UnknownHostException e) {
-                initialFailure = e;
-            } catch (NoRouteToHostException e) {
+            } catch (UnknownHostException | NoRouteToHostException e) {
                 initialFailure = e;
             } catch (SocketException e) {
                 if (eagerHttpFallback) {

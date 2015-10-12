@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,6 +32,7 @@
 #include <dlfcn.h>
 #include "jni.h"
 #include <jni_util.h>
+#include "jvm_md.h"
 #include "awt_Mlib.h"
 #include "java_awt_image_BufferedImage.h"
 
@@ -67,11 +68,11 @@ mlib_status awt_getImagingLib(JNIEnv *env, mlibFnS_t *sMlibFns,
         ((strncmp(name.machine, "sun4v" , 5) == 0) &&
          (getenv("USE_VIS_ON_SUN4V") != NULL)))
     {
-        handle = dlopen("libmlib_image_v.so", RTLD_LAZY);
+        handle = dlopen(JNI_LIB_NAME("mlib_image_v"), RTLD_LAZY);
     }
 
     if (handle == NULL) {
-        handle = dlopen("libmlib_image.so", RTLD_LAZY);
+        handle = dlopen(JNI_LIB_NAME("mlib_image"), RTLD_LAZY);
     }
 
     if (handle == NULL) {
@@ -142,52 +143,6 @@ mlib_start_timer awt_setMlibStartTimer() {
 
 mlib_stop_timer awt_setMlibStopTimer() {
     return stop_timer;
-}
-
-void awt_getBIColorOrder(int type, int *colorOrder) {
-    switch(type) {
-    case java_awt_image_BufferedImage_TYPE_INT_ARGB:
-    case java_awt_image_BufferedImage_TYPE_INT_ARGB_PRE:
-        colorOrder[0] = 1;
-        colorOrder[1] = 2;
-        colorOrder[2] = 3;
-        colorOrder[3] = 0;
-        break;
-    case java_awt_image_BufferedImage_TYPE_INT_BGR:
-        colorOrder[0] = 2;
-        colorOrder[1] = 1;
-        colorOrder[2] = 0;
-        break;
-    case java_awt_image_BufferedImage_TYPE_4BYTE_ABGR:
-    case java_awt_image_BufferedImage_TYPE_4BYTE_ABGR_PRE:
-        colorOrder[0] = 3;
-        colorOrder[1] = 2;
-        colorOrder[2] = 1;
-        colorOrder[3] = 0;
-        break;
-    case java_awt_image_BufferedImage_TYPE_3BYTE_BGR:
-        colorOrder[0] = 2;
-        colorOrder[1] = 1;
-        colorOrder[2] = 0;
-        break;
-    case java_awt_image_BufferedImage_TYPE_INT_RGB:
-        colorOrder[0] = 1;
-        colorOrder[1] = 2;
-        colorOrder[2] = 3;
-        break;
-    case java_awt_image_BufferedImage_TYPE_USHORT_565_RGB:
-    case java_awt_image_BufferedImage_TYPE_USHORT_555_RGB:
-        colorOrder[0] = 0;
-        colorOrder[1] = 1;
-        colorOrder[2] = 2;
-        break;
-    case java_awt_image_BufferedImage_TYPE_BYTE_GRAY:
-    case java_awt_image_BufferedImage_TYPE_USHORT_GRAY:
-    case java_awt_image_BufferedImage_TYPE_BYTE_BINARY:
-    case java_awt_image_BufferedImage_TYPE_BYTE_INDEXED:
-        colorOrder[0] = 0;
-        break;
-    }
 }
 
 /***************************************************************************

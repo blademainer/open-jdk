@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@
  * @summary Basic known answer test for ECDH
  * @author Andreas Sterbenz
  * @library ..
+ * @library ../../../../java/security/testlibrary
  */
 
 import java.io.*;
@@ -59,7 +60,16 @@ public class TestECDH extends PKCS11Test {
             System.out.println("Provider does not support ECDH, skipping");
             return;
         }
-        Security.insertProviderAt(p, 1);
+
+        if (isNSS(p) && getNSSECC() == ECCState.Basic) {
+            System.out.println("NSS only supports Basic ECC.  Skipping..");
+            return;
+        }
+
+        /*
+         * PKCS11Test.main will remove this provider if needed
+         */
+        Providers.setAt(p, 1);
 
         if (false) {
             KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC", p);
@@ -76,7 +86,6 @@ public class TestECDH extends PKCS11Test {
         test(p, pub192a, priv192a, pub192b, priv192b, secret192);
         test(p, pub163a, priv163a, pub163b, priv163b, secret163);
 
-        Security.removeProvider(p.getName());
         System.out.println("OK");
     }
 

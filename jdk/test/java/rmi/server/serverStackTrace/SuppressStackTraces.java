@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,10 +36,7 @@
  * for reasons of performance or confidentiality requirements.
  * @author Peter Jones
  *
- * @build SuppressStackTraces
- * @build Impl2_Stub
- * @build Impl1_Stub
- * @build Impl1_Skel
+ * @build SuppressStackTraces Impl2_Stub Impl1_Stub Impl1_Skel
  * @run main/othervm SuppressStackTraces
  */
 

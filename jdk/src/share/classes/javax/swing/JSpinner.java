@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,10 +36,13 @@ import java.util.*;
 import java.beans.*;
 import java.text.*;
 import java.io.*;
-import java.util.HashMap;
-import sun.util.resources.LocaleData;
+import java.text.spi.DateFormatProvider;
+import java.text.spi.NumberFormatProvider;
 
 import javax.accessibility.*;
+import sun.util.locale.provider.LocaleProviderAdapter;
+import sun.util.locale.provider.LocaleResources;
+import sun.util.locale.provider.LocaleServiceProviderPool;
 
 
 /**
@@ -90,7 +93,7 @@ import javax.accessibility.*;
  * </pre>
  * <p>
  * For information and examples of using spinner see
- * <a href="http://java.sun.com/doc/books/tutorial/uiswing/components/spinner.html">How to Use Spinners</a>,
+ * <a href="http://docs.oracle.com/javase/tutorial/uiswing/components/spinner.html">How to Use Spinners</a>,
  * a section in <em>The Java Tutorial.</em>
  * <p>
  * <strong>Warning:</strong> Swing is not thread safe. For more
@@ -103,7 +106,7 @@ import javax.accessibility.*;
  * future Swing releases. The current serialization support is
  * appropriate for short term storage or RMI between applications running
  * the same version of Swing.  As of 1.4, support for long term storage
- * of all JavaBeans<sup><font size="-2">TM</font></sup>
+ * of all JavaBeans&trade;
  * has been added to the <code>java.beans</code> package.
  * Please see {@link java.beans.XMLEncoder}.
  *
@@ -168,7 +171,7 @@ public class JSpinner extends JComponent implements Accessible
 
 
     /**
-     * Returns the look and feel (L&F) object that renders this component.
+     * Returns the look and feel (L&amp;F) object that renders this component.
      *
      * @return the <code>SpinnerUI</code> object that renders this component
      */
@@ -178,9 +181,9 @@ public class JSpinner extends JComponent implements Accessible
 
 
     /**
-     * Sets the look and feel (L&F) object that renders this component.
+     * Sets the look and feel (L&amp;F) object that renders this component.
      *
-     * @param ui  the <code>SpinnerUI</code> L&F object
+     * @param ui  the <code>SpinnerUI</code> L&amp;F object
      * @see UIDefaults#getUI
      */
     public void setUI(SpinnerUI ui) {
@@ -190,7 +193,7 @@ public class JSpinner extends JComponent implements Accessible
 
     /**
      * Returns the suffix used to construct the name of the look and feel
-     * (L&F) class used to render this component.
+     * (L&amp;F) class used to render this component.
      *
      * @return the string "SpinnerUI"
      * @see JComponent#getUIClassID
@@ -542,7 +545,7 @@ public class JSpinner extends JComponent implements Accessible
      * call if forwarded to the editor, otherwise this does nothing.
      *
      * @throws ParseException if the currently edited value couldn't
-     *         be commited.
+     *         be committed.
      */
     public void commitEdit() throws ParseException {
         JComponent editor = getEditor();
@@ -946,11 +949,12 @@ public class JSpinner extends JComponent implements Accessible
         // This is here until SimpleDateFormat gets a constructor that
         // takes a Locale: 4923525
         private static String getDefaultPattern(Locale loc) {
-            ResourceBundle r = LocaleData.getDateFormatData(loc);
-            String[] dateTimePatterns = r.getStringArray("DateTimePatterns");
-            Object[] dateTimeArgs = {dateTimePatterns[DateFormat.SHORT],
-                                     dateTimePatterns[DateFormat.SHORT + 4]};
-            return MessageFormat.format(dateTimePatterns[8], dateTimeArgs);
+            LocaleProviderAdapter adapter = LocaleProviderAdapter.getAdapter(DateFormatProvider.class, loc);
+            LocaleResources lr = adapter.getLocaleResources(loc);
+            if (lr == null) {
+                lr = LocaleProviderAdapter.forJRE().getLocaleResources(loc);
+            }
+            return lr.getDateTimePattern(DateFormat.SHORT, DateFormat.SHORT, null);
         }
 
         /**
@@ -1125,8 +1129,14 @@ public class JSpinner extends JComponent implements Accessible
         // takes a Locale: 4923525
         private static String getDefaultPattern(Locale locale) {
             // Get the pattern for the default locale.
-            ResourceBundle rb = LocaleData.getNumberFormatData(locale);
-            String[] all = rb.getStringArray("NumberPatterns");
+            LocaleProviderAdapter adapter;
+            adapter = LocaleProviderAdapter.getAdapter(NumberFormatProvider.class,
+                                                       locale);
+            LocaleResources lr = adapter.getLocaleResources(locale);
+            if (lr == null) {
+                lr = LocaleProviderAdapter.forJRE().getLocaleResources(locale);
+            }
+            String[] all = lr.getNumberPatterns();
             return all[0];
         }
 
@@ -1452,7 +1462,7 @@ public class JSpinner extends JComponent implements Accessible
          * a set of predefined roles.  This enables assistive technologies to
          * provide a consistent interface to various tweaked subclasses of
          * components (e.g., use AccessibleRole.PUSH_BUTTON for all components
-         * that act like a push button) as well as distinguish between sublasses
+         * that act like a push button) as well as distinguish between subclasses
          * that behave differently (e.g., AccessibleRole.CHECK_BOX for check boxes
          * and AccessibleRole.RADIO_BUTTON for radio buttons).
          * <p>Note that the AccessibleRole class is also extensible, so
@@ -1879,7 +1889,7 @@ public class JSpinner extends JComponent implements Accessible
          * If there is no selection, but there is
          * a caret, the start and end offsets will be the same.
          *
-         * @return the index into teh text of the end of the selection
+         * @return the index into the text of the end of the selection
          */
         public int getSelectionEnd() {
             AccessibleText at = getEditorAccessibleText();

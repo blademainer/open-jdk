@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,9 +30,13 @@
 #include <string.h>
 #include "gtk2_interface.h"
 #include "java_awt_Transparency.h"
+#include "jvm_md.h"
+#include "sizecalc.h"
 
-#define GTK2_LIB "libgtk-x11-2.0.so.0"
-#define GTHREAD_LIB "libgthread-2.0.so.0"
+#define GTK2_LIB_VERSIONED VERSIONED_JNI_LIB_NAME("gtk-x11-2.0", "0")
+#define GTK2_LIB JNI_LIB_NAME("gtk-x11-2.0")
+#define GTHREAD_LIB_VERSIONED VERSIONED_JNI_LIB_NAME("gthread-2.0", "0")
+#define GTHREAD_LIB JNI_LIB_NAME("gthread-2.0")
 
 #define G_TYPE_INVALID                  G_TYPE_MAKE_FUNDAMENTAL (0)
 #define G_TYPE_NONE                     G_TYPE_MAKE_FUNDAMENTAL (1)
@@ -77,7 +81,7 @@ const gint DEFAULT    = 1 << 10;
 
 static void *gtk2_libhandle = NULL;
 static void *gthread_libhandle = NULL;
-static gboolean flag_g_thread_get_initialized = FALSE;
+
 static jmp_buf j;
 
 /* Widgets */
@@ -414,9 +418,12 @@ gboolean gtk2_check_version()
         void *lib = NULL;
         gboolean result = FALSE;
 
-        lib = dlopen(GTK2_LIB, RTLD_LAZY | RTLD_LOCAL);
+        lib = dlopen(GTK2_LIB_VERSIONED, RTLD_LAZY | RTLD_LOCAL);
         if (lib == NULL) {
-            return FALSE;
+            lib = dlopen(GTK2_LIB, RTLD_LAZY | RTLD_LOCAL);
+            if (lib == NULL) {
+                return FALSE;
+            }
         }
 
         fp_gtk_check_version = dlsym(lib, "gtk_check_version");
@@ -429,6 +436,108 @@ gboolean gtk2_check_version()
 
         return result;
     }
+}
+
+#define ADD_SUPPORTED_ACTION(actionStr) \
+do { \
+    jfieldID fld_action = (*env)->GetStaticFieldID(env, cls_action, actionStr, "Ljava/awt/Desktop$Action;"); \
+    if (!(*env)->ExceptionCheck(env)) { \
+        jobject action = (*env)->GetStaticObjectField(env, cls_action, fld_action); \
+        (*env)->CallBooleanMethod(env, supportedActions, mid_arrayListAdd, action); \
+    } else { \
+        (*env)->ExceptionClear(env); \
+    } \
+} while(0);
+
+
+void update_supported_actions(JNIEnv *env) {
+    GVfs * (*fp_g_vfs_get_default) (void);
+    const gchar * const * (*fp_g_vfs_get_supported_uri_schemes) (GVfs * vfs);
+    const gchar * const * schemes = NULL;
+
+    jclass cls_action = (*env)->FindClass(env, "java/awt/Desktop$Action");
+    jclass cls_xDesktopPeer = (*env)->FindClass(env, "sun/awt/X11/XDesktopPeer");
+    jfieldID fld_supportedActions = (*env)->GetStaticFieldID(env, cls_xDesktopPeer, "supportedActions", "Ljava/util/List;");
+    jobject supportedActions = (*env)->GetStaticObjectField(env, cls_xDesktopPeer, fld_supportedActions);
+
+    jclass cls_arrayList = (*env)->FindClass(env, "java/util/ArrayList");
+    jmethodID mid_arrayListAdd = (*env)->GetMethodID(env, cls_arrayList, "add", "(Ljava/lang/Object;)Z");
+    jmethodID mid_arrayListClear = (*env)->GetMethodID(env, cls_arrayList, "clear", "()V");
+
+    (*env)->CallVoidMethod(env, supportedActions, mid_arrayListClear);
+
+    ADD_SUPPORTED_ACTION("OPEN");
+
+    /**
+     * gtk_show_uri() documentation says:
+     *
+     * > you need to install gvfs to get support for uri schemes such as http://
+     * > or ftp://, as only local files are handled by GIO itself.
+     *
+     * So OPEN action was safely added here.
+     * However, it looks like Solaris 11 have gvfs support only for 32-bit
+     * applications only by default.
+     */
+
+    fp_g_vfs_get_default = dl_symbol("g_vfs_get_default");
+    fp_g_vfs_get_supported_uri_schemes = dl_symbol("g_vfs_get_supported_uri_schemes");
+    dlerror();
+
+    if (fp_g_vfs_get_default && fp_g_vfs_get_supported_uri_schemes) {
+        GVfs * vfs = fp_g_vfs_get_default();
+        schemes = vfs ? fp_g_vfs_get_supported_uri_schemes(vfs) : NULL;
+        if (schemes) {
+            int i = 0;
+            while (schemes[i]) {
+                if (strcmp(schemes[i], "http") == 0) {
+                    ADD_SUPPORTED_ACTION("BROWSE");
+                    ADD_SUPPORTED_ACTION("MAIL");
+                    break;
+                }
+                i++;
+            }
+        }
+    } else {
+#ifdef INTERNAL_BUILD
+        fprintf(stderr, "Cannot load g_vfs_get_supported_uri_schemes\n");
+#endif /* INTERNAL_BUILD */
+    }
+
+}
+/**
+ * Functions for awt_Desktop.c
+ */
+gboolean gtk2_show_uri_load(JNIEnv *env) {
+     gboolean success = FALSE;
+     dlerror();
+     const char *gtk_version = fp_gtk_check_version(2, 14, 0);
+     if (gtk_version != NULL) {
+         // The gtk_show_uri is available from GTK+ 2.14
+#ifdef INTERNAL_BUILD
+         fprintf (stderr, "The version of GTK is %s. "
+             "The gtk_show_uri function is supported "
+             "since GTK+ 2.14.\n", gtk_version);
+#endif /* INTERNAL_BUILD */
+     } else {
+         // Loading symbols only if the GTK version is 2.14 and higher
+         fp_gtk_show_uri = dl_symbol("gtk_show_uri");
+         const char *dlsym_error = dlerror();
+         if (dlsym_error) {
+#ifdef INTERNAL_BUILD
+             fprintf (stderr, "Cannot load symbol: %s \n", dlsym_error);
+#endif /* INTERNAL_BUILD */
+         } else if (fp_gtk_show_uri == NULL) {
+#ifdef INTERNAL_BUILD
+             fprintf(stderr, "dlsym(gtk_show_uri) returned NULL\n");
+#endif /* INTERNAL_BUILD */
+        } else {
+#ifdef __solaris__
+            update_supported_actions(env);
+#endif
+            success = TRUE;
+        }
+     }
+     return success;
 }
 
 /**
@@ -462,7 +571,7 @@ void gtk2_file_chooser_load()
     fp_gtk_g_slist_length = dl_symbol("g_slist_length");
 }
 
-gboolean gtk2_load()
+gboolean gtk2_load(JNIEnv *env)
 {
     gboolean result;
     int i;
@@ -470,11 +579,19 @@ gboolean gtk2_load()
     int (*io_handler)();
     char *gtk_modules_env;
 
-    gtk2_libhandle = dlopen(GTK2_LIB, RTLD_LAZY | RTLD_LOCAL);
-    gthread_libhandle = dlopen(GTHREAD_LIB, RTLD_LAZY | RTLD_LOCAL);
+    gtk2_libhandle = dlopen(GTK2_LIB_VERSIONED, RTLD_LAZY | RTLD_LOCAL);
+    if (gtk2_libhandle == NULL) {
+        gtk2_libhandle = dlopen(GTK2_LIB, RTLD_LAZY | RTLD_LOCAL);
+        if (gtk2_libhandle == NULL)
+            return FALSE;
+    }
 
-    if (gtk2_libhandle == NULL || gthread_libhandle == NULL)
-        return FALSE;
+    gthread_libhandle = dlopen(GTHREAD_LIB_VERSIONED, RTLD_LAZY | RTLD_LOCAL);
+    if (gthread_libhandle == NULL) {
+        gthread_libhandle = dlopen(GTHREAD_LIB, RTLD_LAZY | RTLD_LOCAL);
+        if (gthread_libhandle == NULL)
+            return FALSE;
+    }
 
     if (setjmp(j) == 0)
     {
@@ -485,6 +602,10 @@ gboolean gtk2_load()
         }
 
         /* GLib */
+        fp_glib_check_version = dlsym(gtk2_libhandle, "glib_check_version");
+        if (!fp_glib_check_version) {
+            dlerror();
+        }
         fp_g_free = dl_symbol("g_free");
         fp_g_object_unref = dl_symbol("g_object_unref");
 
@@ -660,6 +781,9 @@ gboolean gtk2_load()
         /**
          * GLib thread system
          */
+        if (GLIB_CHECK_VERSION(2, 20, 0)) {
+            fp_g_thread_get_initialized = dl_symbol_gthread("g_thread_get_initialized");
+        }
         fp_g_thread_init = dl_symbol_gthread("g_thread_init");
         fp_gdk_threads_init = dl_symbol("gdk_threads_init");
         fp_gdk_threads_enter = dl_symbol("gdk_threads_enter");
@@ -718,7 +842,8 @@ gboolean gtk2_load()
         gtk_modules_env && strstr (gtk_modules_env, "gail"))
     {
         /* the new env will be smaller than the old one */
-        gchar *s, *new_env = malloc (sizeof(ENV_PREFIX)+strlen (gtk_modules_env));
+        gchar *s, *new_env = SAFE_SIZE_STRUCT_ALLOC(malloc,
+                sizeof(ENV_PREFIX), 1, strlen (gtk_modules_env));
 
         if (new_env != NULL )
         {
@@ -745,6 +870,7 @@ gboolean gtk2_load()
             }
             putenv (new_env);
             free (new_env);
+            free (tmp_env);
         }
     }
 
@@ -760,16 +886,33 @@ gboolean gtk2_load()
     io_handler = XSetIOErrorHandler(NULL);
 
     if (fp_gtk_check_version(2, 2, 0) == NULL) {
-        // Init the thread system to use GLib in a thread-safe mode
-        if (!flag_g_thread_get_initialized) {
-            flag_g_thread_get_initialized = TRUE;
+        jclass clazz = (*env)->FindClass(env, "sun/misc/GThreadHelper");
+        jmethodID mid_getAndSetInitializationNeededFlag =
+                (*env)->GetStaticMethodID(env, clazz, "getAndSetInitializationNeededFlag", "()Z");
+        jmethodID mid_lock = (*env)->GetStaticMethodID(env, clazz, "lock", "()V");
+        jmethodID mid_unlock = (*env)->GetStaticMethodID(env, clazz, "unlock", "()V");
 
-            fp_g_thread_init(NULL);
+        // Init the thread system to use GLib in a thread-safe mode
+        (*env)->CallStaticVoidMethod(env, clazz, mid_lock);
+
+        // Calling g_thread_init() multiple times leads to crash on GLib < 2.24
+        // We can use g_thread_get_initialized () but it is available only for
+        // GLib >= 2.20. We rely on GThreadHelper for GLib < 2.20.
+        gboolean is_g_thread_get_initialized = FALSE;
+        if (GLIB_CHECK_VERSION(2, 20, 0)) {
+            is_g_thread_get_initialized = fp_g_thread_get_initialized();
+        }
+
+        if (!(*env)->CallStaticBooleanMethod(env, clazz, mid_getAndSetInitializationNeededFlag)) {
+            if (!is_g_thread_get_initialized) {
+                fp_g_thread_init(NULL);
+            }
 
             //According the GTK documentation, gdk_threads_init() should be
             //called before gtk_init() or gtk_init_check()
             fp_gdk_threads_init();
         }
+        (*env)->CallStaticVoidMethod(env, clazz, mid_unlock);
     }
     result = (*fp_gtk_init_check)(NULL, NULL);
 
@@ -1181,7 +1324,7 @@ static GtkWidget *gtk2_get_widget(WidgetType widget_type)
             if (init_result = (NULL == gtk2_widgets[_GTK_CONTAINER_TYPE]))
             {
                 /* There is no constructor for a container type.  I've
-                 * choosen GtkFixed container since it has a default
+                 * chosen GtkFixed container since it has a default
                  * constructor.
                  */
                 gtk2_widgets[_GTK_CONTAINER_TYPE] =

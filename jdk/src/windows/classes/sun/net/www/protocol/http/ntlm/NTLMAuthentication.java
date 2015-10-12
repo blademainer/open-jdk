@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -193,8 +193,12 @@ public class NTLMAuthentication extends AuthenticationInfo {
             }
             String response = "NTLM " + seq.getAuthHeader (raw.length()>6?raw.substring(5):null);
             conn.setAuthenticationProperty(getHeaderName(), response);
+            if (seq.isComplete()) {
+                conn.authObj(null);
+            }
             return true;
         } catch (IOException e) {
+            conn.authObj(null);
             return false;
         }
     }

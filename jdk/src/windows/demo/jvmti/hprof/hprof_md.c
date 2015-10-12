@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,15 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+/*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
 
 // To ensure winsock2.h is used, it has to be included ahead of
 // windows.h, which includes winsock.h by default.
@@ -73,9 +82,6 @@ md_connect(char *hostname, unsigned short port)
     struct sockaddr_in s;
     int fd;
 
-    /* create a socket */
-    fd = (int)socket(AF_INET, SOCK_STREAM, 0);
-
     /* find remote host's addr from name */
     if ((hentry = gethostbyname(hostname)) == NULL) {
         return -1;
@@ -88,8 +94,15 @@ md_connect(char *hostname, unsigned short port)
     s.sin_port = htons(port);
     s.sin_family = AF_INET;
 
+    /* create a socket */
+    fd = (int)socket(AF_INET, SOCK_STREAM, 0);
+    if (INVALID_SOCKET == fd) {
+        return 0;
+    }
+
     /* now try connecting */
-    if (-1 == connect(fd, (struct sockaddr*)&s, sizeof(s))) {
+    if (SOCKET_ERROR == connect(fd, (struct sockaddr*)&s, sizeof(s))) {
+        closesocket(fd);
         return 0;
     }
     return fd;
@@ -358,28 +371,48 @@ get_last_error_string(char *buf, int len)
     return 0;
 }
 
+static void dll_build_name(char* buffer, size_t buflen,
+                           const char* paths, const char* fname) {
+    char *path, *paths_copy, *next_token;
+
+    paths_copy = strdup(paths);
+    if (paths_copy == NULL) {
+        return;
+    }
+
+    next_token = NULL;
+    path = strtok_s(paths_copy, ";", &next_token);
+
+    while (path != NULL) {
+        _snprintf(buffer, buflen, "%s\\%s.dll", path, fname);
+        if (_access(buffer, 0) == 0) {
+            break;
+        }
+        *buffer = '\0';
+        path = strtok_s(NULL, ";", &next_token);
+    }
+
+    free(paths_copy);
+}
+
 /* Build a machine dependent library name out of a path and file name.  */
 void
-md_build_library_name(char *holder, int holderlen, char *pname, char *fname)
+md_build_library_name(char *holder, int holderlen, const char *pname, const char *fname)
 {
     int   pnamelen;
-    char  c;
 
     pnamelen = pname ? (int)strlen(pname) : 0;
-    c = (pnamelen > 0) ? pname[pnamelen-1] : 0;
 
+    *holder = '\0';
     /* Quietly truncates on buffer overflow. Should be an error. */
     if (pnamelen + strlen(fname) + 10 > (unsigned int)holderlen) {
-        *holder = '\0';
         return;
     }
 
     if (pnamelen == 0) {
         sprintf(holder, "%s.dll", fname);
-    } else if (c == ':' || c == '\\') {
-        sprintf(holder, "%s%s.dll", pname, fname);
     } else {
-        sprintf(holder, "%s\\%s.dll", pname, fname);
+      dll_build_name(holder, holderlen, pname, fname);
     }
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,7 +42,6 @@ class AliasInfo;
 class AllocateArrayNode;
 class AllocateNode;
 class Block;
-class Block_Array;
 class BoolNode;
 class BoxLockNode;
 class CMoveNode;
@@ -62,11 +61,18 @@ class ConstraintCastNode;
 class ConNode;
 class CountedLoopNode;
 class CountedLoopEndNode;
+class DecodeNarrowPtrNode;
 class DecodeNNode;
+class DecodeNKlassNode;
+class EncodeNarrowPtrNode;
 class EncodePNode;
+class EncodePKlassNode;
 class FastLockNode;
 class FastUnlockNode;
+class FlagsProjNode;
 class IfNode;
+class IfFalseNode;
+class IfTrueNode;
 class InitializeNode;
 class JVMState;
 class JumpNode;
@@ -75,6 +81,7 @@ class LoadNode;
 class LoadStoreNode;
 class LockNode;
 class LoopNode;
+class MachBranchNode;
 class MachCallDynamicJavaNode;
 class MachCallJavaNode;
 class MachCallLeafNode;
@@ -83,15 +90,19 @@ class MachCallRuntimeNode;
 class MachCallStaticJavaNode;
 class MachConstantBaseNode;
 class MachConstantNode;
+class MachGotoNode;
 class MachIfNode;
 class MachNode;
 class MachNullCheckNode;
+class MachProjNode;
 class MachReturnNode;
 class MachSafePointNode;
 class MachSpillCopyNode;
 class MachTempNode;
 class Matcher;
+class MathExactNode;
 class MemBarNode;
+class MemBarStoreStoreNode;
 class MemNode;
 class MergeMemNode;
 class MulNode;
@@ -127,9 +138,10 @@ class SubNode;
 class Type;
 class TypeNode;
 class UnlockNode;
+class VectorNode;
+class LoadVectorNode;
+class StoreVectorNode;
 class VectorSet;
-class IfTrueNode;
-class IfFalseNode;
 typedef void (*NFunc)(Node&,void*);
 extern "C" {
   typedef int (*C_sort_func_t)(const void *, const void *);
@@ -179,6 +191,8 @@ typedef Node** DUIterator_Last;
 // whenever I have phase-specific information.
 
 class Node {
+  friend class VMStructs;
+
   // Lots of restrictions on cloning Nodes
   Node(const Node&);            // not defined; linker error to use these
   Node &operator=(const Node &rhs);
@@ -199,22 +213,10 @@ public:
 
   // New Operator that takes a Compile pointer, this will eventually
   // be the "new" New operator.
-  inline void* operator new( size_t x, Compile* C) {
+  inline void* operator new( size_t x, Compile* C) throw() {
     Node* n = (Node*)C->node_arena()->Amalloc_D(x);
 #ifdef ASSERT
     n->_in = (Node**)n; // magic cookie for assertion check
-#endif
-    n->_out = (Node**)C;
-    return (void*)n;
-  }
-
-  // New Operator that takes a Compile pointer, this will eventually
-  // be the "new" New operator.
-  inline void* operator new( size_t x, Compile* C, int y) {
-    Node* n = (Node*)C->node_arena()->Amalloc_D(x + y*sizeof(void*));
-    n->_in = (Node**)(((char*)n) + x);
-#ifdef ASSERT
-    n->_in[y-1] = n; // magic cookie for assertion check
 #endif
     n->_out = (Node**)C;
     return (void*)n;
@@ -354,7 +356,7 @@ protected:
 #endif
 
   // Reference to the i'th input Node.  Error if out of bounds.
-  Node* in(uint i) const { assert(i < _max,"oob"); return _in[i]; }
+  Node* in(uint i) const { assert(i < _max, err_msg_res("oob: i=%d, _max=%d", i, _max)); return _in[i]; }
   // Reference to the i'th output Node.  Error if out of bounds.
   // Use this accessor sparingly.  We are going trying to use iterators instead.
   Node* raw_out(uint i) const { assert(i < _outcnt,"oob"); return _out[i]; }
@@ -377,15 +379,18 @@ protected:
   bool is_dead() const;
 #define is_not_dead(n) ((n) == NULL || !VerifyIterativeGVN || !((n)->is_dead()))
 #endif
+  // Check whether node has become unreachable
+  bool is_unreachable(PhaseIterGVN &igvn) const;
 
   // Set a required input edge, also updates corresponding output edge
   void add_req( Node *n ); // Append a NEW required input
   void add_req_batch( Node* n, uint m ); // Append m NEW required inputs (all n).
   void del_req( uint idx ); // Delete required edge & compact
+  void del_req_ordered( uint idx ); // Delete required edge & compact with preserved order
   void ins_req( uint i, Node *n ); // Insert a NEW required input
   void set_req( uint i, Node *n ) {
     assert( is_not_dead(n), "can not use dead node");
-    assert( i < _cnt, "oob");
+    assert( i < _cnt, err_msg_res("oob: i=%d, _cnt=%d", i, _cnt));
     assert( !VerifyHashTableKeys || _hash_lock == 0,
             "remove node from hash table before modifying it");
     Node** p = &_in[i];    // cache this._in, across the del_out call
@@ -407,9 +412,10 @@ protected:
   // Find first occurrence of n among my edges:
   int find_edge(Node* n);
   int replace_edge(Node* old, Node* neww);
+  int replace_edges_in_range(Node* old, Node* neww, int start, int end);
   // NULL out all inputs to eliminate incoming Def-Use edges.
   // Return the number of edges between 'n' and 'this'
-  int  disconnect_inputs(Node *n);
+  int  disconnect_inputs(Node *n, Compile *c);
 
   // Quickly, return true if and only if I am Compile::current()->top().
   bool is_top() const {
@@ -421,6 +427,10 @@ protected:
 
   // Strip away casting.  (It is depth-limited.)
   Node* uncast() const;
+  // Return whether two Nodes are equivalent, after stripping casting.
+  bool eqv_uncast(const Node* n) const {
+    return (this->uncast() == n->uncast());
+  }
 
 private:
   static Node* uncast_helper(const Node* n);
@@ -453,9 +463,9 @@ public:
   void replace_by(Node* new_node);
   // Globally replace this node by a given new node, updating all uses
   // and cutting input edges of old node.
-  void subsume_by(Node* new_node) {
+  void subsume_by(Node* new_node, Compile* c) {
     replace_by(new_node);
-    disconnect_inputs(NULL);
+    disconnect_inputs(NULL, c);
   }
   void set_req_X( uint i, Node *n, PhaseIterGVN *igvn );
   // Find the one non-null required input.  RegionNode only
@@ -557,7 +567,9 @@ public:
         DEFINE_CLASS_ID(NeverBranch, MultiBranch, 2)
       DEFINE_CLASS_ID(Start,       Multi, 2)
       DEFINE_CLASS_ID(MemBar,      Multi, 3)
-        DEFINE_CLASS_ID(Initialize,    MemBar, 0)
+        DEFINE_CLASS_ID(Initialize,       MemBar, 0)
+        DEFINE_CLASS_ID(MemBarStoreStore, MemBar, 1)
+      DEFINE_CLASS_ID(MathExact,   Multi, 4)
 
     DEFINE_CLASS_ID(Mach,  Node, 1)
       DEFINE_CLASS_ID(MachReturn, Mach, 0)
@@ -568,43 +580,53 @@ public:
               DEFINE_CLASS_ID(MachCallDynamicJava,  MachCallJava, 1)
             DEFINE_CLASS_ID(MachCallRuntime,      MachCall, 1)
               DEFINE_CLASS_ID(MachCallLeaf,         MachCallRuntime, 0)
-      DEFINE_CLASS_ID(MachSpillCopy,    Mach, 1)
-      DEFINE_CLASS_ID(MachNullCheck,    Mach, 2)
-      DEFINE_CLASS_ID(MachIf,           Mach, 3)
-      DEFINE_CLASS_ID(MachTemp,         Mach, 4)
-      DEFINE_CLASS_ID(MachConstantBase, Mach, 5)
-      DEFINE_CLASS_ID(MachConstant,     Mach, 6)
+      DEFINE_CLASS_ID(MachBranch, Mach, 1)
+        DEFINE_CLASS_ID(MachIf,         MachBranch, 0)
+        DEFINE_CLASS_ID(MachGoto,       MachBranch, 1)
+        DEFINE_CLASS_ID(MachNullCheck,  MachBranch, 2)
+      DEFINE_CLASS_ID(MachSpillCopy,    Mach, 2)
+      DEFINE_CLASS_ID(MachTemp,         Mach, 3)
+      DEFINE_CLASS_ID(MachConstantBase, Mach, 4)
+      DEFINE_CLASS_ID(MachConstant,     Mach, 5)
 
-    DEFINE_CLASS_ID(Proj,  Node, 2)
-      DEFINE_CLASS_ID(CatchProj, Proj, 0)
-      DEFINE_CLASS_ID(JumpProj,  Proj, 1)
-      DEFINE_CLASS_ID(IfTrue,    Proj, 2)
-      DEFINE_CLASS_ID(IfFalse,   Proj, 3)
-      DEFINE_CLASS_ID(Parm,      Proj, 4)
-
-    DEFINE_CLASS_ID(Region, Node, 3)
-      DEFINE_CLASS_ID(Loop, Region, 0)
-        DEFINE_CLASS_ID(Root,        Loop, 0)
-        DEFINE_CLASS_ID(CountedLoop, Loop, 1)
-
-    DEFINE_CLASS_ID(Sub,   Node, 4)
-      DEFINE_CLASS_ID(Cmp,   Sub, 0)
-        DEFINE_CLASS_ID(FastLock,   Cmp, 0)
-        DEFINE_CLASS_ID(FastUnlock, Cmp, 1)
-
-    DEFINE_CLASS_ID(Type,  Node, 5)
+    DEFINE_CLASS_ID(Type,  Node, 2)
       DEFINE_CLASS_ID(Phi,   Type, 0)
       DEFINE_CLASS_ID(ConstraintCast, Type, 1)
       DEFINE_CLASS_ID(CheckCastPP, Type, 2)
       DEFINE_CLASS_ID(CMove, Type, 3)
       DEFINE_CLASS_ID(SafePointScalarObject, Type, 4)
-      DEFINE_CLASS_ID(DecodeN, Type, 5)
-      DEFINE_CLASS_ID(EncodeP, Type, 6)
+      DEFINE_CLASS_ID(DecodeNarrowPtr, Type, 5)
+        DEFINE_CLASS_ID(DecodeN, DecodeNarrowPtr, 0)
+        DEFINE_CLASS_ID(DecodeNKlass, DecodeNarrowPtr, 1)
+      DEFINE_CLASS_ID(EncodeNarrowPtr, Type, 6)
+        DEFINE_CLASS_ID(EncodeP, EncodeNarrowPtr, 0)
+        DEFINE_CLASS_ID(EncodePKlass, EncodeNarrowPtr, 1)
 
-    DEFINE_CLASS_ID(Mem,   Node, 6)
+    DEFINE_CLASS_ID(Proj,  Node, 3)
+      DEFINE_CLASS_ID(CatchProj, Proj, 0)
+      DEFINE_CLASS_ID(JumpProj,  Proj, 1)
+      DEFINE_CLASS_ID(IfTrue,    Proj, 2)
+      DEFINE_CLASS_ID(IfFalse,   Proj, 3)
+      DEFINE_CLASS_ID(Parm,      Proj, 4)
+      DEFINE_CLASS_ID(MachProj,  Proj, 5)
+
+    DEFINE_CLASS_ID(Mem,   Node, 4)
       DEFINE_CLASS_ID(Load,  Mem, 0)
+        DEFINE_CLASS_ID(LoadVector,  Load, 0)
       DEFINE_CLASS_ID(Store, Mem, 1)
+        DEFINE_CLASS_ID(StoreVector, Store, 0)
       DEFINE_CLASS_ID(LoadStore, Mem, 2)
+
+    DEFINE_CLASS_ID(Region, Node, 5)
+      DEFINE_CLASS_ID(Loop, Region, 0)
+        DEFINE_CLASS_ID(Root,        Loop, 0)
+        DEFINE_CLASS_ID(CountedLoop, Loop, 1)
+
+    DEFINE_CLASS_ID(Sub,   Node, 6)
+      DEFINE_CLASS_ID(Cmp,   Sub, 0)
+        DEFINE_CLASS_ID(FastLock,   Cmp, 0)
+        DEFINE_CLASS_ID(FastUnlock, Cmp, 1)
+        DEFINE_CLASS_ID(FlagsProj, Cmp, 2)
 
     DEFINE_CLASS_ID(MergeMem, Node, 7)
     DEFINE_CLASS_ID(Bool,     Node, 8)
@@ -612,7 +634,8 @@ public:
     DEFINE_CLASS_ID(BoxLock,  Node, 10)
     DEFINE_CLASS_ID(Add,      Node, 11)
     DEFINE_CLASS_ID(Mul,      Node, 12)
-    DEFINE_CLASS_ID(ClearArray, Node, 13)
+    DEFINE_CLASS_ID(Vector,   Node, 13)
+    DEFINE_CLASS_ID(ClearArray, Node, 14)
 
     _max_classes  = ClassMask_ClearArray
   };
@@ -621,21 +644,17 @@ public:
   // Flags are sorted by usage frequency.
   enum NodeFlags {
     Flag_is_Copy             = 0x01, // should be first bit to avoid shift
-    Flag_is_Call             = Flag_is_Copy << 1,
-    Flag_rematerialize       = Flag_is_Call << 1,
+    Flag_rematerialize       = Flag_is_Copy << 1,
     Flag_needs_anti_dependence_check = Flag_rematerialize << 1,
     Flag_is_macro            = Flag_needs_anti_dependence_check << 1,
     Flag_is_Con              = Flag_is_macro << 1,
     Flag_is_cisc_alternate   = Flag_is_Con << 1,
-    Flag_is_Branch           = Flag_is_cisc_alternate << 1,
-    Flag_is_block_start      = Flag_is_Branch << 1,
-    Flag_is_Goto             = Flag_is_block_start << 1,
-    Flag_is_dead_loop_safe   = Flag_is_Goto << 1,
+    Flag_is_dead_loop_safe   = Flag_is_cisc_alternate << 1,
     Flag_may_be_short_branch = Flag_is_dead_loop_safe << 1,
-    Flag_is_safepoint_node   = Flag_may_be_short_branch << 1,
-    Flag_is_pc_relative      = Flag_is_safepoint_node << 1,
-    Flag_is_Vector           = Flag_is_pc_relative << 1,
-    _max_flags = (Flag_is_Vector << 1) - 1 // allow flags combination
+    Flag_avoid_back_to_back  = Flag_may_be_short_branch << 1,
+    Flag_has_call            = Flag_avoid_back_to_back << 1,
+    Flag_is_expensive        = Flag_has_call << 1,
+    _max_flags = (Flag_is_expensive << 1) - 1 // allow flags combination
   };
 
 private:
@@ -669,21 +688,6 @@ public:
   virtual uint size_of() const;
 
   // Other interesting Node properties
-
-  // Special case: is_Call() returns true for both CallNode and MachCallNode.
-  bool is_Call() const {
-    return (_flags & Flag_is_Call) != 0;
-  }
-
-  CallNode* isa_Call() const {
-    return is_Call() ? as_Call() : NULL;
-  }
-
-  CallNode *as_Call() const { // Only for CallNode (not for MachCallNode)
-    assert((_class_id & ClassMask_Call) == Class_Call, "invalid node class");
-    return (CallNode*)this;
-  }
-
   #define DEFINE_CLASS_QUERY(type)                           \
   bool is_##type() const {                                   \
     return ((_class_id & ClassMask_##type) == Class_##type); \
@@ -703,6 +707,7 @@ public:
   DEFINE_CLASS_QUERY(AllocateArray)
   DEFINE_CLASS_QUERY(Bool)
   DEFINE_CLASS_QUERY(BoxLock)
+  DEFINE_CLASS_QUERY(Call)
   DEFINE_CLASS_QUERY(CallDynamicJava)
   DEFINE_CLASS_QUERY(CallJava)
   DEFINE_CLASS_QUERY(CallLeaf)
@@ -717,10 +722,15 @@ public:
   DEFINE_CLASS_QUERY(Cmp)
   DEFINE_CLASS_QUERY(CountedLoop)
   DEFINE_CLASS_QUERY(CountedLoopEnd)
+  DEFINE_CLASS_QUERY(DecodeNarrowPtr)
   DEFINE_CLASS_QUERY(DecodeN)
+  DEFINE_CLASS_QUERY(DecodeNKlass)
+  DEFINE_CLASS_QUERY(EncodeNarrowPtr)
   DEFINE_CLASS_QUERY(EncodeP)
+  DEFINE_CLASS_QUERY(EncodePKlass)
   DEFINE_CLASS_QUERY(FastLock)
   DEFINE_CLASS_QUERY(FastUnlock)
+  DEFINE_CLASS_QUERY(FlagsProj)
   DEFINE_CLASS_QUERY(If)
   DEFINE_CLASS_QUERY(IfFalse)
   DEFINE_CLASS_QUERY(IfTrue)
@@ -732,6 +742,7 @@ public:
   DEFINE_CLASS_QUERY(Lock)
   DEFINE_CLASS_QUERY(Loop)
   DEFINE_CLASS_QUERY(Mach)
+  DEFINE_CLASS_QUERY(MachBranch)
   DEFINE_CLASS_QUERY(MachCall)
   DEFINE_CLASS_QUERY(MachCallDynamicJava)
   DEFINE_CLASS_QUERY(MachCallJava)
@@ -740,14 +751,18 @@ public:
   DEFINE_CLASS_QUERY(MachCallStaticJava)
   DEFINE_CLASS_QUERY(MachConstantBase)
   DEFINE_CLASS_QUERY(MachConstant)
+  DEFINE_CLASS_QUERY(MachGoto)
   DEFINE_CLASS_QUERY(MachIf)
   DEFINE_CLASS_QUERY(MachNullCheck)
+  DEFINE_CLASS_QUERY(MachProj)
   DEFINE_CLASS_QUERY(MachReturn)
   DEFINE_CLASS_QUERY(MachSafePoint)
   DEFINE_CLASS_QUERY(MachSpillCopy)
   DEFINE_CLASS_QUERY(MachTemp)
+  DEFINE_CLASS_QUERY(MathExact)
   DEFINE_CLASS_QUERY(Mem)
   DEFINE_CLASS_QUERY(MemBar)
+  DEFINE_CLASS_QUERY(MemBarStoreStore)
   DEFINE_CLASS_QUERY(MergeMem)
   DEFINE_CLASS_QUERY(Mul)
   DEFINE_CLASS_QUERY(Multi)
@@ -764,6 +779,9 @@ public:
   DEFINE_CLASS_QUERY(Store)
   DEFINE_CLASS_QUERY(Sub)
   DEFINE_CLASS_QUERY(Type)
+  DEFINE_CLASS_QUERY(Vector)
+  DEFINE_CLASS_QUERY(LoadVector)
+  DEFINE_CLASS_QUERY(StoreVector)
   DEFINE_CLASS_QUERY(Unlock)
 
   #undef DEFINE_CLASS_QUERY
@@ -774,7 +792,6 @@ public:
   }
 
   bool is_Con () const { return (_flags & Flag_is_Con) != 0; }
-  bool is_Goto() const { return (_flags & Flag_is_Goto) != 0; }
   // The data node which is safe to leave in dead loop during IGVN optimization.
   bool is_dead_loop_safe() const {
     return is_Phi() || (is_Proj() && in(0) == NULL) ||
@@ -795,9 +812,6 @@ public:
   // skip some other important test.)
   virtual bool depends_only_on_test() const { assert(!is_CFG(), ""); return true; };
 
-  // defined for MachNodes that match 'If' | 'Goto' | 'CountedLoopEnd'
-  bool is_Branch() const { return (_flags & Flag_is_Branch) != 0; }
-
   // When building basic blocks, I need to have a notion of block beginning
   // Nodes, next block selector Nodes (block enders), and next block
   // projections.  These calls need to work on their machine equivalents.  The
@@ -806,7 +820,7 @@ public:
     if ( is_Region() )
       return this == (const Node*)in(0);
     else
-      return (_flags & Flag_is_block_start) != 0;
+      return is_Start();
   }
 
   // The Ideal control projection Nodes are IfTrue/IfFalse, JumpProjNode, Root,
@@ -815,9 +829,8 @@ public:
 
   // The node is a "macro" node which needs to be expanded before matching
   bool is_macro() const { return (_flags & Flag_is_macro) != 0; }
-
-  // Value is a vector of primitive values
-  bool is_Vector() const { return (_flags & Flag_is_Vector) != 0; }
+  // The node is expensive: the best control is set during loop opts
+  bool is_expensive() const { return (_flags & Flag_is_expensive) != 0 && in(0) != NULL; }
 
 //----------------- Optimization
 
@@ -958,6 +971,8 @@ public:
   }
   const TypeLong* find_long_type() const;
 
+  const TypePtr* get_ptr_type() const;
+
   // These guys are called by code generated by ADLC:
   intptr_t get_ptr() const;
   intptr_t get_narrowcon() const;
@@ -993,12 +1008,13 @@ public:
 #ifndef PRODUCT
   Node* find(int idx) const;         // Search the graph for the given idx.
   Node* find_ctrl(int idx) const;    // Search control ancestors for the given idx.
-  void dump() const;                 // Print this node,
+  void dump() const { dump("\n"); }  // Print this node.
+  void dump(const char* suffix, outputStream *st = tty) const;// Print this node.
   void dump(int depth) const;        // Print this node, recursively to depth d
   void dump_ctrl(int depth) const;   // Print control nodes, to depth d
-  virtual void dump_req() const;     // Print required-edge info
-  virtual void dump_prec() const;    // Print precedence-edge info
-  virtual void dump_out() const;     // Print the output edge info
+  virtual void dump_req(outputStream *st = tty) const;     // Print required-edge info
+  virtual void dump_prec(outputStream *st = tty) const;    // Print precedence-edge info
+  virtual void dump_out(outputStream *st = tty) const;     // Print the output edge info
   virtual void dump_spec(outputStream *st) const {}; // Print per-node info
   void verify_edges(Unique_Node_List &visited); // Verify bi-directional edges
   void verify() const;               // Check Def-Use info for my subgraph
@@ -1298,6 +1314,7 @@ class SimpleDUIterator : public StackObj {
 // Note that the constructor just zeros things, and since I use Arena
 // allocation I do not need a destructor to reclaim storage.
 class Node_Array : public ResourceObj {
+  friend class VMStructs;
 protected:
   Arena *_a;                    // Arena to allocate in
   uint   _max;
@@ -1328,6 +1345,7 @@ public:
 };
 
 class Node_List : public Node_Array {
+  friend class VMStructs;
   uint _cnt;
 public:
   Node_List() : Node_Array(Thread::current()->resource_area()), _cnt(0) {}
@@ -1351,6 +1369,7 @@ public:
 
 //------------------------------Unique_Node_List-------------------------------
 class Unique_Node_List : public Node_List {
+  friend class VMStructs;
   VectorSet _in_worklist;
   uint _clock_index;            // Index in list where to pop from next
 public:
@@ -1401,6 +1420,7 @@ inline void Compile::record_for_igvn(Node* n) {
 
 //------------------------------Node_Stack-------------------------------------
 class Node_Stack {
+  friend class VMStructs;
 protected:
   struct INode {
     Node *node; // Processed node
@@ -1463,6 +1483,9 @@ public:
   bool is_nonempty() const { return (_inode_top >= _inodes); }
   bool is_empty() const { return (_inode_top < _inodes); }
   void clear() { _inode_top = _inodes - 1; } // retain storage
+
+  // Node_Stack is used to map nodes.
+  Node* find(uint idx) const;
 };
 
 
@@ -1470,6 +1493,7 @@ public:
 // Debugging or profiling annotations loosely and sparsely associated
 // with some nodes.  See Compile::node_notes_at for the accessor.
 class Node_Notes VALUE_OBJ_CLASS_SPEC {
+  friend class VMStructs;
   JVMState* _jvms;
 
 public:

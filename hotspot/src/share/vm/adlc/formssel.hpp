@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -76,7 +76,7 @@ class InstructForm : public Form {
 private:
   bool           _ideal_only;       // Not a user-defined instruction
   // Members used for tracking CISC-spilling
-  uint           _cisc_spill_operand;// Which operand may cisc-spill
+  int            _cisc_spill_operand;// Which operand may cisc-spill
   void           set_cisc_spill_operand(uint op_index) { _cisc_spill_operand = op_index; }
   bool           _is_cisc_alternate;
   InstructForm  *_cisc_spill_alternate;// cisc possible replacement
@@ -103,13 +103,15 @@ public:
   RewriteRule   *_rewrule;         // Rewrite rule for this instruction
   FormatRule    *_format;          // Format for assembly generation
   Peephole      *_peephole;        // List of peephole rules for instruction
-  const char    *_ins_pipe;        // Instruction Scheduline description class
+  const char    *_ins_pipe;        // Instruction Scheduling description class
 
   uint          *_uniq_idx;        // Indexes of unique operands
-  int            _uniq_idx_length; // Length of _uniq_idx array
+  uint           _uniq_idx_length; // Length of _uniq_idx array
   uint           _num_uniq;        // Number  of unique operands
   ComponentList  _components;      // List of Components matches MachNode's
                                    // operand structure
+
+  bool           _has_call;        // contain a call and caller save registers should be saved?
 
   // Public Methods
   InstructForm(const char *id, bool ideal_only = false);
@@ -145,8 +147,7 @@ public:
   virtual int         is_empty_encoding() const; // _size=0 and/or _insencode empty
   virtual int         is_tls_instruction() const; // tlsLoadP rule or ideal ThreadLocal
   virtual int         is_ideal_copy() const;    // node matches ideal 'Copy*'
-  virtual bool        is_ideal_unlock() const;  // node matches ideal 'Unlock'
-  virtual bool        is_ideal_call_leaf() const; // node matches ideal 'CallLeaf'
+  virtual bool        is_ideal_negD() const;    // node matches ideal 'NegD'
   virtual bool        is_ideal_if()   const;    // node matches ideal 'If'
   virtual bool        is_ideal_fastlock() const; // node matches 'FastLock'
   virtual bool        is_ideal_membar() const;  // node matches ideal 'MemBarXXX'
@@ -160,6 +161,7 @@ public:
   virtual bool        is_ideal_safepoint() const; // node matches 'SafePoint'
   virtual bool        is_ideal_nop() const;     // node matches 'Nop'
   virtual bool        is_ideal_control() const; // control node
+  virtual bool        is_vector() const;        // vector instruction
 
   virtual Form::CallType is_ideal_call() const; // matches ideal 'Call'
   virtual Form::DataType is_ideal_load() const; // node matches ideal 'LoadXNode'
@@ -197,6 +199,7 @@ public:
 
   virtual const char *cost();      // Access ins_cost attribute
   virtual uint        num_opnds(); // Count of num_opnds for MachNode class
+                                   // Counts USE_DEF opnds twice.  See also num_unique_opnds().
   virtual uint        num_post_match_opnds();
   virtual uint        num_consts(FormDict &globals) const;// Constants in match rule
   // Constants in match rule with specified type
@@ -227,6 +230,7 @@ public:
   // Return number of relocation entries needed for this instruction.
   virtual uint        reloc(FormDict &globals);
 
+  const char         *opnd_ident(int idx);  // Name of operand #idx.
   const char         *reduce_result();
   // Return the name of the operand on the right hand side of the binary match
   // Return NULL if there is no right hand side
@@ -239,7 +243,7 @@ public:
   // Check if this instruction can cisc-spill to 'alternate'
   bool                cisc_spills_to(ArchDesc &AD, InstructForm *alternate);
   InstructForm       *cisc_spill_alternate() { return _cisc_spill_alternate; }
-  uint                cisc_spill_operand() const { return _cisc_spill_operand; }
+  int                 cisc_spill_operand() const { return _cisc_spill_operand; }
   bool                is_cisc_alternate() const { return _is_cisc_alternate; }
   void                set_cisc_alternate(bool val) { _is_cisc_alternate = val; }
   const char         *cisc_reg_mask_name() const { return _cisc_reg_mask_name; }
@@ -269,13 +273,14 @@ public:
   void                set_unique_opnds();
   uint                num_unique_opnds() { return _num_uniq; }
   uint                unique_opnds_idx(int idx) {
-                        if( _uniq_idx != NULL && idx > 0 ) {
-                          assert(idx < _uniq_idx_length, "out of bounds");
-                          return _uniq_idx[idx];
-                        } else {
-                          return idx;
-                        }
+    if (_uniq_idx != NULL && idx > 0) {
+      assert((uint)idx < _uniq_idx_length, "out of bounds");
+      return _uniq_idx[idx];
+    } else {
+      return idx;
+    }
   }
+  const char         *unique_opnd_ident(uint idx);  // Name of operand at unique idx.
 
   // Operands which are only KILLs aren't part of the input array and
   // require special handling in some cases.  Their position in this
@@ -793,12 +798,16 @@ public:
   const char *_greater_equal;
   const char *_less_equal;
   const char *_greater;
+  const char *_overflow;
+  const char *_no_overflow;
   const char *_equal_format;
   const char *_not_equal_format;
   const char *_less_format;
   const char *_greater_equal_format;
   const char *_less_equal_format;
   const char *_greater_format;
+  const char *_overflow_format;
+  const char *_no_overflow_format;
 
   // Public Methods
   CondInterface(const char* equal,         const char* equal_format,
@@ -806,7 +815,9 @@ public:
                 const char* less,          const char* less_format,
                 const char* greater_equal, const char* greater_equal_format,
                 const char* less_equal,    const char* less_equal_format,
-                const char* greater,       const char* greater_format);
+                const char* greater,       const char* greater_format,
+                const char* overflow,      const char* overflow_format,
+                const char* no_overflow,   const char* no_overflow_format);
   ~CondInterface();
 
   void dump();
@@ -857,7 +868,6 @@ public:
   int  type() { return id;}        // return this object's "id"
 
   static const char* _ins_cost;        // "ins_cost"
-  static const char* _ins_pc_relative; // "ins_pc_relative"
   static const char* _op_cost;         // "op_cost"
 
   void dump();                     // Debug printer
@@ -889,6 +899,7 @@ public:
 
   void dump();                     // Debug printer
   void output(FILE *fp);           // Write to output files
+  const char* getUsedefName();
 
 public:
   // Implementation depends upon working bit intersection and union.
@@ -898,7 +909,8 @@ public:
     DEF     = 0x2, USE_DEF   = 0x3,
     KILL    = 0x4, USE_KILL  = 0x5,
     SYNTHETIC = 0x8,
-    TEMP = USE | SYNTHETIC
+    TEMP = USE | SYNTHETIC,
+    CALL = 0x10
   };
 };
 
@@ -1002,8 +1014,6 @@ public:
   bool       is_chain_rule(FormDict &globals) const;
   int        is_ideal_copy() const;
   int        is_expensive() const;     // node matches ideal 'CosD'
-  bool       is_ideal_unlock() const;
-  bool       is_ideal_call_leaf() const;
   bool       is_ideal_if()   const;    // node matches ideal 'If'
   bool       is_ideal_fastlock() const; // node matches ideal 'FastLock'
   bool       is_ideal_jump()   const;  // node matches ideal 'Jump'
@@ -1013,6 +1023,7 @@ public:
   bool       is_ideal_goto() const;    // node matches ideal 'Goto'
   bool       is_ideal_loopEnd() const; // node matches ideal 'LoopEnd'
   bool       is_ideal_bool() const;    // node matches ideal 'Bool'
+  bool       is_vector() const;        // vector instruction
   Form::DataType is_ideal_load() const;// node matches ideal 'LoadXNode'
   // Should antidep checks be disabled for this rule
   // See definition of MatchRule::skip_antidep_check
@@ -1030,6 +1041,7 @@ public:
   void       matchrule_swap_commutative_op(const char* instr_ident, int count, int& match_rules_cnt);
 
   void dump();
+  void output_short(FILE *fp);
   void output(FILE *fp);
 };
 

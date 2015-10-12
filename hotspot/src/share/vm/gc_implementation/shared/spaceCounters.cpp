@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,10 +23,11 @@
  */
 
 #include "precompiled.hpp"
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/shared/spaceCounters.hpp"
 #include "memory/resourceArea.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
 SpaceCounters::SpaceCounters(const char* name, int ordinal, size_t max_size,
                              MutableSpace* m, GenerationCounters* gc) :
@@ -39,7 +40,7 @@ SpaceCounters::SpaceCounters(const char* name, int ordinal, size_t max_size,
     const char* cns = PerfDataManager::name_space(gc->name_space(), "space",
                                                   ordinal);
 
-    _name_space = NEW_C_HEAP_ARRAY(char, strlen(cns)+1);
+    _name_space = NEW_C_HEAP_ARRAY(char, strlen(cns)+1, mtGC);
     strcpy(_name_space, cns);
 
     const char* cname = PerfDataManager::counter_name(_name_space, "name");

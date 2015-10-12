@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,6 +41,10 @@ typedef struct {
     char *os_version;
     char *os_arch;
 
+#ifdef JDK_ARCH_ABI_PROP_NAME
+    char *sun_arch_abi;
+#endif
+
     nchar *tmp_dir;
     nchar *font_dir;
     nchar *user_dir;
@@ -66,6 +70,8 @@ typedef struct {
     char *display_variant;
     char *encoding;
     char *sun_jnu_encoding;
+    char *sun_stdout_encoding;
+    char *sun_stderr_encoding;
     char *timezone;
 
     char *printerJob;
@@ -84,6 +90,35 @@ typedef struct {
     char *patch_level;          /* patches/service packs installed */
 
     char *desktop;              /* Desktop name. */
+
+#ifdef MACOSX
+    // These are for proxy-related information.
+    // Note that if these platform-specific extensions get out of hand we should make a new
+    // structure for them and #include it here.
+    int httpProxyEnabled;
+    char *httpHost;
+    char *httpPort;
+
+    int httpsProxyEnabled;
+    char *httpsHost;
+    char *httpsPort;
+
+    int ftpProxyEnabled;
+    char *ftpHost;
+    char *ftpPort;
+
+    int socksProxyEnabled;
+    char *socksHost;
+    char *socksPort;
+
+    int gopherProxyEnabled;
+    char *gopherHost;
+    char *gopherPort;
+
+    char *exceptionList;
+
+    char *awt_headless  /* java.awt.headless setting, if NULL (default) will not be set */
+#endif
 
 } java_props_t;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,7 +29,8 @@
 
 #include "jni.h"
 #include "jni_util.h"
-#include "zlib.h"
+#include "jlong.h"
+#include <zlib.h>
 
 #include "java_util_zip_Adler32.h"
 
@@ -53,3 +54,17 @@ Java_java_util_zip_Adler32_updateBytes(JNIEnv *env, jclass cls, jint adler,
     }
     return adler;
 }
+
+
+JNIEXPORT jint JNICALL
+Java_java_util_zip_Adler32_updateByteBuffer(JNIEnv *env, jclass cls, jint adler,
+                                       jlong address, jint off, jint len)
+{
+    Bytef *buf = (Bytef *)jlong_to_ptr(address);
+    if (buf) {
+        adler = adler32(adler, buf + off, len);
+    }
+    return adler;
+}
+
+

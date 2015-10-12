@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,14 +22,12 @@
  */
 
 /* @test
- * @author Laird Dornin
  * @bug 4164971
  * @summary allow non-public activatable class and/or constructor
+ * @author Laird Dornin
  *
  * @library ../../../testlibrary
- * @build TestLibrary RMID
- * @build ActivateMe
- * @build CreatePrivateActivatable
+ * @build TestLibrary RMID ActivateMe
  * @run main/othervm/policy=security.policy/timeout=240 CreatePrivateActivatable
  */
 

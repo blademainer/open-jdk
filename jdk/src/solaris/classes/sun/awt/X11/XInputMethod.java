@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -102,13 +102,17 @@ public class XInputMethod extends X11InputMethod {
     protected ComponentPeer getPeer(Component client) {
         XComponentPeer peer;
 
-        if (log.isLoggable(PlatformLogger.FINE)) log.fine("Client is " + client);
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine("Client is " + client);
+        }
         peer = (XComponentPeer)XToolkit.targetToPeer(client);
         while (client != null && peer == null) {
             client = getParent(client);
             peer = (XComponentPeer)XToolkit.targetToPeer(client);
         }
-        log.fine("Peer is {0}, client is {1}", peer, client);
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
+            log.fine("Peer is {0}, client is {1}", peer, client);
+        }
 
         if (peer != null)
             return peer;

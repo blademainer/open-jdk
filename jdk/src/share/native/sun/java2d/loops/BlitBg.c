@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -60,8 +60,11 @@ JNIEXPORT void JNICALL Java_sun_java2d_loops_BlitBg_BlitBg
     }
 
     srcOps = SurfaceData_GetOps(env, srcData);
+    if (srcOps == 0) {
+        return;
+    }
     dstOps = SurfaceData_GetOps(env, dstData);
-    if (srcOps == 0 || dstOps == 0) {
+    if (dstOps == 0) {
         return;
     }
 

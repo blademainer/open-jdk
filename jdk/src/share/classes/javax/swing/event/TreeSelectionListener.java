@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,7 @@ import java.util.EventListener;
  * changes.
  * For more information and examples see
  * <a
- href="http://java.sun.com/docs/books/tutorial/uiswing/events/treeselectionlistener.html">How to Write a Tree Selection Listener</a>,
+ href="http://docs.oracle.com/javase/tutorial/uiswing/events/treeselectionlistener.html">How to Write a Tree Selection Listener</a>,
  * a section in <em>The Java Tutorial.</em>
  *
  * @see javax.swing.tree.TreeSelectionModel

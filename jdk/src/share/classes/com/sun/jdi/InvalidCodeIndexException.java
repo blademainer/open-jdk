@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,8 +34,10 @@ package com.sun.jdi;
  * @author Gordon Hirsch
  * @since  1.3
  */
+@jdk.Exported
 @Deprecated
 public class InvalidCodeIndexException extends RuntimeException {
+    private static final long serialVersionUID = 7416010225133747805L;
     public InvalidCodeIndexException() {
         super();
     }

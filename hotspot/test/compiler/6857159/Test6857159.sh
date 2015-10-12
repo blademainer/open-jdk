@@ -1,6 +1,6 @@
 #!/bin/sh
 # 
-# Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 # 
 # This code is free software; you can redistribute it and/or modify it
@@ -22,33 +22,22 @@
 # questions.
 # 
 # 
-
+## some tests require path to find test source dir
 if [ "${TESTSRC}" = "" ]
 then
-  echo "TESTSRC not set.  Test cannot execute.  Failed."
-  exit 1
+  TESTSRC=${PWD}
+  echo "TESTSRC not set.  Using "${TESTSRC}" as default"
 fi
 echo "TESTSRC=${TESTSRC}"
-if [ "${TESTJAVA}" = "" ]
-then
-  echo "TESTJAVA not set.  Test cannot execute.  Failed."
-  exit 1
-fi
-echo "TESTJAVA=${TESTJAVA}"
-if [ "${TESTCLASSES}" = "" ]
-then
-  echo "TESTCLASSES not set.  Test cannot execute.  Failed."
-  exit 1
-fi
-echo "TESTCLASSES=${TESTCLASSES}"
-echo "CLASSPATH=${CLASSPATH}"
+## Adding common setup Variables for running shell tests.
+. ${TESTSRC}/../../test_env.sh
 
 set -x
 
 cp ${TESTSRC}/Test6857159.java .
 cp ${TESTSRC}/Test6857159.sh .
 
-${TESTJAVA}/bin/javac -d . Test6857159.java
+${COMPILEJAVA}/bin/javac ${TESTJAVACOPTS} -d . Test6857159.java
 
 ${TESTJAVA}/bin/java  ${TESTVMOPTS} -Xbatch -XX:+PrintCompilation -XX:CompileOnly=Test6857159\$ct.run Test6857159 > test.out 2>&1
 

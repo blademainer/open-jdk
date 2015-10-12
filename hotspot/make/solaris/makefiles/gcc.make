@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -23,11 +23,15 @@
 #
 
 #------------------------------------------------------------------------
-# CC, CPP & AS
+# CC, CXX & AS
 
-CPP = g++
-CC  = gcc
-AS  = $(CC) -c
+# If a SPEC is not set already, then use these defaults.
+ifeq ($(SPEC),)
+  CXX = g++
+  CC  = gcc
+  AS  = $(CC) -c
+  MCS = /usr/ccs/bin/mcs
+endif
 
 Compiler = gcc
 
@@ -36,12 +40,12 @@ Compiler = gcc
 CC_VER_MAJOR := $(shell $(CC) -dumpversion | sed 's/egcs-//' | cut -d'.' -f1)
 CC_VER_MINOR := $(shell $(CC) -dumpversion | sed 's/egcs-//' | cut -d'.' -f2)
 
-# Check for the versions of C++ and C compilers ($CPP and $CC) used. 
+# Check for the versions of C++ and C compilers ($CXX and $CC) used. 
 
 # Get the last thing on the line that looks like x.x+ (x is a digit).
 COMPILER_REV := \
-$(shell $(CPP) -dumpversion | sed 's/egcs-//' | cut -d'.' -f1)
-C_COMPILER_REV := \
+$(shell $(CXX) -dumpversion | sed 's/egcs-//' | cut -d'.' -f1)
+CC_COMPILER_REV := \
 $(shell $(CC) -dumpversion | sed 's/egcs-//' | cut -d'.' -f2)
 
 
@@ -49,9 +53,8 @@ $(shell $(CC) -dumpversion | sed 's/egcs-//' | cut -d'.' -f2)
 ifneq "$(shell expr \( $(CC_VER_MAJOR) \> 3 \) \| \( \( $(CC_VER_MAJOR) = 3 \) \& \( $(CC_VER_MINOR) \>= 4 \) \))" "0"
 # Allow the user to turn off precompiled headers from the command line.
 ifneq ($(USE_PRECOMPILED_HEADER),0)
-USE_PRECOMPILED_HEADER=1
 PRECOMPILED_HEADER_DIR=.
-PRECOMPILED_HEADER_SRC=$(GAMMADIR)/src/share/vm/precompiled.hpp
+PRECOMPILED_HEADER_SRC=$(GAMMADIR)/src/share/vm/precompiled/precompiled.hpp
 PRECOMPILED_HEADER=$(PRECOMPILED_HEADER_DIR)/precompiled.hpp.gch
 endif
 endif
@@ -115,8 +118,8 @@ endif
 # Compiler warnings are treated as errors 
 WARNINGS_ARE_ERRORS = -Werror 
 # Enable these warnings. See 'info gcc' about details on these options
-ADDITIONAL_WARNINGS = -Wpointer-arith -Wconversion -Wsign-compare 
-CFLAGS_WARN/DEFAULT = $(WARNINGS_ARE_ERRORS) $(ADDITIONAL_WARNINGS) 
+WARNING_FLAGS = -Wpointer-arith -Wconversion -Wsign-compare -Wundef
+CFLAGS_WARN/DEFAULT = $(WARNINGS_ARE_ERRORS) $(WARNING_FLAGS)
 # Special cases 
 CFLAGS_WARN/BYFILE = $(CFLAGS_WARN/$@)$(CFLAGS_WARN/DEFAULT$(CFLAGS_WARN/$@))  
 
@@ -138,11 +141,11 @@ OPT_CFLAGS/NOOPT=-O0
 
 # Flags for generating make dependency flags.
 ifneq ("${CC_VER_MAJOR}", "2")
-DEPFLAGS = -MMD -MP -MF $(DEP_DIR)/$(@:%=%.d)
+DEPFLAGS = -fpch-deps -MMD -MP -MF $(DEP_DIR)/$(@:%=%.d)
 endif
 
 # -DDONT_USE_PRECOMPILED_HEADER will exclude all includes in precompiled.hpp.
-ifneq ($(USE_PRECOMPILED_HEADER),1)
+ifeq ($(USE_PRECOMPILED_HEADER),0)
 CFLAGS += -DDONT_USE_PRECOMPILED_HEADER
 endif
 
@@ -184,9 +187,9 @@ SHARED_FLAG = -shared
 
 # Use the stabs format for debugging information (this is the default 
 # on gcc-2.91). It's good enough, has all the information about line 
-# numbers and local variables, and libjvm_g.so is only about 16M. 
+# numbers and local variables, and libjvm.so is only about 16M. 
 # Change this back to "-g" if you want the most expressive format. 
-# (warning: that could easily inflate libjvm_g.so to 150M!) 
+# (warning: that could easily inflate libjvm.so to 150M!) 
 # Note: The Itanium gcc compiler crashes when using -gstabs. 
 DEBUG_CFLAGS/ia64  = -g 
 DEBUG_CFLAGS/amd64 = -g 
@@ -194,5 +197,3 @@ DEBUG_CFLAGS += $(DEBUG_CFLAGS/$(BUILDARCH))
 ifeq ($(DEBUG_CFLAGS/$(BUILDARCH)),) 
 DEBUG_CFLAGS += -gstabs 
 endif 
-
-MCS = /usr/ccs/bin/mcs

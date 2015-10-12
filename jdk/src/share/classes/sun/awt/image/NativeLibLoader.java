@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,7 +53,12 @@ class NativeLibLoader {
      * that the name of the library is "awt".  -br.
      */
     static void loadLibraries() {
-        java.security.AccessController.doPrivileged
-                (new sun.security.action.LoadLibraryAction("awt"));
+        java.security.AccessController.doPrivileged(
+            new java.security.PrivilegedAction<Void>() {
+                public Void run() {
+                    System.loadLibrary("awt");
+                    return null;
+                }
+            });
     }
 }

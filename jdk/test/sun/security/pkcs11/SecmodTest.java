@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,7 @@ public class SecmodTest extends PKCS11Test {
     static String keyAlias = "mykey";
 
     static boolean initSecmod() throws Exception {
+        useNSS();
         LIBPATH = getNSSLibDir();
         if (LIBPATH == null) {
             return false;
@@ -44,8 +45,8 @@ public class SecmodTest extends PKCS11Test {
         if (loadNSPR(LIBPATH) == false) {
             return false;
         }
-        System.load(LIBPATH + System.mapLibraryName("softokn3"));
-        System.load(LIBPATH + System.mapLibraryName("nssckbi"));
+        safeReload(LIBPATH + System.mapLibraryName("softokn3"));
+        safeReload(LIBPATH + System.mapLibraryName("nssckbi"));
 
         DBDIR = System.getProperty("test.classes", ".") + SEP + "tmpdb";
         System.setProperty("pkcs11test.nss.db", DBDIR);

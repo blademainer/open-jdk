@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 1999, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -171,7 +171,7 @@ public class ByteLookupTable extends LookupTable {
      * @exception ArrayIndexOutOfBoundsException if <code>src</code> is
      *            longer than <code>dst</code> or if for any element
      *            <code>i</code> of <code>src</code>,
-     *            <code>(src[i]&0xff)-offset</code> is either less than
+     *            {@code (src[i]&0xff)-offset} is either less than
      *            zero or greater than or equal to the length of the
      *            lookup table for any band.
      */

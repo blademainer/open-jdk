@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,8 +41,8 @@ public class VerifyType {
      * True if a value can be stacked as the source type and unstacked as the
      * destination type, without violating the JVM's type consistency.
      *
-     * @param call the type of a stacked value
-     * @param recv the type by which we'd like to treat it
+     * @param src the type of a stacked value
+     * @param dst the type by which we'd like to treat it
      * @return whether the retyping can be done without motion or reformatting
      */
     public static boolean isNullConversion(Class<?> src, Class<?> dst) {
@@ -67,9 +67,8 @@ public class VerifyType {
 
     /**
      * Specialization of isNullConversion to reference types.
-
-     * @param call the type of a stacked value
-     * @param recv the reference type by which we'd like to treat it
+     * @param src the type of a stacked value
+     * @param dst the reference type by which we'd like to treat it
      * @return whether the retyping can be done without a cast
      */
     public static boolean isNullReferenceConversion(Class<?> src, Class<?> dst) {
@@ -121,8 +120,6 @@ public class VerifyType {
                 return false;
         return isNullConversion(recv.returnType(), call.returnType());
     }
-
-    //TO DO: isRawConversion
 
     /**
      * Determine if the JVM verifier allows a value of type call to be
@@ -185,40 +182,6 @@ public class VerifyType {
             // pass any reference to object or an arb. interface
             return 1;
         // else it's a definite "maybe" (cast is required)
-        return -1;
-    }
-
-    public static int canPassRaw(Class<?> src, Class<?> dst) {
-        if (dst.isPrimitive()) {
-            if (dst == void.class)
-                // As above, return anything to a caller expecting void.
-                return 1;
-            if (src == void.class)
-                // Special permission for raw conversions: allow a void
-                // to be captured as a garbage int.
-                // Caller promises that the actual value will be disregarded.
-                return dst == int.class ? 1 : 0;
-            if (isNullType(src))
-                // Special permission for raw conversions: allow a null
-                // to be reinterpreted as anything.  For objects, it is safe,
-                // and for primitives you get a garbage value (probably zero).
-                return 1;
-            if (!src.isPrimitive())
-                return 0;
-            Wrapper sw = Wrapper.forPrimitiveType(src);
-            Wrapper dw = Wrapper.forPrimitiveType(dst);
-            if (sw.stackSlots() == dw.stackSlots())
-                return 1;  // can do a reinterpret-cast on a stacked primitive
-            if (sw.isSubwordOrInt() && dw == Wrapper.VOID)
-                return 1;  // can drop an outgoing int value
-            return 0;
-        } else if (src.isPrimitive()) {
-            return 0;
-        }
-
-        // Both references.
-        if (isNullReferenceConversion(src, dst))
-            return 1;
         return -1;
     }
 

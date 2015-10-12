@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -72,6 +72,8 @@ public:
     virtual AwtMenuBar* GetMenuBar();
 
     void AddSeparator();
+    virtual void UpdateContainerLayout();
+    void UpdateLayout();
     virtual void AddItem(AwtMenuItem *item);
     virtual void DeleteItem(UINT index);
 
@@ -103,6 +105,7 @@ protected:
     virtual void RemoveCmdID() { /* do nothing */ }
 
 private:
+    void UpdateLayout(const HMENU hmenu);
     HMENU    m_hMenu;
 };
 

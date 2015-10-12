@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -77,10 +77,6 @@ static jclass ni_ia4cls;
 static jclass ni_ia6cls;
 static jmethodID ni_ia4ctrID;
 static jmethodID ni_ia6ctrID;
-static jfieldID ni_iaaddressID;
-static jfieldID ni_iahostID;
-static jfieldID ni_iafamilyID;
-static jfieldID ni_ia6ipaddressID;
 static int initialized = 0;
 
 JNIEXPORT jobjectArray JNICALL
@@ -97,17 +93,21 @@ Java_java_net_Inet6AddressImpl_lookupAllHostAddr(JNIEnv *env, jobject this,
 
     if (!initialized) {
       ni_iacls = (*env)->FindClass(env, "java/net/InetAddress");
+      CHECK_NULL_RETURN(ni_iacls, NULL);
       ni_iacls = (*env)->NewGlobalRef(env, ni_iacls);
+      CHECK_NULL_RETURN(ni_iacls, NULL);
       ni_ia4cls = (*env)->FindClass(env, "java/net/Inet4Address");
+      CHECK_NULL_RETURN(ni_ia4cls, NULL);
       ni_ia4cls = (*env)->NewGlobalRef(env, ni_ia4cls);
+      CHECK_NULL_RETURN(ni_ia4cls, NULL);
       ni_ia6cls = (*env)->FindClass(env, "java/net/Inet6Address");
+      CHECK_NULL_RETURN(ni_ia6cls, NULL);
       ni_ia6cls = (*env)->NewGlobalRef(env, ni_ia6cls);
+      CHECK_NULL_RETURN(ni_ia6cls, NULL);
       ni_ia4ctrID = (*env)->GetMethodID(env, ni_ia4cls, "<init>", "()V");
+      CHECK_NULL_RETURN(ni_ia4ctrID, NULL);
       ni_ia6ctrID = (*env)->GetMethodID(env, ni_ia6cls, "<init>", "()V");
-      ni_iaaddressID = (*env)->GetFieldID(env, ni_iacls, "address", "I");
-      ni_iafamilyID = (*env)->GetFieldID(env, ni_iacls, "family", "I");
-      ni_iahostID = (*env)->GetFieldID(env, ni_iacls, "hostName", "Ljava/lang/String;");
-      ni_ia6ipaddressID = (*env)->GetFieldID(env, ni_ia6cls, "ipaddress", "[B");
+      CHECK_NULL_RETURN(ni_ia6ctrID, NULL);
       initialized = 1;
     }
     if (IS_NULL(host)) {
@@ -140,11 +140,19 @@ Java_java_net_Inet6AddressImpl_lookupAllHostAddr(JNIEnv *env, jobject this,
     error = getaddrinfo(hostname, NULL, &hints, &res);
 
     if (error) {
-        /* report error */
-        JNU_ThrowByName(env, JNU_JAVANETPKG "UnknownHostException",
-                        (char *)hostname);
-        JNU_ReleaseStringPlatformChars(env, host, hostname);
-        return NULL;
+        if (WSAGetLastError() == WSATRY_AGAIN) {
+            NET_ThrowByNameWithLastError(env,
+                                         JNU_JAVANETPKG "UnknownHostException",
+                                         hostname);
+            JNU_ReleaseStringPlatformChars(env, host, hostname);
+            return NULL;
+        } else {
+            /* report error */
+            JNU_ThrowByName(env, JNU_JAVANETPKG "UnknownHostException",
+                            (char *)hostname);
+            JNU_ReleaseStringPlatformChars(env, host, hostname);
+            return NULL;
+        }
     } else {
         int i = 0;
         int inetCount = 0, inet6Count = 0, inetIndex, inet6Index;
@@ -197,7 +205,7 @@ Java_java_net_Inet6AddressImpl_lookupAllHostAddr(JNIEnv *env, jobject this,
                 struct addrinfo *next
                     = (struct addrinfo*) malloc(sizeof(struct addrinfo));
                 if (!next) {
-                    JNU_ThrowOutOfMemoryError(env, "heap allocation failed");
+                    JNU_ThrowOutOfMemoryError(env, "Native heap allocation failed");
                     ret = NULL;
                     goto cleanupAndReturn;
                 }
@@ -243,33 +251,28 @@ Java_java_net_Inet6AddressImpl_lookupAllHostAddr(JNIEnv *env, jobject this,
                 ret = NULL;
                 goto cleanupAndReturn;
               }
-              (*env)->SetIntField(env, iaObj, ni_iaaddressID,
-                                  ntohl(((struct sockaddr_in*)iterator->ai_addr)->sin_addr.s_addr));
-              (*env)->SetObjectField(env, iaObj, ni_iahostID, host);
+              setInetAddress_addr(env, iaObj, ntohl(((struct sockaddr_in*)iterator->ai_addr)->sin_addr.s_addr));
+              setInetAddress_hostName(env, iaObj, host);
               (*env)->SetObjectArrayElement(env, ret, inetIndex, iaObj);
                 inetIndex ++;
             } else if (iterator->ai_family == AF_INET6) {
-              jint scope = 0;
-              jbyteArray ipaddress;
+              jint scope = 0, ret1;
               jobject iaObj = (*env)->NewObject(env, ni_ia6cls, ni_ia6ctrID);
               if (IS_NULL(iaObj)) {
                 ret = NULL;
                 goto cleanupAndReturn;
               }
-              ipaddress = (*env)->NewByteArray(env, 16);
-              if (IS_NULL(ipaddress)) {
+              ret1 = setInet6Address_ipaddress(env, iaObj, (jbyte *)&(((struct sockaddr_in6*)iterator->ai_addr)->sin6_addr));
+
+              if (ret1 == JNI_FALSE) {
                 ret = NULL;
                 goto cleanupAndReturn;
               }
-              (*env)->SetByteArrayRegion(env, ipaddress, 0, 16,
-                                         (jbyte *)&(((struct sockaddr_in6*)iterator->ai_addr)->sin6_addr));
               scope = ((struct sockaddr_in6*)iterator->ai_addr)->sin6_scope_id;
               if (scope != 0) { /* zero is default value, no need to set */
-                (*env)->SetIntField(env, iaObj, ia6_scopeidID, scope);
-                (*env)->SetBooleanField(env, iaObj, ia6_scopeidsetID, JNI_TRUE);
+                setInet6Address_scopeid(env, iaObj, scope);
               }
-              (*env)->SetObjectField(env, iaObj, ni_ia6ipaddressID, ipaddress);
-              (*env)->SetObjectField(env, iaObj, ni_iahostID, host);
+              setInetAddress_hostName(env, iaObj, host);
               (*env)->SetObjectArrayElement(env, ret, inet6Index, iaObj);
               inet6Index ++;
             }

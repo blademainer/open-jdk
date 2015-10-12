@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,5 +29,7 @@
 const int BytesPerInstWord = 4;
 
 const int StackAlignmentInBytes = (2*wordSize);
+
+#define SUPPORTS_NATIVE_CX8
 
 #endif // CPU_SPARC_VM_GLOBALDEFINITIONS_SPARC_HPP

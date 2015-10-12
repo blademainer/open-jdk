@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,6 @@
 
 import java.awt.GraphicsEnvironment;
 import java.beans.Beans;
-import sun.awt.SunToolkit;
 
 public class TestGuiAvailable implements Runnable {
     public static void main(String[] args) throws InterruptedException {
@@ -45,7 +44,6 @@ public class TestGuiAvailable implements Runnable {
     }
 
     public void run() {
-        SunToolkit.createNewAppContext();
         if (Beans.isGuiAvailable() == GraphicsEnvironment.isHeadless()) {
             throw new Error("shared GuiAvailable property");
         }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -120,7 +120,8 @@ typedef jushort Ushort4444ArgbDataType;
 #define DeclareUshort4444ArgbAlphaLoadData(PREFIX) \
     jint PREFIX;
 
-#define InitUshort4444ArgbAlphaLoadData(PREFIX, pRasInfo)
+#define InitUshort4444ArgbAlphaLoadData(PREFIX, pRasInfo) \
+    PREFIX = 0
 
 #define LoadAlphaFromUshort4444ArgbFor4ByteArgb(pRas, PREFIX, COMP_PREFIX) \
     do { \

@@ -1,6 +1,6 @@
 #!/bin/sh
 # 
-# Copyright (c) 2011, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2011, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 # 
 # This code is free software; you can redistribute it and/or modify it
@@ -22,35 +22,63 @@
 # questions.
 # 
 # 
-
+## some tests require path to find test source dir
 if [ "${TESTSRC}" = "" ]
 then
-  echo "TESTSRC not set.  Test cannot execute.  Failed."
-  exit 1
+  TESTSRC=${PWD}
+  echo "TESTSRC not set.  Using "${TESTSRC}" as default"
 fi
 echo "TESTSRC=${TESTSRC}"
-if [ "${TESTJAVA}" = "" ]
-then
-  echo "TESTJAVA not set.  Test cannot execute.  Failed."
-  exit 1
+## Adding common setup Variables for running shell tests.
+. ${TESTSRC}/../../test_env.sh
+
+# Amount of physical memory in megabytes
+MEM=0
+if [ -f "/proc/meminfo" ]; then
+  # Linux, Windows/Cygwin
+  MEM=`cat /proc/meminfo |grep ^MemTotal: | awk '{print $2}'`
+  MEM="$(($MEM / 1024))"
+elif [ -x "/usr/sbin/prtconf" ]; then
+  # Solaris
+  MEM=`/usr/sbin/prtconf | grep "^Memory size" | awk '{print $3}'`
+elif [ -x "/usr/sbin/system_profiler" ]; then
+  # MacOS
+  MEMo=`/usr/sbin/system_profiler SPHardwareDataType | grep Memory:`
+  MEM=`echo "$MEMo" | awk '{print $2}'`
+  MEMu=`echo "$MEMo" | awk '{print $3}'`
+  case $MEMu in
+  GB)
+    MEM="$(($MEM * 1024))"
+    ;;
+  MB)
+    ;;
+  *)
+    echo "Unknown memory unit in system_profile output: $MEMu"
+    ;;
+  esac
+elif [ -n "$ROOTDIR" -a -x "$ROOTDIR/mksnt/sysinf" ]; then
+  # Windows/MKS
+  MEM=`"$ROOTDIR/mksnt/sysinf" memory -v | grep "Total Physical Memory: " | sed 's/Total Physical Memory: *//g'`
+  MEM="$(($machine_memory / 1024))"
+else
+  echo "Unable to determine amount of physical memory on the machine"
 fi
-echo "TESTJAVA=${TESTJAVA}"
-if [ "${TESTCLASSES}" = "" ]
-then
-  echo "TESTCLASSES not set.  Test cannot execute.  Failed."
-  exit 1
+
+if [ $MEM -lt 2000 ]; then
+  echo "Test skipped due to low (or unknown) memory on the system: $MEM Mb"
+  exit 0
 fi
-echo "TESTCLASSES=${TESTCLASSES}"
-echo "CLASSPATH=${CLASSPATH}"
+
+echo "MEMORY=$MEM Mb"
 
 set -x
 
 cp ${TESTSRC}/Test7005594.java .
 cp ${TESTSRC}/Test7005594.sh .
 
-${TESTJAVA}/bin/javac -d . Test7005594.java
+${COMPILEJAVA}/bin/javac ${TESTJAVACOPTS} -d . Test7005594.java
 
-${TESTJAVA}/bin/java ${TESTVMOPTS} -Xms1600m -Xcomp -XX:CompileOnly=Test7005594.test Test7005594 > test.out 2>&1
+${TESTJAVA}/bin/java ${TESTVMOPTS} -Xms1600m -XX:+IgnoreUnrecognizedVMOptions -XX:-ZapUnusedHeapArea -Xcomp -XX:CompileOnly=Test7005594.test Test7005594 > test.out 2>&1
 
 result=$?
 

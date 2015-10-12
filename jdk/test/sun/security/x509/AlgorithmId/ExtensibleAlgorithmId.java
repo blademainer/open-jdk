@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,8 +24,11 @@
 /*
  * @test
  * @bug 4162868
+ * @run main/othervm ExtensibleAlgorithmId
  * @summary Algorithm Name-to-OID mapping needs to be made extensible.
  */
+
+// Run in othervm, coz AlgorithmId.oidTable is only initialized once
 
 import java.security.*;
 import sun.security.x509.AlgorithmId;

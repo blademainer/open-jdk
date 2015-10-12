@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -75,10 +75,10 @@ public class BlockingTaskExecutor {
             throw new Error("Executor stuck");
 
         // Wait for the invocation thread to complete.
-        thread.join(1000);
+        thread.join(5000);
         if (thread.isAlive()) {
             thread.interrupt();
-            thread.join(1000);
+            thread.join(5000);
             throw new Error("invokeAll stuck");
         }
     }

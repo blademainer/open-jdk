@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,6 +30,16 @@
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
+
+// Shared macro defined for cleanup of allocated memory.
+#ifndef FREE_AND_RETURN_STATUS
+#define FREE_AND_RETURN_STATUS \
+{ \
+if (pbuff != buff) mlib_free(pbuff); \
+if (k != akernel) mlib_free(k); \
+return status; \
+}
+#endif /* FREE_AND_RETURN_STATUS */
 
 mlib_status mlib_c_conv2x2ext_s16(mlib_image       *dst,
                                   const mlib_image *src,

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,10 +24,13 @@
  */
 package com.sun.beans.finder;
 
-import com.sun.beans.WeakCache;
+import com.sun.beans.util.Cache;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
+
+import static com.sun.beans.util.Cache.Kind.SOFT;
+import static sun.reflect.misc.ReflectUtil.isPackageAccessible;
 
 /**
  * This utility class provides {@code static} methods
@@ -39,7 +42,18 @@ import java.lang.reflect.Modifier;
  * @author Sergey A. Malenkov
  */
 public final class ConstructorFinder extends AbstractFinder<Constructor<?>> {
-    private static final WeakCache<Signature, Constructor<?>> CACHE = new WeakCache<Signature, Constructor<?>>();
+    private static final Cache<Signature, Constructor<?>> CACHE = new Cache<Signature, Constructor<?>>(SOFT, SOFT) {
+        @Override
+        public Constructor create(Signature signature) {
+            try {
+                ConstructorFinder finder = new ConstructorFinder(signature.getArgs());
+                return finder.find(signature.getType().getConstructors());
+            }
+            catch (Exception exception) {
+                throw new SignatureException(exception);
+            }
+        }
+    };
 
     /**
      * Finds public constructor
@@ -61,19 +75,18 @@ public final class ConstructorFinder extends AbstractFinder<Constructor<?>> {
         if (Modifier.isAbstract(type.getModifiers())) {
             throw new NoSuchMethodException("Abstract class cannot be instantiated");
         }
-        if (!Modifier.isPublic(type.getModifiers())) {
+        if (!Modifier.isPublic(type.getModifiers()) || !isPackageAccessible(type)) {
             throw new NoSuchMethodException("Class is not accessible");
         }
         PrimitiveWrapperMap.replacePrimitivesWithWrappers(args);
         Signature signature = new Signature(type, args);
 
-        Constructor<?> constructor = CACHE.get(signature);
-        if (constructor != null) {
-            return constructor;
+        try {
+            return CACHE.get(signature);
         }
-        constructor = new ConstructorFinder(args).find(type.getConstructors());
-        CACHE.put(signature, constructor);
-        return constructor;
+        catch (SignatureException exception) {
+            throw exception.toNoSuchMethodException("Constructor is not found");
+        }
     }
 
     /**
@@ -83,45 +96,5 @@ public final class ConstructorFinder extends AbstractFinder<Constructor<?>> {
      */
     private ConstructorFinder(Class<?>[] args) {
         super(args);
-    }
-
-    /**
-     * Returns an array of {@code Class} objects
-     * that represent the formal parameter types of the constructor
-     * Returns an empty array if the constructor takes no parameters.
-     *
-     * @param constructor  the object that represents constructor
-     * @return the parameter types of the constructor
-     */
-    @Override
-    protected Class<?>[] getParameters(Constructor<?> constructor) {
-        return constructor.getParameterTypes();
-    }
-
-    /**
-     * Returns {@code true} if and only if the constructor
-     * was declared to take a variable number of arguments.
-     *
-     * @param constructor  the object that represents constructor
-     * @return {@code true} if the constructor was declared
-     *         to take a variable number of arguments;
-     *         {@code false} otherwise
-     */
-    @Override
-    protected boolean isVarArgs(Constructor<?> constructor) {
-        return constructor.isVarArgs();
-    }
-
-    /**
-     * Checks validness of the constructor.
-     * The valid constructor should be public.
-     *
-     * @param constructor  the object that represents constructor
-     * @return {@code true} if the constructor is valid,
-     *         {@code false} otherwise
-     */
-    @Override
-    protected boolean isValid(Constructor<?> constructor) {
-        return Modifier.isPublic(constructor.getModifiers());
     }
 }

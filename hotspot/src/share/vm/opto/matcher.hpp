@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -88,7 +88,7 @@ class Matcher : public PhaseTransform {
 
   Node *transform( Node *dummy );
 
-  Node_List &_proj_list;        // For Machine nodes killing many values
+  Node_List _projection_list;        // For Machine nodes killing many values
 
   Node_Array _shared_nodes;
 
@@ -123,7 +123,6 @@ class Matcher : public PhaseTransform {
 
 public:
   int LabelRootDepth;
-  static const int base2reg[];        // Map Types to machine register types
   // Convert ideal machine register to a register mask for spill-loads
   static const RegMask *idealreg2regmask[];
   RegMask *idealreg2spillmask  [_last_machine_leaf];
@@ -184,10 +183,30 @@ public:
   void collect_null_checks( Node *proj, Node *orig_proj );
   void validate_null_checks( );
 
-  Matcher( Node_List &proj_list );
+  Matcher();
+
+  // Get a projection node at position pos
+  Node* get_projection(uint pos) {
+    return _projection_list[pos];
+  }
+
+  // Push a projection node onto the projection list
+  void push_projection(Node* node) {
+    _projection_list.push(node);
+  }
+
+  Node* pop_projection() {
+    return _projection_list.pop();
+  }
+
+  // Number of nodes in the projection list
+  uint number_of_projections() const {
+    return _projection_list.size();
+  }
 
   // Select instructions for entire method
-  void  match( );
+  void match();
+
   // Helper for match
   OptoReg::Name warp_incoming_stk_arg( VMReg reg );
 
@@ -250,10 +269,22 @@ public:
   static const bool convL2FSupported(void);
 
   // Vector width in bytes
-  static const uint vector_width_in_bytes(void);
+  static const int vector_width_in_bytes(BasicType bt);
+
+  // Limits on vector size (number of elements).
+  static const int max_vector_size(const BasicType bt);
+  static const int min_vector_size(const BasicType bt);
+  static const bool vector_size_supported(const BasicType bt, int size) {
+    return (Matcher::max_vector_size(bt) >= size &&
+            Matcher::min_vector_size(bt) <= size);
+  }
 
   // Vector ideal reg
-  static const uint vector_ideal_reg(void);
+  static const int vector_ideal_reg(int len);
+  static const int vector_shift_count_ideal_reg(int len);
+
+  // CPU supports misaligned vectors store/load.
+  static const bool misaligned_vectors_ok();
 
   // Used to determine a "low complexity" 64-bit constant.  (Zero is simple.)
   // The standard of comparison is one (StoreL ConL) vs. two (StoreI ConI).
@@ -294,7 +325,6 @@ public:
   RegMask                     _return_value_mask;
   // Inline Cache Register
   static OptoReg::Name  inline_cache_reg();
-  static const RegMask &inline_cache_reg_mask();
   static int            inline_cache_reg_encode();
 
   // Register for DIVI projection of divmodI
@@ -306,6 +336,10 @@ public:
   static RegMask divL_proj_mask();
   // Register for MODL projection of divmodL
   static RegMask modL_proj_mask();
+
+  static const RegMask mathExactI_result_proj_mask();
+  static const RegMask mathExactL_result_proj_mask();
+  static const RegMask mathExactI_flags_proj_mask();
 
   // Use hardware DIV instruction when it is faster than
   // a code which use multiply for division by constant.
@@ -324,7 +358,6 @@ public:
   // and then expanded into the inline_cache_reg and a method_oop register
 
   static OptoReg::Name  interpreter_method_oop_reg();
-  static const RegMask &interpreter_method_oop_reg_mask();
   static int            interpreter_method_oop_reg_encode();
 
   static OptoReg::Name  compiler_method_oop_reg();
@@ -333,7 +366,6 @@ public:
 
   // Interpreter's Frame Pointer Register
   static OptoReg::Name  interpreter_frame_pointer_reg();
-  static const RegMask &interpreter_frame_pointer_reg_mask();
 
   // Java-Native calling convention
   // (what you use when intercalling between Java and C++ code)
@@ -351,7 +383,7 @@ public:
   virtual int      regnum_to_fpu_offset(int regnum);
 
   // Is this branch offset small enough to be addressed by a short branch?
-  bool is_short_branch_offset(int rule, int offset);
+  bool is_short_branch_offset(int rule, int br_size, int offset);
 
   // Optional scaling for the parameter to the ClearArray/CopyArray node.
   static const bool init_array_count_is_in_bytes;
@@ -360,16 +392,19 @@ public:
   // Anything this size or smaller may get converted to discrete scalar stores.
   static const int init_array_short_size;
 
+  // Some hardware needs 2 CMOV's for longs.
+  static const int long_cmove_cost();
+
+  // Some hardware have expensive CMOV for float and double.
+  static const int float_cmove_cost();
+
   // Should the Matcher clone shifts on addressing modes, expecting them to
   // be subsumed into complex addressing expressions or compute them into
   // registers?  True for Intel but false for most RISCs
   static const bool clone_shift_expressions;
 
-  // Should constant table entries be accessed with loads using
-  // absolute addressing?  True for x86 but false for most RISCs.
-  static const bool constant_table_absolute_addressing;
-
   static bool narrow_oop_use_complex_address();
+  static bool narrow_klass_use_complex_address();
 
   // Generate implicit null check for narrow oops if it can fold
   // into address expression (x64).
@@ -440,16 +475,6 @@ public:
     if( SoftMatchFailure ) return;
     else { fatal("SoftMatchFailure is not allowed except in product"); }
   }
-
-  // Used by the DFA in dfa_sparc.cpp.  Check for a prior FastLock
-  // acting as an Acquire and thus we don't need an Acquire here.  We
-  // retain the Node to act as a compiler ordering barrier.
-  static bool prior_fast_lock( const Node *acq );
-
-  // Used by the DFA in dfa_sparc.cpp.  Check for a following
-  // FastUnLock acting as a Release and thus we don't need a Release
-  // here.  We retain the Node to act as a compiler ordering barrier.
-  static bool post_fast_unlock( const Node *rel );
 
   // Check for a following volatile memory barrier without an
   // intervening load and thus we don't need a barrier here.  We

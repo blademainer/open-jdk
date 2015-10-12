@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -52,7 +52,6 @@ import sun.security.util.SecurityConstants;
  */
 public
 class AppletSecurity extends AWTSecurityManager {
-    private AppContext mainAppContext;
 
     //URLClassLoader.acc
     private static Field facc = null;
@@ -77,7 +76,6 @@ class AppletSecurity extends AWTSecurityManager {
      */
     public AppletSecurity() {
         reset();
-        mainAppContext = AppContext.getAppContext();
     }
 
     // Cache to store known restricted packages
@@ -142,7 +140,7 @@ class AppletSecurity extends AWTSecurityManager {
          * fix bug # 6433620 the logic here is : try to find URLClassLoader from
          * class context, check its AccessControlContext to see if
          * AppletClassLoader is in stack when it's created. for this kind of
-         * URLClassLoader, return the AppContext assocated with the
+         * URLClassLoader, return the AppContext associated with the
          * AppletClassLoader.
          */
         for (int i = 0; i < context.length; i++) {
@@ -306,17 +304,17 @@ class AppletSecurity extends AWTSecurityManager {
      *
      * @since   JDK1.1
      * @exception  SecurityException  if the caller does not have
-     *             permission to accesss the AWT event queue.
+     *             permission to access the AWT event queue.
      */
     public void checkAwtEventQueueAccess() {
         AppContext appContext = AppContext.getAppContext();
         AppletClassLoader appletClassLoader = currentAppletClassLoader();
 
-        if ((appContext == mainAppContext) && (appletClassLoader != null)) {
+        if (AppContext.isMainContext(appContext) && (appletClassLoader != null)) {
             // If we're about to allow access to the main EventQueue,
             // and anything untrusted is on the class context stack,
             // disallow access.
-            super.checkAwtEventQueueAccess();
+            super.checkPermission(SecurityConstants.AWT.CHECK_AWT_EVENTQUEUE_PERMISSION);
         }
     } // checkAwtEventQueueAccess()
 

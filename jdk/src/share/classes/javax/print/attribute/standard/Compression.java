@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@ import javax.print.attribute.DocAttribute;
  * print data (the doc), not of the Print Job. If a Compression attribute is not
  * specified for a doc, the printer assumes the doc's print data is uncompressed
  * (i.e., the default Compression value is always {@link #NONE
- * <CODE>NONE</CODE>}).
+ * NONE}).
  * <P>
  * <B>IPP Compatibility:</B> The category name returned by
  * <CODE>getName()</CODE> is the IPP attribute name.  The enumeration's

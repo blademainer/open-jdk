@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,9 @@
 
 package com.sun.jmx.snmp.IPAcl;
 
+import java.net.InetAddress;
 import java.util.Hashtable;
+import java.util.Vector;
 
 class JDMTrapBlock extends SimpleNode {
   JDMTrapBlock(int id) {
@@ -51,11 +53,13 @@ class JDMTrapBlock extends SimpleNode {
    * Do no need to go through this part of the tree for
    * building AclEntry.
    */
+   @Override
    public void buildAclEntries(PrincipalImpl owner, AclImpl acl) {}
 
   /**
    * Do no need to go through this part of the tree for
    * building InformEntry.
    */
-   public void buildInformEntries(Hashtable dest) {}
+   @Override
+   public void buildInformEntries(Hashtable<InetAddress, Vector<String>> dest) {}
 }

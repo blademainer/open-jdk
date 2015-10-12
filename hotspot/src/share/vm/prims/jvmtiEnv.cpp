@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,6 @@
 #include "jvmtifiles/jvmtiEnv.hpp"
 #include "memory/resourceArea.hpp"
 #include "memory/universe.inline.hpp"
-#include "oops/cpCacheOop.hpp"
 #include "oops/instanceKlass.hpp"
 #include "prims/jniCheck.hpp"
 #include "prims/jvm_misc.hpp"
@@ -54,21 +53,12 @@
 #include "runtime/osThread.hpp"
 #include "runtime/reflectionUtils.hpp"
 #include "runtime/signature.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/vframe.hpp"
 #include "runtime/vmThread.hpp"
 #include "services/threadService.hpp"
 #include "utilities/exceptions.hpp"
 #include "utilities/preserveException.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
-
 
 
 #define FIXLATER 0 // REMOVE this when completed.
@@ -170,7 +160,7 @@ JvmtiEnv::GetThreadLocalStorage(jthread thread, void** data_ptr) {
     // from native so as to resolve the jthread.
 
     ThreadInVMfromNative __tiv(current_thread);
-    __ENTRY(jvmtiError, JvmtiEnv::GetThreadLocalStorage , current_thread)
+    VM_ENTRY_BASE(jvmtiError, JvmtiEnv::GetThreadLocalStorage , current_thread)
     debug_only(VMNativeEntryWrapper __vew;)
 
     oop thread_oop = JNIHandles::resolve_external_guard(thread);
@@ -251,7 +241,7 @@ JvmtiEnv::RetransformClasses(jint class_count, const jclass* classes) {
       return JVMTI_ERROR_UNMODIFIABLE_CLASS;
     }
 
-    klassOop k_oop = java_lang_Class::as_klassOop(k_mirror);
+    Klass* k_oop = java_lang_Class::as_Klass(k_mirror);
     KlassHandle klass(current_thread, k_oop);
 
     jint status = klass->jvmti_class_status();
@@ -264,9 +254,12 @@ JvmtiEnv::RetransformClasses(jint class_count, const jclass* classes) {
 
     instanceKlassHandle ikh(current_thread, k_oop);
     if (ikh->get_cached_class_file_bytes() == NULL) {
-      // not cached, we need to reconstitute the class file from VM representation
+      // Not cached, we need to reconstitute the class file from the
+      // VM representation. We don't attach the reconstituted class
+      // bytes to the InstanceKlass here because they have not been
+      // validated and we're not at a safepoint.
       constantPoolHandle  constants(current_thread, ikh->constants());
-      ObjectLocker ol(constants, current_thread);    // lock constant pool while we query it
+      MonitorLockerEx ml(constants->lock());    // lock constant pool while we query it
 
       JvmtiClassFileReconstituter reconstituter(ikh);
       if (reconstituter.get_error() != JVMTI_ERROR_NONE) {
@@ -310,14 +303,14 @@ JvmtiEnv::GetObjectSize(jobject object, jlong* size_ptr) {
   oop mirror = JNIHandles::resolve_external_guard(object);
   NULL_CHECK(mirror, JVMTI_ERROR_INVALID_OBJECT);
 
-  if (mirror->klass() == SystemDictionary::Class_klass()) {
-    if (!java_lang_Class::is_primitive(mirror)) {
-        mirror = java_lang_Class::as_klassOop(mirror);
-        assert(mirror != NULL, "class for non-primitive mirror must exist");
+  if (mirror->klass() == SystemDictionary::Class_klass() &&
+      !java_lang_Class::is_primitive(mirror)) {
+    Klass* k = java_lang_Class::as_Klass(mirror);
+    assert(k != NULL, "class for non-primitive mirror must exist");
+    *size_ptr = k->size() * wordSize;
+  } else {
+    *size_ptr = mirror->size() * wordSize;
     }
-  }
-
-  *size_ptr = mirror->size() * wordSize;
   return JVMTI_ERROR_NONE;
 } /* end GetObjectSize */
 
@@ -546,7 +539,7 @@ JvmtiEnv::AddToSystemClassLoaderSearch(const char* segment) {
                               path,
                               THREAD);
       if (HAS_PENDING_EXCEPTION) {
-        Symbol* ex_name = PENDING_EXCEPTION->klass()->klass_part()->name();
+        Symbol* ex_name = PENDING_EXCEPTION->klass()->name();
         CLEAR_PENDING_EXCEPTION;
 
         if (ex_name == vmSymbols::java_lang_NoSuchMethodError()) {
@@ -653,8 +646,6 @@ JvmtiEnv::GetJLocationFormat(jvmtiJlocationFormat* format_ptr) {
   *format_ptr = JVMTI_JLOCATION_JVMBCI;
   return JVMTI_ERROR_NONE;
 } /* end GetJLocationFormat */
-
-#ifndef JVMTI_KERNEL
 
   //
   // Thread functions
@@ -1006,7 +997,7 @@ JvmtiEnv::GetOwnedMonitorInfo(JavaThread* java_thread, jint* owned_monitor_count
 
   // growable array of jvmti monitors info on the C-heap
   GrowableArray<jvmtiMonitorStackDepthInfo*> *owned_monitors_list =
-      new (ResourceObj::C_HEAP) GrowableArray<jvmtiMonitorStackDepthInfo*>(1, true);
+      new (ResourceObj::C_HEAP, mtInternal) GrowableArray<jvmtiMonitorStackDepthInfo*>(1, true);
 
   uint32_t debug_bits = 0;
   if (is_thread_fully_suspended(java_thread, true, &debug_bits)) {
@@ -1051,7 +1042,7 @@ JvmtiEnv::GetOwnedMonitorStackDepthInfo(JavaThread* java_thread, jint* monitor_i
 
   // growable array of jvmti monitors info on the C-heap
   GrowableArray<jvmtiMonitorStackDepthInfo*> *owned_monitors_list =
-         new (ResourceObj::C_HEAP) GrowableArray<jvmtiMonitorStackDepthInfo*>(1, true);
+         new (ResourceObj::C_HEAP, mtInternal) GrowableArray<jvmtiMonitorStackDepthInfo*>(1, true);
 
   uint32_t debug_bits = 0;
   if (is_thread_fully_suspended(java_thread, true, &debug_bits)) {
@@ -1614,7 +1605,7 @@ JvmtiEnv::ForceEarlyReturnVoid(JavaThread* java_thread) {
 jvmtiError
 JvmtiEnv::FollowReferences(jint heap_filter, jclass klass, jobject initial_object, const jvmtiHeapCallbacks* callbacks, const void* user_data) {
   // check klass if provided
-  klassOop k_oop = NULL;
+  Klass* k_oop = NULL;
   if (klass != NULL) {
     oop k_mirror = JNIHandles::resolve_external_guard(klass);
     if (k_mirror == NULL) {
@@ -1623,7 +1614,7 @@ JvmtiEnv::FollowReferences(jint heap_filter, jclass klass, jobject initial_objec
     if (java_lang_Class::is_primitive(k_mirror)) {
       return JVMTI_ERROR_NONE;
     }
-    k_oop = java_lang_Class::as_klassOop(k_mirror);
+    k_oop = java_lang_Class::as_Klass(k_mirror);
     if (k_oop == NULL) {
       return JVMTI_ERROR_INVALID_CLASS;
     }
@@ -1645,7 +1636,7 @@ JvmtiEnv::FollowReferences(jint heap_filter, jclass klass, jobject initial_objec
 jvmtiError
 JvmtiEnv::IterateThroughHeap(jint heap_filter, jclass klass, const jvmtiHeapCallbacks* callbacks, const void* user_data) {
   // check klass if provided
-  klassOop k_oop = NULL;
+  Klass* k_oop = NULL;
   if (klass != NULL) {
     oop k_mirror = JNIHandles::resolve_external_guard(klass);
     if (k_mirror == NULL) {
@@ -1654,7 +1645,7 @@ JvmtiEnv::IterateThroughHeap(jint heap_filter, jclass klass, const jvmtiHeapCall
     if (java_lang_Class::is_primitive(k_mirror)) {
       return JVMTI_ERROR_NONE;
     }
-    k_oop = java_lang_Class::as_klassOop(k_mirror);
+    k_oop = java_lang_Class::as_Klass(k_mirror);
     if (k_oop == NULL) {
       return JVMTI_ERROR_INVALID_CLASS;
     }
@@ -1756,7 +1747,7 @@ JvmtiEnv::IterateOverInstancesOfClass(oop k_mirror, jvmtiHeapObjectFilter object
     // DO PRIMITIVE CLASS PROCESSING
     return JVMTI_ERROR_NONE;
   }
-  klassOop k_oop = java_lang_Class::as_klassOop(k_mirror);
+  Klass* k_oop = java_lang_Class::as_Klass(k_mirror);
   if (k_oop == NULL) {
     return JVMTI_ERROR_INVALID_CLASS;
   }
@@ -1983,7 +1974,7 @@ JvmtiEnv::SetLocalDouble(JavaThread* java_thread, jint depth, jint slot, jdouble
 
 // method_oop - pre-checked for validity, but may be NULL meaning obsolete method
 jvmtiError
-JvmtiEnv::SetBreakpoint(methodOop method_oop, jlocation location) {
+JvmtiEnv::SetBreakpoint(Method* method_oop, jlocation location) {
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
   if (location < 0) {   // simple invalid location check first
     return JVMTI_ERROR_INVALID_LOCATION;
@@ -2009,7 +2000,7 @@ JvmtiEnv::SetBreakpoint(methodOop method_oop, jlocation location) {
 
 // method_oop - pre-checked for validity, but may be NULL meaning obsolete method
 jvmtiError
-JvmtiEnv::ClearBreakpoint(methodOop method_oop, jlocation location) {
+JvmtiEnv::ClearBreakpoint(Method* method_oop, jlocation location) {
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
 
   if (location < 0) {   // simple invalid location check first
@@ -2044,7 +2035,6 @@ JvmtiEnv::SetFieldAccessWatch(fieldDescriptor* fdesc_ptr) {
   // make sure we haven't set this watch before
   if (fdesc_ptr->is_field_access_watched()) return JVMTI_ERROR_DUPLICATE;
   fdesc_ptr->set_is_field_access_watched(true);
-  update_klass_field_access_flag(fdesc_ptr);
 
   JvmtiEventController::change_field_watch(JVMTI_EVENT_FIELD_ACCESS, true);
 
@@ -2057,7 +2047,6 @@ JvmtiEnv::ClearFieldAccessWatch(fieldDescriptor* fdesc_ptr) {
   // make sure we have a watch to clear
   if (!fdesc_ptr->is_field_access_watched()) return JVMTI_ERROR_NOT_FOUND;
   fdesc_ptr->set_is_field_access_watched(false);
-  update_klass_field_access_flag(fdesc_ptr);
 
   JvmtiEventController::change_field_watch(JVMTI_EVENT_FIELD_ACCESS, false);
 
@@ -2070,7 +2059,6 @@ JvmtiEnv::SetFieldModificationWatch(fieldDescriptor* fdesc_ptr) {
   // make sure we haven't set this watch before
   if (fdesc_ptr->is_field_modification_watched()) return JVMTI_ERROR_DUPLICATE;
   fdesc_ptr->set_is_field_modification_watched(true);
-  update_klass_field_access_flag(fdesc_ptr);
 
   JvmtiEventController::change_field_watch(JVMTI_EVENT_FIELD_MODIFICATION, true);
 
@@ -2083,7 +2071,6 @@ JvmtiEnv::ClearFieldModificationWatch(fieldDescriptor* fdesc_ptr) {
    // make sure we have a watch to clear
   if (!fdesc_ptr->is_field_modification_watched()) return JVMTI_ERROR_NOT_FOUND;
   fdesc_ptr->set_is_field_modification_watched(false);
-  update_klass_field_access_flag(fdesc_ptr);
 
   JvmtiEventController::change_field_watch(JVMTI_EVENT_FIELD_MODIFICATION, false);
 
@@ -2102,9 +2089,9 @@ jvmtiError
 JvmtiEnv::GetClassSignature(oop k_mirror, char** signature_ptr, char** generic_ptr) {
   ResourceMark rm;
   bool isPrimitive = java_lang_Class::is_primitive(k_mirror);
-  klassOop k = NULL;
+  Klass* k = NULL;
   if (!isPrimitive) {
-    k = java_lang_Class::as_klassOop(k_mirror);
+    k = java_lang_Class::as_Klass(k_mirror);
     NULL_CHECK(k, JVMTI_ERROR_INVALID_CLASS);
   }
   if (signature_ptr != NULL) {
@@ -2115,7 +2102,7 @@ JvmtiEnv::GetClassSignature(oop k_mirror, char** signature_ptr, char** generic_p
       result[0] = tchar;
       result[1] = '\0';
     } else {
-      const char* class_sig = Klass::cast(k)->signature_name();
+      const char* class_sig = k->signature_name();
       result = (char *) jvmtiMalloc(strlen(class_sig)+1);
       strcpy(result, class_sig);
     }
@@ -2123,8 +2110,8 @@ JvmtiEnv::GetClassSignature(oop k_mirror, char** signature_ptr, char** generic_p
   }
   if (generic_ptr != NULL) {
     *generic_ptr = NULL;
-    if (!isPrimitive && Klass::cast(k)->oop_is_instance()) {
-      Symbol* soo = instanceKlass::cast(k)->generic_signature();
+    if (!isPrimitive && k->oop_is_instance()) {
+      Symbol* soo = InstanceKlass::cast(k)->generic_signature();
       if (soo != NULL) {
         const char *gen_sig = soo->as_C_string();
         if (gen_sig != NULL) {
@@ -2152,9 +2139,9 @@ JvmtiEnv::GetClassStatus(oop k_mirror, jint* status_ptr) {
   if (java_lang_Class::is_primitive(k_mirror)) {
     result |= JVMTI_CLASS_STATUS_PRIMITIVE;
   } else {
-    klassOop k = java_lang_Class::as_klassOop(k_mirror);
+    Klass* k = java_lang_Class::as_Klass(k_mirror);
     NULL_CHECK(k, JVMTI_ERROR_INVALID_CLASS);
-    result = Klass::cast(k)->jvmti_class_status();
+    result = k->jvmti_class_status();
   }
   *status_ptr = result;
 
@@ -2169,14 +2156,14 @@ JvmtiEnv::GetSourceFileName(oop k_mirror, char** source_name_ptr) {
   if (java_lang_Class::is_primitive(k_mirror)) {
      return JVMTI_ERROR_ABSENT_INFORMATION;
   }
-  klassOop k_klass = java_lang_Class::as_klassOop(k_mirror);
+  Klass* k_klass = java_lang_Class::as_Klass(k_mirror);
   NULL_CHECK(k_klass, JVMTI_ERROR_INVALID_CLASS);
 
-  if (!Klass::cast(k_klass)->oop_is_instance()) {
+  if (!k_klass->oop_is_instance()) {
     return JVMTI_ERROR_ABSENT_INFORMATION;
   }
 
-  Symbol* sfnOop = instanceKlass::cast(k_klass)->source_file_name();
+  Symbol* sfnOop = InstanceKlass::cast(k_klass)->source_file_name();
   NULL_CHECK(sfnOop, JVMTI_ERROR_ABSENT_INFORMATION);
   {
     JavaThread* current_thread  = JavaThread::current();
@@ -2197,10 +2184,9 @@ JvmtiEnv::GetClassModifiers(oop k_mirror, jint* modifiers_ptr) {
   JavaThread* current_thread  = JavaThread::current();
   jint result = 0;
   if (!java_lang_Class::is_primitive(k_mirror)) {
-    klassOop k = java_lang_Class::as_klassOop(k_mirror);
+    Klass* k = java_lang_Class::as_Klass(k_mirror);
     NULL_CHECK(k, JVMTI_ERROR_INVALID_CLASS);
-    assert((Klass::cast(k)->oop_is_instance() || Klass::cast(k)->oop_is_array()), "should be an instance or an array klass");
-    result = Klass::cast(k)->compute_modifier_flags(current_thread);
+    result = k->compute_modifier_flags(current_thread);
     JavaThread* THREAD = current_thread; // pass to macros
     if (HAS_PENDING_EXCEPTION) {
       CLEAR_PENDING_EXCEPTION;
@@ -2208,7 +2194,7 @@ JvmtiEnv::GetClassModifiers(oop k_mirror, jint* modifiers_ptr) {
     };
 
     // Reset the deleted  ACC_SUPER bit ( deleted in compute_modifier_flags()).
-    if(Klass::cast(k)->is_super()) {
+    if(k->is_super()) {
       result |= JVM_ACC_SUPER;
     }
   } else {
@@ -2233,15 +2219,15 @@ JvmtiEnv::GetClassMethods(oop k_mirror, jint* method_count_ptr, jmethodID** meth
     *methods_ptr = (jmethodID*) jvmtiMalloc(0 * sizeof(jmethodID));
     return JVMTI_ERROR_NONE;
   }
-  klassOop k = java_lang_Class::as_klassOop(k_mirror);
+  Klass* k = java_lang_Class::as_Klass(k_mirror);
   NULL_CHECK(k, JVMTI_ERROR_INVALID_CLASS);
 
   // Return CLASS_NOT_PREPARED error as per JVMTI spec.
-  if (!(Klass::cast(k)->jvmti_class_status() & (JVMTI_CLASS_STATUS_PREPARED|JVMTI_CLASS_STATUS_ARRAY) )) {
+  if (!(k->jvmti_class_status() & (JVMTI_CLASS_STATUS_PREPARED|JVMTI_CLASS_STATUS_ARRAY) )) {
     return JVMTI_ERROR_CLASS_NOT_PREPARED;
   }
 
-  if (!Klass::cast(k)->oop_is_instance()) {
+  if (!k->oop_is_instance()) {
     *method_count_ptr = 0;
     *methods_ptr = (jmethodID*) jvmtiMalloc(0 * sizeof(jmethodID));
     return JVMTI_ERROR_NONE;
@@ -2255,8 +2241,8 @@ JvmtiEnv::GetClassMethods(oop k_mirror, jint* method_count_ptr, jmethodID** meth
     // Use the original method ordering indices stored in the class, so we can emit
     // jmethodIDs in the order they appeared in the class file
     for (index = 0; index < result_length; index++) {
-      methodOop m = methodOop(instanceK_h->methods()->obj_at(index));
-      int original_index = instanceK_h->method_ordering()->int_at(index);
+      Method* m = instanceK_h->methods()->at(index);
+      int original_index = instanceK_h->method_ordering()->at(index);
       assert(original_index >= 0 && original_index < result_length, "invalid original method index");
       jmethodID id = m->jmethod_id();
       result_list[original_index] = id;
@@ -2264,7 +2250,7 @@ JvmtiEnv::GetClassMethods(oop k_mirror, jint* method_count_ptr, jmethodID** meth
   } else {
     // otherwise just copy in any order
     for (index = 0; index < result_length; index++) {
-      methodOop m = methodOop(instanceK_h->methods()->obj_at(index));
+      Method* m = instanceK_h->methods()->at(index);
       jmethodID id = m->jmethod_id();
       result_list[index] = id;
     }
@@ -2289,15 +2275,15 @@ JvmtiEnv::GetClassFields(oop k_mirror, jint* field_count_ptr, jfieldID** fields_
   }
   JavaThread* current_thread = JavaThread::current();
   HandleMark hm(current_thread);
-  klassOop k = java_lang_Class::as_klassOop(k_mirror);
+  Klass* k = java_lang_Class::as_Klass(k_mirror);
   NULL_CHECK(k, JVMTI_ERROR_INVALID_CLASS);
 
   // Return CLASS_NOT_PREPARED error as per JVMTI spec.
-  if (!(Klass::cast(k)->jvmti_class_status() & (JVMTI_CLASS_STATUS_PREPARED|JVMTI_CLASS_STATUS_ARRAY) )) {
+  if (!(k->jvmti_class_status() & (JVMTI_CLASS_STATUS_PREPARED|JVMTI_CLASS_STATUS_ARRAY) )) {
     return JVMTI_ERROR_CLASS_NOT_PREPARED;
   }
 
-  if (!Klass::cast(k)->oop_is_instance()) {
+  if (!k->oop_is_instance()) {
     *field_count_ptr = 0;
     *fields_ptr = (jfieldID*) jvmtiMalloc(0 * sizeof(jfieldID));
     return JVMTI_ERROR_NONE;
@@ -2344,28 +2330,27 @@ JvmtiEnv::GetImplementedInterfaces(oop k_mirror, jint* interface_count_ptr, jcla
     }
     JavaThread* current_thread = JavaThread::current();
     HandleMark hm(current_thread);
-    klassOop k = java_lang_Class::as_klassOop(k_mirror);
+    Klass* k = java_lang_Class::as_Klass(k_mirror);
     NULL_CHECK(k, JVMTI_ERROR_INVALID_CLASS);
 
     // Return CLASS_NOT_PREPARED error as per JVMTI spec.
-    if (!(Klass::cast(k)->jvmti_class_status() & (JVMTI_CLASS_STATUS_PREPARED|JVMTI_CLASS_STATUS_ARRAY) ))
+    if (!(k->jvmti_class_status() & (JVMTI_CLASS_STATUS_PREPARED|JVMTI_CLASS_STATUS_ARRAY) ))
       return JVMTI_ERROR_CLASS_NOT_PREPARED;
 
-    if (!Klass::cast(k)->oop_is_instance()) {
+    if (!k->oop_is_instance()) {
       *interface_count_ptr = 0;
       *interfaces_ptr = (jclass*) jvmtiMalloc(0 * sizeof(jclass));
       return JVMTI_ERROR_NONE;
     }
 
-    objArrayHandle interface_list(current_thread, instanceKlass::cast(k)->local_interfaces());
-    const int result_length = (interface_list.is_null() ? 0 : interface_list->length());
+    Array<Klass*>* interface_list = InstanceKlass::cast(k)->local_interfaces();
+    const int result_length = (interface_list == NULL ? 0 : interface_list->length());
     jclass* result_list = (jclass*) jvmtiMalloc(result_length * sizeof(jclass));
     for (int i_index = 0; i_index < result_length; i_index += 1) {
-      oop oop_at = interface_list->obj_at(i_index);
-      assert(oop_at->is_klass(), "interfaces must be klassOops");
-      klassOop klassOop_at = klassOop(oop_at);      // ???: is there a better way?
-      assert(Klass::cast(klassOop_at)->is_interface(), "interfaces must be interfaces");
-      oop mirror_at = Klass::cast(klassOop_at)->java_mirror();
+      Klass* klass_at = interface_list->at(i_index);
+      assert(klass_at->is_klass(), "interfaces must be Klass*s");
+      assert(klass_at->is_interface(), "interfaces must be interfaces");
+      oop mirror_at = klass_at->java_mirror();
       Handle handle_at = Handle(current_thread, mirror_at);
       result_list[i_index] = (jclass) jni_reference(handle_at);
     }
@@ -2385,7 +2370,7 @@ JvmtiEnv::GetClassVersionNumbers(oop k_mirror, jint* minor_version_ptr, jint* ma
   if (java_lang_Class::is_primitive(k_mirror)) {
     return JVMTI_ERROR_ABSENT_INFORMATION;
   }
-  klassOop k_oop = java_lang_Class::as_klassOop(k_mirror);
+  Klass* k_oop = java_lang_Class::as_Klass(k_mirror);
   Thread *thread = Thread::current();
   HandleMark hm(thread);
   KlassHandle klass(thread, k_oop);
@@ -2416,7 +2401,7 @@ JvmtiEnv::GetConstantPool(oop k_mirror, jint* constant_pool_count_ptr, jint* con
     return JVMTI_ERROR_ABSENT_INFORMATION;
   }
 
-  klassOop k_oop = java_lang_Class::as_klassOop(k_mirror);
+  Klass* k_oop = java_lang_Class::as_Klass(k_mirror);
   Thread *thread = Thread::current();
   HandleMark hm(thread);
   ResourceMark rm(thread);
@@ -2432,7 +2417,7 @@ JvmtiEnv::GetConstantPool(oop k_mirror, jint* constant_pool_count_ptr, jint* con
 
   instanceKlassHandle ikh(thread, k_oop);
   constantPoolHandle  constants(thread, ikh->constants());
-  ObjectLocker ol(constants, thread);    // lock constant pool while we query it
+  MonitorLockerEx ml(constants->lock());    // lock constant pool while we query it
 
   JvmtiConstantPoolReconstituter reconstituter(ikh);
   if (reconstituter.get_error() != JVMTI_ERROR_NONE) {
@@ -2468,8 +2453,8 @@ JvmtiEnv::IsInterface(oop k_mirror, jboolean* is_interface_ptr) {
   {
     bool result = false;
     if (!java_lang_Class::is_primitive(k_mirror)) {
-      klassOop k = java_lang_Class::as_klassOop(k_mirror);
-      if (k != NULL && Klass::cast(k)->is_interface()) {
+      Klass* k = java_lang_Class::as_Klass(k_mirror);
+      if (k != NULL && k->is_interface()) {
         result = true;
       }
     }
@@ -2487,8 +2472,8 @@ JvmtiEnv::IsArrayClass(oop k_mirror, jboolean* is_array_class_ptr) {
   {
     bool result = false;
     if (!java_lang_Class::is_primitive(k_mirror)) {
-      klassOop k = java_lang_Class::as_klassOop(k_mirror);
-      if (k != NULL && Klass::cast(k)->oop_is_array()) {
+      Klass* k = java_lang_Class::as_Klass(k_mirror);
+      if (k != NULL && k->oop_is_array()) {
         result = true;
       }
     }
@@ -2510,10 +2495,10 @@ JvmtiEnv::GetClassLoader(oop k_mirror, jobject* classloader_ptr) {
     }
     JavaThread* current_thread = JavaThread::current();
     HandleMark hm(current_thread);
-    klassOop k = java_lang_Class::as_klassOop(k_mirror);
+    Klass* k = java_lang_Class::as_Klass(k_mirror);
     NULL_CHECK(k, JVMTI_ERROR_INVALID_CLASS);
 
-    oop result_oop = Klass::cast(k)->class_loader();
+    oop result_oop = k->class_loader();
     if (result_oop == NULL) {
       *classloader_ptr = (jclass) jni_reference(Handle());
       return JVMTI_ERROR_NONE;
@@ -2534,20 +2519,17 @@ JvmtiEnv::GetSourceDebugExtension(oop k_mirror, char** source_debug_extension_pt
     if (java_lang_Class::is_primitive(k_mirror)) {
       return JVMTI_ERROR_ABSENT_INFORMATION;
     }
-    klassOop k = java_lang_Class::as_klassOop(k_mirror);
+    Klass* k = java_lang_Class::as_Klass(k_mirror);
     NULL_CHECK(k, JVMTI_ERROR_INVALID_CLASS);
-    if (!Klass::cast(k)->oop_is_instance()) {
+    if (!k->oop_is_instance()) {
       return JVMTI_ERROR_ABSENT_INFORMATION;
     }
-    Symbol* sdeOop = instanceKlass::cast(k)->source_debug_extension();
-    NULL_CHECK(sdeOop, JVMTI_ERROR_ABSENT_INFORMATION);
+    char* sde = InstanceKlass::cast(k)->source_debug_extension();
+    NULL_CHECK(sde, JVMTI_ERROR_ABSENT_INFORMATION);
 
     {
-      JavaThread* current_thread  = JavaThread::current();
-      ResourceMark rm(current_thread);
-      const char* sdecp = (const char*) sdeOop->as_C_string();
-      *source_debug_extension_ptr = (char *) jvmtiMalloc(strlen(sdecp)+1);
-      strcpy(*source_debug_extension_ptr, sdecp);
+      *source_debug_extension_ptr = (char *) jvmtiMalloc(strlen(sde)+1);
+      strcpy(*source_debug_extension_ptr, sde);
     }
   }
 
@@ -2673,7 +2655,7 @@ JvmtiEnv::IsFieldSynthetic(fieldDescriptor* fdesc_ptr, jboolean* is_synthetic_pt
 // signature_ptr - NULL is a valid value, must be checked
 // generic_ptr - NULL is a valid value, must be checked
 jvmtiError
-JvmtiEnv::GetMethodName(methodOop method_oop, char** name_ptr, char** signature_ptr, char** generic_ptr) {
+JvmtiEnv::GetMethodName(Method* method_oop, char** name_ptr, char** signature_ptr, char** generic_ptr) {
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
   JavaThread* current_thread  = JavaThread::current();
 
@@ -2714,7 +2696,7 @@ JvmtiEnv::GetMethodName(methodOop method_oop, char** name_ptr, char** signature_
 // method_oop - pre-checked for validity, but may be NULL meaning obsolete method
 // declaring_class_ptr - pre-checked for NULL
 jvmtiError
-JvmtiEnv::GetMethodDeclaringClass(methodOop method_oop, jclass* declaring_class_ptr) {
+JvmtiEnv::GetMethodDeclaringClass(Method* method_oop, jclass* declaring_class_ptr) {
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
   (*declaring_class_ptr) = get_jni_class_non_null(method_oop->method_holder());
   return JVMTI_ERROR_NONE;
@@ -2724,7 +2706,7 @@ JvmtiEnv::GetMethodDeclaringClass(methodOop method_oop, jclass* declaring_class_
 // method_oop - pre-checked for validity, but may be NULL meaning obsolete method
 // modifiers_ptr - pre-checked for NULL
 jvmtiError
-JvmtiEnv::GetMethodModifiers(methodOop method_oop, jint* modifiers_ptr) {
+JvmtiEnv::GetMethodModifiers(Method* method_oop, jint* modifiers_ptr) {
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
   (*modifiers_ptr) = method_oop->access_flags().as_int() & JVM_RECOGNIZED_METHOD_MODIFIERS;
   return JVMTI_ERROR_NONE;
@@ -2734,7 +2716,7 @@ JvmtiEnv::GetMethodModifiers(methodOop method_oop, jint* modifiers_ptr) {
 // method_oop - pre-checked for validity, but may be NULL meaning obsolete method
 // max_ptr - pre-checked for NULL
 jvmtiError
-JvmtiEnv::GetMaxLocals(methodOop method_oop, jint* max_ptr) {
+JvmtiEnv::GetMaxLocals(Method* method_oop, jint* max_ptr) {
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
   // get max stack
   (*max_ptr) = method_oop->max_locals();
@@ -2745,7 +2727,7 @@ JvmtiEnv::GetMaxLocals(methodOop method_oop, jint* max_ptr) {
 // method_oop - pre-checked for validity, but may be NULL meaning obsolete method
 // size_ptr - pre-checked for NULL
 jvmtiError
-JvmtiEnv::GetArgumentsSize(methodOop method_oop, jint* size_ptr) {
+JvmtiEnv::GetArgumentsSize(Method* method_oop, jint* size_ptr) {
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
   // get size of arguments
 
@@ -2758,7 +2740,7 @@ JvmtiEnv::GetArgumentsSize(methodOop method_oop, jint* size_ptr) {
 // entry_count_ptr - pre-checked for NULL
 // table_ptr - pre-checked for NULL
 jvmtiError
-JvmtiEnv::GetLineNumberTable(methodOop method_oop, jint* entry_count_ptr, jvmtiLineNumberEntry** table_ptr) {
+JvmtiEnv::GetLineNumberTable(Method* method_oop, jint* entry_count_ptr, jvmtiLineNumberEntry** table_ptr) {
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
   if (!method_oop->has_linenumber_table()) {
     return (JVMTI_ERROR_ABSENT_INFORMATION);
@@ -2800,7 +2782,7 @@ JvmtiEnv::GetLineNumberTable(methodOop method_oop, jint* entry_count_ptr, jvmtiL
 // start_location_ptr - pre-checked for NULL
 // end_location_ptr - pre-checked for NULL
 jvmtiError
-JvmtiEnv::GetMethodLocation(methodOop method_oop, jlocation* start_location_ptr, jlocation* end_location_ptr) {
+JvmtiEnv::GetMethodLocation(Method* method_oop, jlocation* start_location_ptr, jlocation* end_location_ptr) {
 
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
   // get start and end location
@@ -2820,18 +2802,18 @@ JvmtiEnv::GetMethodLocation(methodOop method_oop, jlocation* start_location_ptr,
 // entry_count_ptr - pre-checked for NULL
 // table_ptr - pre-checked for NULL
 jvmtiError
-JvmtiEnv::GetLocalVariableTable(methodOop method_oop, jint* entry_count_ptr, jvmtiLocalVariableEntry** table_ptr) {
+JvmtiEnv::GetLocalVariableTable(Method* method_oop, jint* entry_count_ptr, jvmtiLocalVariableEntry** table_ptr) {
 
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
   JavaThread* current_thread  = JavaThread::current();
 
   // does the klass have any local variable information?
-  instanceKlass* ik = instanceKlass::cast(method_oop->method_holder());
+  InstanceKlass* ik = method_oop->method_holder();
   if (!ik->access_flags().has_localvariable_table()) {
     return (JVMTI_ERROR_ABSENT_INFORMATION);
   }
 
-  constantPoolOop constants = method_oop->constants();
+  ConstantPool* constants = method_oop->constants();
   NULL_CHECK(constants, JVMTI_ERROR_ABSENT_INFORMATION);
 
   // in the vm localvariable table representation, 6 consecutive elements in the table
@@ -2897,7 +2879,7 @@ JvmtiEnv::GetLocalVariableTable(methodOop method_oop, jint* entry_count_ptr, jvm
 // bytecode_count_ptr - pre-checked for NULL
 // bytecodes_ptr - pre-checked for NULL
 jvmtiError
-JvmtiEnv::GetBytecodes(methodOop method_oop, jint* bytecode_count_ptr, unsigned char** bytecodes_ptr) {
+JvmtiEnv::GetBytecodes(Method* method_oop, jint* bytecode_count_ptr, unsigned char** bytecodes_ptr) {
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
 
   HandleMark hm;
@@ -2919,7 +2901,7 @@ JvmtiEnv::GetBytecodes(methodOop method_oop, jint* bytecode_count_ptr, unsigned 
 // method_oop - pre-checked for validity, but may be NULL meaning obsolete method
 // is_native_ptr - pre-checked for NULL
 jvmtiError
-JvmtiEnv::IsMethodNative(methodOop method_oop, jboolean* is_native_ptr) {
+JvmtiEnv::IsMethodNative(Method* method_oop, jboolean* is_native_ptr) {
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
   (*is_native_ptr) = method_oop->is_native();
   return JVMTI_ERROR_NONE;
@@ -2929,7 +2911,7 @@ JvmtiEnv::IsMethodNative(methodOop method_oop, jboolean* is_native_ptr) {
 // method_oop - pre-checked for validity, but may be NULL meaning obsolete method
 // is_synthetic_ptr - pre-checked for NULL
 jvmtiError
-JvmtiEnv::IsMethodSynthetic(methodOop method_oop, jboolean* is_synthetic_ptr) {
+JvmtiEnv::IsMethodSynthetic(Method* method_oop, jboolean* is_synthetic_ptr) {
   NULL_CHECK(method_oop, JVMTI_ERROR_INVALID_METHODID);
   (*is_synthetic_ptr) = method_oop->is_synthetic();
   return JVMTI_ERROR_NONE;
@@ -2939,7 +2921,7 @@ JvmtiEnv::IsMethodSynthetic(methodOop method_oop, jboolean* is_synthetic_ptr) {
 // method_oop - pre-checked for validity, but may be NULL meaning obsolete method
 // is_obsolete_ptr - pre-checked for NULL
 jvmtiError
-JvmtiEnv::IsMethodObsolete(methodOop method_oop, jboolean* is_obsolete_ptr) {
+JvmtiEnv::IsMethodObsolete(Method* method_oop, jboolean* is_obsolete_ptr) {
   if (use_version_1_0_semantics() &&
       get_capabilities()->can_redefine_classes == 0) {
     // This JvmtiEnv requested version 1.0 semantics and this function
@@ -3452,5 +3434,3 @@ JvmtiEnv::SetSystemProperty(const char* property, const char* value_ptr) {
   }
   return err;
 } /* end SetSystemProperty */
-
-#endif // !JVMTI_KERNEL

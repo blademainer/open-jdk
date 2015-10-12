@@ -2,7 +2,7 @@
 <head>
     <title>RMI connector</title>
 <!--
-Copyright (c) 2002, 2006, Oracle and/or its affiliates. All rights reserved.
+Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
 DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 
 This code is free software; you can redistribute it and/or modify it
@@ -36,8 +36,8 @@ questions.
       that different implementations of the RMI connector can
       interoperate.</p>
 
-    <p>The RMI connector supports both the JRMP and the IIOP transports
-      for RMI.</p>
+    <p>The RMI connector supports the JRMP transport for RMI, and
+      optionally the IIOP transport.</p>
 
     <p>Like most connectors in the JMX Remote API, an RMI connector
       usually has an address, which
@@ -95,7 +95,7 @@ questions.
       <code>rmi</code> or <code>iiop</code> in the
       <code><em>protocol</em></code> part of the
       <code>serviceURL</code> when creating the connector server.  You
-      can also create specialised connector servers by instantiating
+      can also create specialized connector servers by instantiating
       an appropriate subclass of {@link
       javax.management.remote.rmi.RMIServerImpl RMIServerImpl} and
       supplying it to the <code>RMIConnectorServer</code>

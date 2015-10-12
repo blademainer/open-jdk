@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,6 @@
 
 package sun.awt.windows;
 
-import java.awt.KeyboardFocusManager;
 import java.awt.Window;
 import java.awt.Component;
 import java.awt.peer.ComponentPeer;
@@ -37,8 +36,13 @@ class WKeyboardFocusManagerPeer extends KeyboardFocusManagerPeerImpl {
     static native Component getNativeFocusOwner();
     static native Window getNativeFocusedWindow();
 
-    WKeyboardFocusManagerPeer(KeyboardFocusManager manager) {
-        super(manager);
+    private static final WKeyboardFocusManagerPeer inst = new WKeyboardFocusManagerPeer();
+
+    public static WKeyboardFocusManagerPeer getInstance() {
+        return inst;
+    }
+
+    private WKeyboardFocusManagerPeer() {
     }
 
     @Override
@@ -49,6 +53,12 @@ class WKeyboardFocusManagerPeer extends KeyboardFocusManagerPeerImpl {
     @Override
     public Component getCurrentFocusOwner() {
         return getNativeFocusOwner();
+    }
+
+    @Override
+    public void setCurrentFocusedWindow(Window win) {
+        // Not used on Windows
+        throw new RuntimeException("not implemented");
     }
 
     @Override

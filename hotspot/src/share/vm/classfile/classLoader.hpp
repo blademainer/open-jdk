@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,7 +33,7 @@
 
 
 // Meta-index (optional, to be able to skip opening boot classpath jar files)
-class MetaIndex: public CHeapObj {
+class MetaIndex: public CHeapObj<mtClass> {
  private:
   char** _meta_package_names;
   int    _num_meta_package_names;
@@ -46,7 +46,7 @@ class MetaIndex: public CHeapObj {
 
 // Class path entry (directory or zip file)
 
-class ClassPathEntry: public CHeapObj {
+class ClassPathEntry: public CHeapObj<mtClass> {
  private:
   ClassPathEntry* _next;
  public:
@@ -63,7 +63,7 @@ class ClassPathEntry: public CHeapObj {
   ClassPathEntry();
   // Attempt to locate file_name through this class path entry.
   // Returns a class file parsing stream if successfull.
-  virtual ClassFileStream* open_stream(const char* name) = 0;
+  virtual ClassFileStream* open_stream(const char* name, TRAPS) = 0;
   // Debugging
   NOT_PRODUCT(virtual void compile_the_world(Handle loader, TRAPS) = 0;)
   NOT_PRODUCT(virtual bool is_rt_jar() = 0;)
@@ -77,7 +77,7 @@ class ClassPathDirEntry: public ClassPathEntry {
   bool is_jar_file()  { return false;  }
   const char* name()  { return _dir; }
   ClassPathDirEntry(char* dir);
-  ClassFileStream* open_stream(const char* name);
+  ClassFileStream* open_stream(const char* name, TRAPS);
   // Debugging
   NOT_PRODUCT(void compile_the_world(Handle loader, TRAPS);)
   NOT_PRODUCT(bool is_rt_jar();)
@@ -107,7 +107,7 @@ class ClassPathZipEntry: public ClassPathEntry {
   const char* name()  { return _zip_name; }
   ClassPathZipEntry(jzfile* zip, const char* zip_name);
   ~ClassPathZipEntry();
-  ClassFileStream* open_stream(const char* name);
+  ClassFileStream* open_stream(const char* name, TRAPS);
   void contents_do(void f(const char* name, void* context), void* context);
   // Debugging
   NOT_PRODUCT(void compile_the_world(Handle loader, TRAPS);)
@@ -125,13 +125,14 @@ class LazyClassPathEntry: public ClassPathEntry {
   char* _path; // dir or file
   struct stat _st;
   MetaIndex* _meta_index;
+  bool _has_error;
   volatile ClassPathEntry* _resolved_entry;
-  ClassPathEntry* resolve_entry();
+  ClassPathEntry* resolve_entry(TRAPS);
  public:
   bool is_jar_file();
   const char* name()  { return _path; }
-  LazyClassPathEntry(char* path, struct stat st);
-  ClassFileStream* open_stream(const char* name);
+  LazyClassPathEntry(char* path, const struct stat* st);
+  ClassFileStream* open_stream(const char* name, TRAPS);
   void set_meta_index(MetaIndex* meta_index) { _meta_index = meta_index; }
   virtual bool is_lazy();
   // Debugging
@@ -141,7 +142,7 @@ class LazyClassPathEntry: public ClassPathEntry {
 
 class PackageHashtable;
 class PackageInfo;
-class HashtableBucket;
+template <MEMFLAGS F> class HashtableBucket;
 
 class ClassLoader: AllStatic {
  public:
@@ -207,14 +208,15 @@ class ClassLoader: AllStatic {
   static void setup_meta_index();
   static void setup_bootstrap_search_path();
   static void load_zip_library();
-  static void create_class_path_entry(char *path, struct stat st, ClassPathEntry **new_entry, bool lazy);
+  static ClassPathEntry* create_class_path_entry(char *path, const struct stat* st,
+                                                 bool lazy, TRAPS);
 
   // Canonicalizes path names, so strcmp will work properly. This is mainly
   // to avoid confusing the zip library
   static bool get_canonical_path(char* orig, char* out, int len);
  public:
   // Used by the kernel jvm.
-  static void update_class_path_entry_list(const char *path,
+  static void update_class_path_entry_list(char *path,
                                            bool check_for_duplicates);
   static void print_bootclasspath();
 
@@ -299,7 +301,7 @@ class ClassLoader: AllStatic {
   // Initialization
   static void initialize();
   static void create_package_info_table();
-  static void create_package_info_table(HashtableBucket *t, int length,
+  static void create_package_info_table(HashtableBucket<mtClass> *t, int length,
                                         int number_of_entries);
   static int compute_Object_vtable();
 
@@ -340,11 +342,12 @@ class ClassLoader: AllStatic {
   // Force compilation of all methods in all classes in bootstrap class path (stress test)
 #ifndef PRODUCT
  private:
-  static int _compile_the_world_counter;
+  static int _compile_the_world_class_counter;
+  static int _compile_the_world_method_counter;
  public:
   static void compile_the_world();
   static void compile_the_world_in(char* name, Handle loader, TRAPS);
-  static int  compile_the_world_counter() { return _compile_the_world_counter; }
+  static int  compile_the_world_counter() { return _compile_the_world_class_counter; }
 #endif //PRODUCT
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,20 @@ public class GrowableRectArray extends GrowableIntArray {
 
     public GrowableRectArray(int initialSize) {
         super(RECT_SIZE, initialSize);
+    }
+
+    public final void pushRectValues(int x, int y, int width, int height) {
+        int currSize = size;
+        size += RECT_SIZE;
+
+        if (size >= array.length) {
+            growArray();
+        }
+
+        array[currSize] = x;
+        array[currSize + 1] = y;
+        array[currSize + 2] = width;
+        array[currSize + 3] = height;
     }
 
     public final void setX(int index, int x) {

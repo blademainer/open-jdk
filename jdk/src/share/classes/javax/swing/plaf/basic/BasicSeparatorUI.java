@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,7 +36,7 @@ import javax.swing.plaf.SeparatorUI;
 
 
 /**
- * A Basic L&F implementation of SeparatorUI.  This implementation
+ * A Basic L&amp;F implementation of SeparatorUI.  This implementation
  * is a "combined" view/controller.
  *
  * @author Georges Saab

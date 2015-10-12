@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,8 +38,11 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.io.Reader;
+import java.io.StringWriter;
 import java.io.UnsupportedEncodingException;
+import java.nio.file.Files;
 import java.util.Vector;
 
 import javax.print.CancelablePrintJob;
@@ -62,6 +65,7 @@ import javax.print.attribute.PrintJobAttribute;
 import javax.print.attribute.PrintJobAttributeSet;
 import javax.print.attribute.PrintRequestAttribute;
 import javax.print.attribute.PrintRequestAttributeSet;
+import javax.print.attribute.PrintServiceAttributeSet;
 import javax.print.attribute.standard.Copies;
 import javax.print.attribute.standard.Destination;
 import javax.print.attribute.standard.DocumentName;
@@ -73,6 +77,7 @@ import javax.print.attribute.standard.Media;
 import javax.print.attribute.standard.MediaSize;
 import javax.print.attribute.standard.MediaSizeName;
 import javax.print.attribute.standard.OrientationRequested;
+import javax.print.attribute.standard.PrinterName;
 import javax.print.attribute.standard.RequestingUserName;
 import javax.print.attribute.standard.NumberUp;
 import javax.print.attribute.standard.Sides;
@@ -117,6 +122,9 @@ public class UnixPrintJob implements CancelablePrintJob {
     UnixPrintJob(PrintService service) {
         this.service = service;
         mDestination = service.getName();
+        if (UnixPrintServiceLookup.isMac()) {
+            mDestination = ((IPPPrintService)service).getDest();
+        }
         mDestType = UnixPrintJob.DESTPRINTER;
     }
 
@@ -324,6 +332,10 @@ public class UnixPrintJob implements CancelablePrintJob {
         } catch (IOException e) {
             notifyEvent(PrintJobEvent.JOB_FAILED);
             throw new PrintException("can't get print data: " + e.toString());
+        }
+
+        if (data == null) {
+            throw new PrintException("Null print data.");
         }
 
         if (flavor == null || (!service.isDocFlavorSupported(flavor))) {
@@ -936,7 +948,7 @@ public class UnixPrintJob implements CancelablePrintJob {
                      * is not removed for some reason, request that it is
                      * removed when the VM exits.
                      */
-                    spoolFile = File.createTempFile("javaprint", ".ps", null);
+                    spoolFile = Files.createTempFile("javaprint", "").toFile();
                     spoolFile.deleteOnExit();
                 }
                 result = new FileOutputStream(spoolFile);
@@ -955,23 +967,49 @@ public class UnixPrintJob implements CancelablePrintJob {
     private class PrinterSpooler implements java.security.PrivilegedAction {
         PrintException pex;
 
+        private void handleProcessFailure(final Process failedProcess,
+                final String[] execCmd, final int result) throws IOException {
+            try (StringWriter sw = new StringWriter();
+                    PrintWriter pw = new PrintWriter(sw)) {
+                pw.append("error=").append(Integer.toString(result));
+                pw.append(" running:");
+                for (String arg: execCmd) {
+                    pw.append(" '").append(arg).append("'");
+                }
+                try (InputStream is = failedProcess.getErrorStream();
+                        InputStreamReader isr = new InputStreamReader(is);
+                        BufferedReader br = new BufferedReader(isr)) {
+                    while (br.ready()) {
+                        pw.println();
+                        pw.append("\t\t").append(br.readLine());
+                    }
+                } finally {
+                    pw.flush();
+                    throw new IOException(sw.toString());
+                }
+            }
+        }
+
         public Object run() {
+            if (spoolFile == null || !spoolFile.exists()) {
+               pex = new PrintException("No spool file");
+               notifyEvent(PrintJobEvent.JOB_FAILED);
+               return null;
+            }
             try {
                 /**
                  * Spool to the printer.
                  */
-                if (spoolFile == null || !spoolFile.exists()) {
-                   pex = new PrintException("No spool file");
-                   notifyEvent(PrintJobEvent.JOB_FAILED);
-                   return null;
-                }
                 String fileName = spoolFile.getAbsolutePath();
                 String execCmd[] = printExecCmd(mDestination, mOptions,
                                mNoJobSheet, jobName, copies, fileName);
 
                 Process process = Runtime.getRuntime().exec(execCmd);
                 process.waitFor();
-                spoolFile.delete();
+                final int result = process.exitValue();
+                if (0 != result) {
+                    handleProcessFailure(process, execCmd, result);
+                }
                 notifyEvent(PrintJobEvent.DATA_TRANSFER_COMPLETE);
             } catch (IOException ex) {
                 notifyEvent(PrintJobEvent.JOB_FAILED);
@@ -981,6 +1019,7 @@ public class UnixPrintJob implements CancelablePrintJob {
                 notifyEvent(PrintJobEvent.JOB_FAILED);
                 pex = new PrintException(ie);
             } finally {
+                spoolFile.delete();
                 notifyEvent(PrintJobEvent.NO_MORE_EVENTS);
             }
             return null;

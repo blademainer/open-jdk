@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,37 +25,27 @@
 #ifndef SHARE_VM_GC_INTERFACE_COLLECTEDHEAP_INLINE_HPP
 #define SHARE_VM_GC_INTERFACE_COLLECTEDHEAP_INLINE_HPP
 
+#include "gc_interface/allocTracer.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "memory/threadLocalAllocBuffer.inline.hpp"
 #include "memory/universe.hpp"
 #include "oops/arrayOop.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "runtime/sharedRuntime.hpp"
-#include "runtime/thread.hpp"
+#include "runtime/thread.inline.hpp"
 #include "services/lowMemoryDetector.hpp"
 #include "utilities/copy.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
 
 // Inline allocation implementations.
 
 void CollectedHeap::post_allocation_setup_common(KlassHandle klass,
-                                                 HeapWord* obj,
-                                                 size_t size) {
-  post_allocation_setup_no_klass_install(klass, obj, size);
-  post_allocation_install_obj_klass(klass, oop(obj), (int) size);
+                                                 HeapWord* obj) {
+  post_allocation_setup_no_klass_install(klass, obj);
+  post_allocation_install_obj_klass(klass, oop(obj));
 }
 
 void CollectedHeap::post_allocation_setup_no_klass_install(KlassHandle klass,
-                                                           HeapWord* objPtr,
-                                                           size_t size) {
+                                                           HeapWord* objPtr) {
   oop obj = (oop)objPtr;
 
   assert(obj != NULL, "NULL object pointer");
@@ -68,17 +58,15 @@ void CollectedHeap::post_allocation_setup_no_klass_install(KlassHandle klass,
 }
 
 void CollectedHeap::post_allocation_install_obj_klass(KlassHandle klass,
-                                                   oop obj,
-                                                   int size) {
+                                                   oop obj) {
   // These asserts are kind of complicated because of klassKlass
   // and the beginning of the world.
   assert(klass() != NULL || !Universe::is_fully_initialized(), "NULL klass");
   assert(klass() == NULL || klass()->is_klass(), "not a klass");
-  assert(klass() == NULL || klass()->klass_part() != NULL, "not a klass");
   assert(obj != NULL, "NULL object pointer");
   obj->set_klass(klass());
-  assert(!Universe::is_fully_initialized() || obj->blueprint() != NULL,
-         "missing blueprint");
+  assert(!Universe::is_fully_initialized() || obj->klass() != NULL,
+         "missing klass");
 }
 
 // Support for jvmti and dtrace
@@ -91,38 +79,36 @@ inline void post_allocation_notify(KlassHandle klass, oop obj) {
 
   if (DTraceAllocProbes) {
     // support for Dtrace object alloc event (no-op most of the time)
-    if (klass() != NULL && klass()->klass_part()->name() != NULL) {
+    if (klass() != NULL && klass()->name() != NULL) {
       SharedRuntime::dtrace_object_alloc(obj);
     }
   }
 }
 
 void CollectedHeap::post_allocation_setup_obj(KlassHandle klass,
-                                              HeapWord* obj,
-                                              size_t size) {
-  post_allocation_setup_common(klass, obj, size);
+                                              HeapWord* obj) {
+  post_allocation_setup_common(klass, obj);
   assert(Universe::is_bootstrapping() ||
-         !((oop)obj)->blueprint()->oop_is_array(), "must not be an array");
+         !((oop)obj)->is_array(), "must not be an array");
   // notify jvmti and dtrace
   post_allocation_notify(klass, (oop)obj);
 }
 
 void CollectedHeap::post_allocation_setup_array(KlassHandle klass,
                                                 HeapWord* obj,
-                                                size_t size,
                                                 int length) {
   // Set array length before setting the _klass field
   // in post_allocation_setup_common() because the klass field
   // indicates that the object is parsable by concurrent GC.
   assert(length >= 0, "length should be non-negative");
   ((arrayOop)obj)->set_length(length);
-  post_allocation_setup_common(klass, obj, size);
-  assert(((oop)obj)->blueprint()->oop_is_array(), "must be an array");
+  post_allocation_setup_common(klass, obj);
+  assert(((oop)obj)->is_array(), "must be an array");
   // notify jvmti and dtrace (must be after length is set for dtrace)
   post_allocation_notify(klass, (oop)obj);
 }
 
-HeapWord* CollectedHeap::common_mem_allocate_noinit(size_t size, bool is_noref, TRAPS) {
+HeapWord* CollectedHeap::common_mem_allocate_noinit(KlassHandle klass, size_t size, TRAPS) {
 
   // Clear unhandled oops for memory allocation.  Memory allocation might
   // not take out a lock if from tlab, so clear here.
@@ -133,10 +119,9 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(size_t size, bool is_noref, 
     return NULL;  // caller does a CHECK_0 too
   }
 
-  // We may want to update this, is_noref objects might not be allocated in TLABs.
   HeapWord* result = NULL;
   if (UseTLAB) {
-    result = CollectedHeap::allocate_from_tlab(THREAD, size);
+    result = allocate_from_tlab(klass, THREAD, size);
     if (result != NULL) {
       assert(!HAS_PENDING_EXCEPTION,
              "Unexpected exception, will result in uninitialized storage");
@@ -145,8 +130,6 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(size_t size, bool is_noref, 
   }
   bool gc_overhead_limit_was_exceeded = false;
   result = Universe::heap()->mem_allocate(size,
-                                          is_noref,
-                                          false,
                                           &gc_overhead_limit_was_exceeded);
   if (result != NULL) {
     NOT_PRODUCT(Universe::heap()->
@@ -154,6 +137,9 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(size_t size, bool is_noref, 
     assert(!HAS_PENDING_EXCEPTION,
            "Unexpected exception, will result in uninitialized storage");
     THREAD->incr_allocated_bytes(size * HeapWordSize);
+
+    AllocTracer::send_allocation_outside_tlab_event(klass, size * HeapWordSize);
+
     return result;
   }
 
@@ -183,56 +169,13 @@ HeapWord* CollectedHeap::common_mem_allocate_noinit(size_t size, bool is_noref, 
   }
 }
 
-HeapWord* CollectedHeap::common_mem_allocate_init(size_t size, bool is_noref, TRAPS) {
-  HeapWord* obj = common_mem_allocate_noinit(size, is_noref, CHECK_NULL);
+HeapWord* CollectedHeap::common_mem_allocate_init(KlassHandle klass, size_t size, TRAPS) {
+  HeapWord* obj = common_mem_allocate_noinit(klass, size, CHECK_NULL);
   init_obj(obj, size);
   return obj;
 }
 
-// Need to investigate, do we really want to throw OOM exception here?
-HeapWord* CollectedHeap::common_permanent_mem_allocate_noinit(size_t size, TRAPS) {
-  if (HAS_PENDING_EXCEPTION) {
-    NOT_PRODUCT(guarantee(false, "Should not allocate with exception pending"));
-    return NULL;  // caller does a CHECK_NULL too
-  }
-
-#ifdef ASSERT
-  if (CIFireOOMAt > 0 && THREAD->is_Compiler_thread() &&
-      ++_fire_out_of_memory_count >= CIFireOOMAt) {
-    // For testing of OOM handling in the CI throw an OOM and see how
-    // it does.  Historically improper handling of these has resulted
-    // in crashes which we really don't want to have in the CI.
-    THROW_OOP_0(Universe::out_of_memory_error_perm_gen());
-  }
-#endif
-
-  HeapWord* result = Universe::heap()->permanent_mem_allocate(size);
-  if (result != NULL) {
-    NOT_PRODUCT(Universe::heap()->
-      check_for_non_bad_heap_word_value(result, size));
-    assert(!HAS_PENDING_EXCEPTION,
-           "Unexpected exception, will result in uninitialized storage");
-    return result;
-  }
-  // -XX:+HeapDumpOnOutOfMemoryError and -XX:OnOutOfMemoryError support
-  report_java_out_of_memory("PermGen space");
-
-  if (JvmtiExport::should_post_resource_exhausted()) {
-    JvmtiExport::post_resource_exhausted(
-        JVMTI_RESOURCE_EXHAUSTED_OOM_ERROR,
-        "PermGen space");
-  }
-
-  THROW_OOP_0(Universe::out_of_memory_error_perm_gen());
-}
-
-HeapWord* CollectedHeap::common_permanent_mem_allocate_init(size_t size, TRAPS) {
-  HeapWord* obj = common_permanent_mem_allocate_noinit(size, CHECK_NULL);
-  init_obj(obj, size);
-  return obj;
-}
-
-HeapWord* CollectedHeap::allocate_from_tlab(Thread* thread, size_t size) {
+HeapWord* CollectedHeap::allocate_from_tlab(KlassHandle klass, Thread* thread, size_t size) {
   assert(UseTLAB, "should use UseTLAB");
 
   HeapWord* obj = thread->tlab().allocate(size);
@@ -240,7 +183,7 @@ HeapWord* CollectedHeap::allocate_from_tlab(Thread* thread, size_t size) {
     return obj;
   }
   // Otherwise...
-  return allocate_from_tlab_slow(thread, size);
+  return allocate_from_tlab_slow(klass, thread, size);
 }
 
 void CollectedHeap::init_obj(HeapWord* obj, size_t size) {
@@ -255,8 +198,8 @@ oop CollectedHeap::obj_allocate(KlassHandle klass, int size, TRAPS) {
   debug_only(check_for_valid_allocation_state());
   assert(!Universe::heap()->is_gc_active(), "Allocation during gc not allowed");
   assert(size >= 0, "int won't convert to size_t");
-  HeapWord* obj = common_mem_allocate_init(size, false, CHECK_NULL);
-  post_allocation_setup_obj(klass, obj, size);
+  HeapWord* obj = common_mem_allocate_init(klass, size, CHECK_NULL);
+  post_allocation_setup_obj(klass, obj);
   NOT_PRODUCT(Universe::heap()->check_for_bad_heap_word_value(obj, size));
   return (oop)obj;
 }
@@ -268,94 +211,33 @@ oop CollectedHeap::array_allocate(KlassHandle klass,
   debug_only(check_for_valid_allocation_state());
   assert(!Universe::heap()->is_gc_active(), "Allocation during gc not allowed");
   assert(size >= 0, "int won't convert to size_t");
-  HeapWord* obj = common_mem_allocate_init(size, false, CHECK_NULL);
-  post_allocation_setup_array(klass, obj, size, length);
+  HeapWord* obj = common_mem_allocate_init(klass, size, CHECK_NULL);
+  post_allocation_setup_array(klass, obj, length);
   NOT_PRODUCT(Universe::heap()->check_for_bad_heap_word_value(obj, size));
   return (oop)obj;
 }
 
-oop CollectedHeap::large_typearray_allocate(KlassHandle klass,
-                                            int size,
-                                            int length,
-                                            TRAPS) {
+oop CollectedHeap::array_allocate_nozero(KlassHandle klass,
+                                         int size,
+                                         int length,
+                                         TRAPS) {
   debug_only(check_for_valid_allocation_state());
   assert(!Universe::heap()->is_gc_active(), "Allocation during gc not allowed");
   assert(size >= 0, "int won't convert to size_t");
-  HeapWord* obj = common_mem_allocate_init(size, true, CHECK_NULL);
-  post_allocation_setup_array(klass, obj, size, length);
-  NOT_PRODUCT(Universe::heap()->check_for_bad_heap_word_value(obj, size));
+  HeapWord* obj = common_mem_allocate_noinit(klass, size, CHECK_NULL);
+  ((oop)obj)->set_klass_gap(0);
+  post_allocation_setup_array(klass, obj, length);
+#ifndef PRODUCT
+  const size_t hs = oopDesc::header_size()+1;
+  Universe::heap()->check_for_non_bad_heap_word_value(obj+hs, size-hs);
+#endif
   return (oop)obj;
 }
 
-oop CollectedHeap::permanent_obj_allocate(KlassHandle klass, int size, TRAPS) {
-  oop obj = permanent_obj_allocate_no_klass_install(klass, size, CHECK_NULL);
-  post_allocation_install_obj_klass(klass, obj, size);
-  NOT_PRODUCT(Universe::heap()->check_for_bad_heap_word_value((HeapWord*) obj,
-                                                              size));
-  return obj;
+inline void CollectedHeap::oop_iterate_no_header(OopClosure* cl) {
+  NoHeaderExtendedOopClosure no_header_cl(cl);
+  oop_iterate(&no_header_cl);
 }
-
-oop CollectedHeap::permanent_obj_allocate_no_klass_install(KlassHandle klass,
-                                                           int size,
-                                                           TRAPS) {
-  debug_only(check_for_valid_allocation_state());
-  assert(!Universe::heap()->is_gc_active(), "Allocation during gc not allowed");
-  assert(size >= 0, "int won't convert to size_t");
-  HeapWord* obj = common_permanent_mem_allocate_init(size, CHECK_NULL);
-  post_allocation_setup_no_klass_install(klass, obj, size);
-  NOT_PRODUCT(Universe::heap()->check_for_bad_heap_word_value(obj, size));
-  return (oop)obj;
-}
-
-oop CollectedHeap::permanent_array_allocate(KlassHandle klass,
-                                            int size,
-                                            int length,
-                                            TRAPS) {
-  debug_only(check_for_valid_allocation_state());
-  assert(!Universe::heap()->is_gc_active(), "Allocation during gc not allowed");
-  assert(size >= 0, "int won't convert to size_t");
-  HeapWord* obj = common_permanent_mem_allocate_init(size, CHECK_NULL);
-  post_allocation_setup_array(klass, obj, size, length);
-  NOT_PRODUCT(Universe::heap()->check_for_bad_heap_word_value(obj, size));
-  return (oop)obj;
-}
-
-// Returns "TRUE" if "p" is a method oop in the
-// current heap with high probability. NOTE: The main
-// current consumers of this interface are Forte::
-// and ThreadProfiler::. In these cases, the
-// interpreter frame from which "p" came, may be
-// under construction when sampled asynchronously, so
-// the clients want to check that it represents a
-// valid method before using it. Nonetheless since
-// the clients do not typically lock out GC, the
-// predicate is_valid_method() is not stable, so
-// it is possible that by the time "p" is used, it
-// is no longer valid.
-inline bool CollectedHeap::is_valid_method(oop p) const {
-  return
-    p != NULL &&
-
-    // Check whether it is aligned at a HeapWord boundary.
-    Space::is_aligned(p) &&
-
-    // Check whether "method" is in the allocated part of the
-    // permanent generation -- this needs to be checked before
-    // p->klass() below to avoid a SEGV (but see below
-    // for a potential window of vulnerability).
-    is_permanent((void*)p) &&
-
-    // See if GC is active; however, there is still an
-    // apparently unavoidable window after this call
-    // and before the client of this interface uses "p".
-    // If the client chooses not to lock out GC, then
-    // it's a risk the client must accept.
-    !is_gc_active() &&
-
-    // Check that p is a methodOop.
-    p->klass() == Universe::methodKlassObj();
-}
-
 
 #ifndef PRODUCT
 

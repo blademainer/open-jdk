@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -97,7 +97,7 @@ public class StandardTextSource extends TextSource {
       throw new IllegalArgumentException("bad frc: null");
     }
 
-    this.chars = chars;
+    this.chars = chars.clone();
     this.start = start;
     this.len = len;
     this.cstart = cstart;
@@ -148,7 +148,7 @@ public class StandardTextSource extends TextSource {
   // TextSource API
 
   public char[] getChars() {
-    return chars;
+    return chars.clone();
   }
 
   public int getStart() {

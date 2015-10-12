@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2012, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
  * This library is free software; you can redistribute it and/or
@@ -56,6 +56,14 @@ typedef unsigned char uint8_t;
 typedef unsigned long ulong_t;
 typedef enum { B_FALSE, B_TRUE } boolean_t;
 #endif /* __linux__ */
+
+#ifdef _ALLBSD_SOURCE
+#include <stdint.h>
+#define B_FALSE FALSE
+#define B_TRUE TRUE
+typedef unsigned long ulong_t;
+typedef enum boolean { B_FALSE, B_TRUE } boolean_t;
+#endif /* _ALLBSD_SOURCE */
 
 #ifdef _WIN32
 typedef unsigned char uint8_t;

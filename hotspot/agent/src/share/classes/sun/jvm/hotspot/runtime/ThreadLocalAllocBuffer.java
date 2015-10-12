@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@ package sun.jvm.hotspot.runtime;
 import java.io.*;
 import java.util.*;
 import sun.jvm.hotspot.debugger.*;
+import sun.jvm.hotspot.oops.*;
 import sun.jvm.hotspot.types.*;
 
 /** <P> ThreadLocalAllocBuffer: a descriptor for thread-local storage
@@ -62,9 +63,22 @@ public class ThreadLocalAllocBuffer extends VMObject {
     super(addr);
   }
 
-  public Address start()                        { return startField.getValue(addr); }
-  public Address end()                          { return   endField.getValue(addr); }
-  public Address top()                          { return   topField.getValue(addr); }
+  public Address start()    { return startField.getValue(addr); }
+  public Address end()      { return   endField.getValue(addr); }
+  public Address top()      { return   topField.getValue(addr); }
+  public Address hardEnd()  { return end().addOffsetTo(alignmentReserve()); }
+
+  private long alignmentReserve() {
+    return Oop.alignObjectSize(endReserve());
+  }
+
+  private long endReserve() {
+    long minFillerArraySize = Array.baseOffsetInBytes(BasicType.T_INT);
+    long reserveForAllocationPrefetch = VM.getVM().getReserveForAllocationPrefetch();
+    long heapWordSize = VM.getVM().getHeapWordSize();
+
+    return Math.max(minFillerArraySize, reserveForAllocationPrefetch * heapWordSize);
+  }
 
   /** Support for iteration over heap -- not sure how this will
       interact with GC in reflective system, but necessary for the
@@ -95,6 +109,6 @@ public class ThreadLocalAllocBuffer extends VMObject {
 
   public void printOn(PrintStream tty) {
     tty.println(" [" + start() + "," +
-                top() + "," + end() + ")");
+                top() + "," + end() + ",{" + hardEnd() + "})");
   }
 }

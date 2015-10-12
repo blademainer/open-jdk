@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,18 +28,22 @@
 #include "c1/c1_Runtime1.hpp"
 #include "interpreter/interpreter.hpp"
 #include "nativeInst_sparc.hpp"
-#include "oops/compiledICHolderOop.hpp"
+#include "oops/compiledICHolder.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "register_sparc.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/signature.hpp"
 #include "runtime/vframeArray.hpp"
+#include "utilities/macros.hpp"
 #include "vmreg_sparc.inline.hpp"
+#if INCLUDE_ALL_GCS
+#include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
+#endif
 
 // Implementation of StubAssembler
 
-int StubAssembler::call_RT(Register oop_result1, Register oop_result2, address entry_point, int number_of_arguments) {
+int StubAssembler::call_RT(Register oop_result1, Register metadata_result, address entry_point, int number_of_arguments) {
   // for sparc changing the number of arguments doesn't change
   // anything about the frame size so we'll always lie and claim that
   // we are only passing 1 argument.
@@ -71,8 +75,7 @@ int StubAssembler::call_RT(Register oop_result1, Register oop_result2, address e
   { Label L;
     Address exception_addr(G2_thread, Thread::pending_exception_offset());
     ld_ptr(exception_addr, Gtemp);
-    br_null(Gtemp, false, pt, L);
-    delayed()->nop();
+    br_null_short(Gtemp, pt, L);
     Address vm_result_addr(G2_thread, JavaThread::vm_result_offset());
     st_ptr(G0, vm_result_addr);
     Address vm_result_addr_2(G2_thread, JavaThread::vm_result_2_offset());
@@ -101,8 +104,9 @@ int StubAssembler::call_RT(Register oop_result1, Register oop_result2, address e
     st_ptr(G0, vm_result_addr);
   }
 
-  if (oop_result2->is_valid()) {
-    get_vm_result_2(oop_result2);
+  // get second result if there is one and reset the value in the thread
+  if (metadata_result->is_valid()) {
+    get_vm_result_2  (metadata_result);
   } else {
     // be a little paranoid and clear the result
     Address vm_result_addr_2(G2_thread, JavaThread::vm_result_2_offset());
@@ -113,27 +117,27 @@ int StubAssembler::call_RT(Register oop_result1, Register oop_result2, address e
 }
 
 
-int StubAssembler::call_RT(Register oop_result1, Register oop_result2, address entry, Register arg1) {
+int StubAssembler::call_RT(Register oop_result1, Register metadata_result, address entry, Register arg1) {
   // O0 is reserved for the thread
   mov(arg1, O1);
-  return call_RT(oop_result1, oop_result2, entry, 1);
+  return call_RT(oop_result1, metadata_result, entry, 1);
 }
 
 
-int StubAssembler::call_RT(Register oop_result1, Register oop_result2, address entry, Register arg1, Register arg2) {
+int StubAssembler::call_RT(Register oop_result1, Register metadata_result, address entry, Register arg1, Register arg2) {
   // O0 is reserved for the thread
   mov(arg1, O1);
   mov(arg2, O2); assert(arg2 != O1, "smashed argument");
-  return call_RT(oop_result1, oop_result2, entry, 2);
+  return call_RT(oop_result1, metadata_result, entry, 2);
 }
 
 
-int StubAssembler::call_RT(Register oop_result1, Register oop_result2, address entry, Register arg1, Register arg2, Register arg3) {
+int StubAssembler::call_RT(Register oop_result1, Register metadata_result, address entry, Register arg1, Register arg2, Register arg3) {
   // O0 is reserved for the thread
   mov(arg1, O1);
   mov(arg2, O2); assert(arg2 != O1,               "smashed argument");
   mov(arg3, O3); assert(arg3 != O1 && arg3 != O2, "smashed argument");
-  return call_RT(oop_result1, oop_result2, entry, 3);
+  return call_RT(oop_result1, metadata_result, entry, 3);
 }
 
 
@@ -333,9 +337,7 @@ OopMapSet* Runtime1::generate_patching(StubAssembler* sasm, address target) {
   assert(deopt_blob != NULL, "deoptimization blob must have been created");
 
   Label no_deopt;
-  __ tst(O0);
-  __ brx(Assembler::equal, false, Assembler::pt, no_deopt);
-  __ delayed()->nop();
+  __ br_null_short(O0, Assembler::pt, no_deopt);
 
   // return to the deoptimization handler entry for unpacking and rexecute
   // if we simply returned the we'd deopt as if any call we patched had just
@@ -401,8 +403,8 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
 
           if (id == fast_new_instance_init_check_id) {
             // make sure the klass is initialized
-            __ ld(G5_klass, instanceKlass::init_state_offset_in_bytes() + sizeof(oopDesc), G3_t1);
-            __ cmp(G3_t1, instanceKlass::fully_initialized);
+            __ ldub(G5_klass, in_bytes(InstanceKlass::init_state_offset()), G3_t1);
+            __ cmp(G3_t1, InstanceKlass::fully_initialized);
             __ br(Assembler::notEqual, false, Assembler::pn, slow_path);
             __ delayed()->nop();
           }
@@ -410,10 +412,9 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
           // assert object can be fast path allocated
           {
             Label ok, not_ok;
-          __ ld(G5_klass, Klass::layout_helper_offset_in_bytes() + sizeof(oopDesc), G1_obj_size);
-          __ cmp(G1_obj_size, 0);  // make sure it's an instance (LH > 0)
-          __ br(Assembler::lessEqual, false, Assembler::pn, not_ok);
-          __ delayed()->nop();
+          __ ld(G5_klass, in_bytes(Klass::layout_helper_offset()), G1_obj_size);
+          // make sure it's an instance (LH > 0)
+          __ cmp_and_br_short(G1_obj_size, 0, Assembler::lessEqual, Assembler::pn, not_ok);
           __ btst(Klass::_lh_instance_slow_path_bit, G1_obj_size);
           __ br(Assembler::zero, false, Assembler::pn, ok);
           __ delayed()->nop();
@@ -431,7 +432,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
           __ bind(retry_tlab);
 
           // get the instance size
-          __ ld(G5_klass, klassOopDesc::header_size() * HeapWordSize + Klass::layout_helper_offset_in_bytes(), G1_obj_size);
+          __ ld(G5_klass, in_bytes(Klass::layout_helper_offset()), G1_obj_size);
 
           __ tlab_allocate(O0_obj, G1_obj_size, 0, G3_t1, slow_path);
 
@@ -443,7 +444,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
 
           __ bind(try_eden);
           // get the instance size
-          __ ld(G5_klass, klassOopDesc::header_size() * HeapWordSize + Klass::layout_helper_offset_in_bytes(), G1_obj_size);
+          __ ld(G5_klass, in_bytes(Klass::layout_helper_offset()), G1_obj_size);
           __ eden_allocate(O0_obj, G1_obj_size, 0, G3_t1, G4_t2, slow_path);
           __ incr_allocated_bytes(G1_obj_size, G3_t1, G4_t2);
 
@@ -477,8 +478,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         Register G4_length = G4; // Incoming
         Register O0_obj   = O0; // Outgoing
 
-        Address klass_lh(G5_klass, ((klassOopDesc::header_size() * HeapWordSize)
-                                    + Klass::layout_helper_offset_in_bytes()));
+        Address klass_lh(G5_klass, Klass::layout_helper_offset());
         assert(Klass::_lh_header_size_shift % BitsPerByte == 0, "bytewise");
         assert(Klass::_lh_header_size_mask == 0xFF, "bytewise");
         // Use this offset to pick out an individual byte of the layout_helper:
@@ -501,9 +501,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
           int tag = ((id == new_type_array_id)
                      ? Klass::_lh_array_tag_type_value
                      : Klass::_lh_array_tag_obj_value);
-          __ cmp(G3_t1, tag);
-          __ brx(Assembler::equal, false, Assembler::pt, ok);
-          __ delayed()->nop();
+          __ cmp_and_brx_short(G3_t1, tag, Assembler::equal, Assembler::pt, ok);
           __ stop("assert(is an array klass)");
           __ should_not_reach_here();
           __ bind(ok);
@@ -602,7 +600,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         Label register_finalizer;
         Register t = O1;
         __ load_klass(O0, t);
-        __ ld(t, Klass::access_flags_offset_in_bytes() + sizeof(oopDesc), t);
+        __ ld(t, in_bytes(Klass::access_flags_offset()), t);
         __ set(JVM_ACC_HAS_FINALIZER, G3);
         __ andcc(G3, t, G0);
         __ br(Assembler::notZero, false, Assembler::pt, register_finalizer);
@@ -776,7 +774,22 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
 
         __ ret();
         __ delayed()->restore();
+      }
+      break;
 
+    case deoptimize_id:
+      {
+        __ set_info("deoptimize", dont_gc_arguments);
+        OopMap* oop_map = save_live_registers(sasm);
+        int call_offset = __ call_RT(noreg, noreg, CAST_FROM_FN_PTR(address, deoptimize));
+        oop_maps = new OopMapSet();
+        oop_maps->add_gc_map(call_offset, oop_map);
+        restore_live_registers(sasm);
+        DeoptimizationBlob* deopt_blob = SharedRuntime::deopt_blob();
+        assert(deopt_blob != NULL, "deoptimization blob must have been created");
+        AddressLiteral dest(deopt_blob->unpack_with_reexecution());
+        __ jump_to(dest, O0);
+        __ delayed()->restore();
       }
       break;
 
@@ -792,10 +805,15 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
       }
       break;
 
-    case jvmti_exception_throw_id:
-      { // Oexception : exception
-        __ set_info("jvmti_exception_throw", dont_gc_arguments);
-        oop_maps = generate_stub_call(sasm, noreg, CAST_FROM_FN_PTR(address, Runtime1::post_jvmti_exception_throw), I0);
+    case load_mirror_patching_id:
+      { __ set_info("load_mirror_patching", dont_gc_arguments);
+        oop_maps = generate_patching(sasm, CAST_FROM_FN_PTR(address, move_mirror_patching));
+      }
+      break;
+
+    case load_appendix_patching_id:
+      { __ set_info("load_appendix_patching", dont_gc_arguments);
+        oop_maps = generate_patching(sasm, CAST_FROM_FN_PTR(address, move_appendix_patching));
       }
       break;
 
@@ -818,7 +836,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
       }
       break;
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
     case g1_pre_barrier_slow_id:
       { // G4: previous value of memory
         BarrierSet* bs = Universe::heap()->barrier_set();
@@ -844,14 +862,16 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         int satb_q_buf_byte_offset =
           in_bytes(JavaThread::satb_mark_queue_offset() +
                    PtrQueue::byte_offset_of_buf());
+
         __ bind(restart);
+        // Load the index into the SATB buffer. PtrQueue::_index is a
+        // size_t so ld_ptr is appropriate
         __ ld_ptr(G2_thread, satb_q_index_byte_offset, tmp);
 
-        __ br_on_reg_cond(Assembler::rc_z, /*annul*/false,
-                          Assembler::pn, tmp, refill);
+        // index == 0?
+        __ cmp_and_brx_short(tmp, G0, Assembler::equal, Assembler::pn, refill);
 
-        // If the branch is taken, no harm in executing this in the delay slot.
-        __ delayed()->ld_ptr(G2_thread, satb_q_buf_byte_offset, tmp2);
+        __ ld_ptr(G2_thread, satb_q_buf_byte_offset, tmp2);
         __ sub(tmp, oopSize, tmp);
 
         __ st_ptr(pre_val, tmp2, tmp);  // [_buf + index] := <address_of_card>
@@ -899,7 +919,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         Register tmp2 = G3_scratch;
         jbyte* byte_map_base = ((CardTableModRefBS*)bs)->byte_map_base;
 
-        Label not_already_dirty, restart, refill;
+        Label not_already_dirty, restart, refill, young_card;
 
 #ifdef _LP64
         __ srlx(addr, CardTableModRefBS::card_shift, addr);
@@ -911,12 +931,15 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         __ set(rs, cardtable);         // cardtable := <card table base>
         __ ldub(addr, cardtable, tmp); // tmp := [addr + cardtable]
 
-        __ br_on_reg_cond(Assembler::rc_nz, /*annul*/false, Assembler::pt,
-                          tmp, not_already_dirty);
-        // Get cardtable + tmp into a reg by itself -- useful in the take-the-branch
-        // case, harmless if not.
-        __ delayed()->add(addr, cardtable, tmp2);
+        __ cmp_and_br_short(tmp, G1SATBCardTableModRefBS::g1_young_card_val(), Assembler::equal, Assembler::pt, young_card);
 
+        __ membar(Assembler::Membar_mask_bits(Assembler::StoreLoad));
+        __ ldub(addr, cardtable, tmp); // tmp := [addr + cardtable]
+
+        assert(CardTableModRefBS::dirty_card_val() == 0, "otherwise check this code");
+        __ cmp_and_br_short(tmp, G0, Assembler::notEqual, Assembler::pt, not_already_dirty);
+
+        __ bind(young_card);
         // We didn't take the branch, so we're already dirty: return.
         // Use return-from-leaf
         __ retl();
@@ -924,6 +947,10 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
 
         // Not dirty.
         __ bind(not_already_dirty);
+
+        // Get cardtable + tmp into a reg by itself
+        __ add(addr, cardtable, tmp2);
+
         // First, dirty it.
         __ stb(G0, tmp2, 0);  // [cardPtr] := 0  (i.e., dirty).
 
@@ -939,13 +966,17 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         int dirty_card_q_buf_byte_offset =
           in_bytes(JavaThread::dirty_card_queue_offset() +
                    PtrQueue::byte_offset_of_buf());
+
         __ bind(restart);
+
+        // Get the index into the update buffer. PtrQueue::_index is
+        // a size_t so ld_ptr is appropriate here.
         __ ld_ptr(G2_thread, dirty_card_q_index_byte_offset, tmp3);
 
-        __ br_on_reg_cond(Assembler::rc_z, /*annul*/false, Assembler::pn,
-                          tmp3, refill);
-        // If the branch is taken, no harm in executing this in the delay slot.
-        __ delayed()->ld_ptr(G2_thread, dirty_card_q_buf_byte_offset, tmp4);
+        // index == 0?
+        __ cmp_and_brx_short(tmp3, G0, Assembler::equal,  Assembler::pn, refill);
+
+        __ ld_ptr(G2_thread, dirty_card_q_buf_byte_offset, tmp4);
         __ sub(tmp3, oopSize, tmp3);
 
         __ st_ptr(tmp2, tmp4, tmp3);  // [_buf + index] := <address_of_card>
@@ -973,7 +1004,27 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         __ delayed()->restore();
       }
       break;
-#endif // !SERIALGC
+#endif // INCLUDE_ALL_GCS
+
+    case predicate_failed_trap_id:
+      {
+        __ set_info("predicate_failed_trap", dont_gc_arguments);
+        OopMap* oop_map = save_live_registers(sasm);
+
+        int call_offset = __ call_RT(noreg, noreg, CAST_FROM_FN_PTR(address, predicate_failed_trap));
+
+        oop_maps = new OopMapSet();
+        oop_maps->add_gc_map(call_offset, oop_map);
+
+        DeoptimizationBlob* deopt_blob = SharedRuntime::deopt_blob();
+        assert(deopt_blob != NULL, "deoptimization blob must have been created");
+        restore_live_registers(sasm);
+
+        AddressLiteral dest(deopt_blob->unpack_with_reexecution());
+        __ jump_to(dest, O0);
+        __ delayed()->restore();
+      }
+      break;
 
     default:
       { __ set_info("unimplemented entry", dont_gc_arguments);
@@ -1028,6 +1079,25 @@ OopMapSet* Runtime1::generate_handle_exception(StubID id, StubAssembler* sasm) {
   }
 
   __ verify_not_null_oop(Oexception);
+
+#ifdef ASSERT
+  // check that fields in JavaThread for exception oop and issuing pc are
+  // empty before writing to them
+  Label oop_empty;
+  Register scratch = I7;  // We can use I7 here because it's overwritten later anyway.
+  __ ld_ptr(Address(G2_thread, JavaThread::exception_oop_offset()), scratch);
+  __ br_null(scratch, false, Assembler::pt, oop_empty);
+  __ delayed()->nop();
+  __ stop("exception oop already set");
+  __ bind(oop_empty);
+
+  Label pc_empty;
+  __ ld_ptr(Address(G2_thread, JavaThread::exception_pc_offset()), scratch);
+  __ br_null(scratch, false, Assembler::pt, pc_empty);
+  __ delayed()->nop();
+  __ stop("exception pc already set");
+  __ bind(pc_empty);
+#endif
 
   // save the exception and issuing pc in the thread
   __ st_ptr(Oexception,  G2_thread, in_bytes(JavaThread::exception_oop_offset()));

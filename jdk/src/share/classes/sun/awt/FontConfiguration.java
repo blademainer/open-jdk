@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -266,10 +266,19 @@ public abstract class FontConfiguration {
     private File findFontConfigFile(String javaLib) {
         String baseName = javaLib + File.separator + "fontconfig";
         File configFile;
+        String osMajorVersion = null;
         if (osVersion != null && osName != null) {
             configFile = findImpl(baseName + "." + osName + "." + osVersion);
             if (configFile != null) {
                 return configFile;
+            }
+            int decimalPointIndex = osVersion.indexOf(".");
+            if (decimalPointIndex != -1) {
+                osMajorVersion = osVersion.substring(0, osVersion.indexOf("."));
+                configFile = findImpl(baseName + "." + osName + "." + osMajorVersion);
+                if (configFile != null) {
+                    return configFile;
+                }
             }
         }
         if (osName != null) {
@@ -282,6 +291,12 @@ public abstract class FontConfiguration {
             configFile = findImpl(baseName + "." + osVersion);
             if (configFile != null) {
                 return configFile;
+            }
+            if (osMajorVersion != null) {
+                configFile = findImpl(baseName + "." + osMajorVersion);
+                if (configFile != null) {
+                    return configFile;
+                }
             }
         }
         foundOsSpecificFile = false;
@@ -932,7 +947,7 @@ public abstract class FontConfiguration {
                     public Object run() {
                         try {
                             return Class.forName(charsetName, true,
-                                                 Thread.currentThread().getContextClassLoader());
+                                                 ClassLoader.getSystemClassLoader());
                         } catch (ClassNotFoundException e) {
                         }
                         return null;
@@ -1263,7 +1278,7 @@ public abstract class FontConfiguration {
     //////////////////////////////////////////////////////////////////////
     /* The binary font configuration file begins with a short[] "head", which
      * contains the offsets to the starts of the individual data table which
-     * immediately follow. Teh current implemention includes the tables shown
+     * immediately follow. The current implementation includes the tables shown
      * below.
      *
      * (00) table_scriptIDs    :stringIDs of all defined CharacterSubsetNames
@@ -2104,7 +2119,7 @@ public abstract class FontConfiguration {
         private void parseProperty(String key, String value) {
             if (key.startsWith("filename.")) {
                 //the only special case is "MingLiu_HKSCS" which has "_" in its
-                //facename, we dont want to replace the "_" with " "
+                //facename, we don't want to replace the "_" with " "
                 key = key.substring(9);
                 if (!"MingLiU_HKSCS".equals(key)) {
                     key = key.replace('_', ' ');
@@ -2209,7 +2224,7 @@ public abstract class FontConfiguration {
                 proportionals.put(getID(componentFontNameIDs, key),
                                   getID(componentFontNameIDs, value));
             } else {
-                //"name.style.script(.motif)", we dont care anything else
+                //"name.style.script(.motif)", we don't care anything else
                 int dot1, dot2;
                 boolean isMotif = false;
 

@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2003, 2006, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -22,8 +22,9 @@
 #
 
 # @test
-# @bug 4938185
+# @bug 4938185 7106773
 # @summary KeyStore support for NSS cert/key databases
+#          512 bits RSA key cannot work with SHA384 and SHA512
 #
 # @run shell ClientAuth.sh
 
@@ -39,9 +40,13 @@ fi
 if [ "${TESTJAVA}" = "" ] ; then
     TESTJAVA="/net/radiant/export1/charlie/mustang/build/solaris-sparc"
 fi
+if [ "${COMPILEJAVA}" = "" ]; then
+  COMPILEJAVA="${TESTJAVA}"
+fi
 echo TESTSRC=${TESTSRC}
 echo TESTCLASSES=${TESTCLASSES}
 echo TESTJAVA=${TESTJAVA}
+echo COMPILEJAVA=${COMPILEJAVA}
 echo ""
 
 OS=`uname -s`
@@ -120,13 +125,15 @@ ${CP} ${TESTSRC}${FS}ClientAuthData${FS}key3.db ${TESTCLASSES}
 ${CHMOD} +w ${TESTCLASSES}${FS}key3.db
 
 # compile test
-${TESTJAVA}${FS}bin${FS}javac \
+${COMPILEJAVA}${FS}bin${FS}javac ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} \
 	-classpath ${TESTSRC}${FS}..${PS}${TESTSRC}${FS}loader.jar \
 	-d ${TESTCLASSES} \
-	${TESTSRC}${FS}ClientAuth.java
+	${TESTSRC}${FS}ClientAuth.java \
+	${TESTSRC}${FS}..${FS}PKCS11Test.java
 
 # run test
-${TESTJAVA}${FS}bin${FS}java \
+echo "Run ClientAuth ..."
+${TESTJAVA}${FS}bin${FS}java ${TESTVMOPTS} \
 	-classpath ${TESTCLASSES}${PS}${TESTSRC}${FS}loader.jar \
 	-DDIR=${TESTSRC}${FS}ClientAuthData${FS} \
 	-DCUSTOM_DB_DIR=${TESTCLASSES} \
@@ -136,6 +143,27 @@ ${TESTJAVA}${FS}bin${FS}java \
 	-Dtest.src=${TESTSRC} \
 	-Dtest.classes=${TESTCLASSES} \
 	ClientAuth
+
+# save error status
+status=$?
+
+# return if failed
+if [ "${status}" != "0" ] ; then
+    exit $status
+fi
+
+# run test with specified TLS protocol and cipher suite
+echo "Run ClientAuth TLSv1.2 TLS_DHE_RSA_WITH_AES_128_CBC_SHA"
+${TESTJAVA}${FS}bin${FS}java ${TESTVMOPTS} \
+	-classpath ${TESTCLASSES}${PS}${TESTSRC}${FS}loader.jar \
+	-DDIR=${TESTSRC}${FS}ClientAuthData${FS} \
+	-DCUSTOM_DB_DIR=${TESTCLASSES} \
+	-DCUSTOM_P11_CONFIG=${TESTSRC}${FS}ClientAuthData${FS}p11-nss.txt \
+	-DNO_DEFAULT=true \
+	-DNO_DEIMOS=true \
+	-Dtest.src=${TESTSRC} \
+	-Dtest.classes=${TESTCLASSES} \
+	ClientAuth TLSv1.2 TLS_DHE_RSA_WITH_AES_128_CBC_SHA
 
 # save error status
 status=$?

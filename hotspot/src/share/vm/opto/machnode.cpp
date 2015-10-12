@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,7 +38,7 @@ int MachOper::reg(PhaseRegAlloc *ra_, const Node *node, int idx) const {
   return (int)(ra_->get_encode(node->in(idx)));
 }
 intptr_t  MachOper::constant() const { return 0x00; }
-bool MachOper::constant_is_oop() const { return false; }
+relocInfo::relocType MachOper::constant_reloc() const { return relocInfo::none; }
 jdouble MachOper::constantD() const { ShouldNotReachHere(); return 0.0; }
 jfloat  MachOper::constantF() const { ShouldNotReachHere(); return 0.0; }
 jlong   MachOper::constantL() const { ShouldNotReachHere(); return CONST64(0) ; }
@@ -54,7 +54,7 @@ int MachOper::constant_disp()  const { return 0; }
 int MachOper::base_position()  const { return -1; }  // no base input
 int MachOper::index_position() const { return -1; }  // no index input
 // Check for PC-Relative displacement
-bool MachOper::disp_is_oop() const { return false; }
+relocInfo::relocType MachOper::disp_reloc() const { return relocInfo::none; }
 // Return the label
 Label*   MachOper::label()  const { ShouldNotReachHere(); return 0; }
 intptr_t MachOper::method() const { ShouldNotReachHere(); return 0; }
@@ -265,7 +265,8 @@ const Node* MachNode::get_base_and_disp(intptr_t &offset, const TypePtr* &adr_ty
     // See if it adds up to a base + offset.
     if (index != NULL) {
       const Type* t_index = index->bottom_type();
-      if (t_index->isa_narrowoop()) { // EncodeN, LoadN, LoadConN, LoadNKlass.
+      if (t_index->isa_narrowoop() || t_index->isa_narrowklass()) { // EncodeN, LoadN, LoadConN, LoadNKlass,
+                                                                    // EncodeNKlass, LoadConNklass.
         // Memory references through narrow oops have a
         // funny base so grab the type from the index:
         // [R12 + narrow_oop_reg<<3 + offset]
@@ -340,7 +341,7 @@ const class TypePtr *MachNode::adr_type() const {
       return TypePtr::BOTTOM;
     }
     // %%% make offset be intptr_t
-    assert(!Universe::heap()->is_in_reserved((oop)offset), "must be a raw ptr");
+    assert(!Universe::heap()->is_in_reserved(cast_to_oop(offset)), "must be a raw ptr");
     return TypeRawPtr::BOTTOM;
   }
 
@@ -348,7 +349,11 @@ const class TypePtr *MachNode::adr_type() const {
   if (base == NodeSentinel)  return TypePtr::BOTTOM;
 
   const Type* t = base->bottom_type();
-  if (UseCompressedOops && Universe::narrow_oop_shift() == 0) {
+  if (t->isa_narrowoop() && Universe::narrow_oop_shift() == 0) {
+    // 32-bit unscaled narrow oop can be the base of any address expression
+    t = t->make_ptr();
+  }
+  if (t->isa_narrowklass() && Universe::narrow_klass_shift() == 0) {
     // 32-bit unscaled narrow oop can be the base of any address expression
     t = t->make_ptr();
   }
@@ -389,12 +394,6 @@ int MachNode::operand_index( uint operand ) const {
 }
 
 
-//------------------------------negate-----------------------------------------
-// Negate conditional branches.  Error for non-branch Nodes
-void MachNode::negate() {
-  ShouldNotCallThis();
-}
-
 //------------------------------peephole---------------------------------------
 // Apply peephole rule(s) to this instruction
 MachNode *MachNode::peephole( Block *block, int block_index, PhaseRegAlloc *ra_, int &deleted, Compile* C ) {
@@ -404,12 +403,6 @@ MachNode *MachNode::peephole( Block *block, int block_index, PhaseRegAlloc *ra_,
 //------------------------------add_case_label---------------------------------
 // Adds the label for the case
 void MachNode::add_case_label( int index_num, Label* blockLabel) {
-  ShouldNotCallThis();
-}
-
-//------------------------------label_set--------------------------------------
-// Set the Label for a LabelOper, if an operand for this instruction
-void MachNode::label_set( Label& label, uint block_num ) {
   ShouldNotCallThis();
 }
 
@@ -451,9 +444,9 @@ bool MachNode::rematerialize() const {
   // Don't remateralize somebody with bound inputs - it stretches a
   // fixed register lifetime.
   uint idx = oper_input_base();
-  if( req() > idx ) {
+  if (req() > idx) {
     const RegMask &rm = in_RegMask(idx);
-    if( rm.is_bound1() || rm.is_bound2() )
+    if (rm.is_bound(ideal_reg()))
       return false;
   }
 
@@ -492,14 +485,20 @@ void MachTypeNode::dump_spec(outputStream *st) const {
 
 //=============================================================================
 int MachConstantNode::constant_offset() {
-  int offset = _constant.offset();
   // Bind the offset lazily.
-  if (offset == -1) {
+  if (_constant.offset() == -1) {
     Compile::ConstantTable& constant_table = Compile::current()->constant_table();
-    offset = constant_table.table_base_offset() + constant_table.find_offset(_constant);
-    _constant.set_offset(offset);
+    int offset = constant_table.find_offset(_constant);
+    // If called from Compile::scratch_emit_size return the
+    // pre-calculated offset.
+    // NOTE: If the AD file does some table base offset optimizations
+    // later the AD file needs to take care of this fact.
+    if (Compile::current()->in_scratch_emit_size()) {
+      return constant_table.calculate_table_base_offset() + offset;
+    }
+    _constant.set_offset(constant_table.table_base_offset() + offset);
   }
-  return offset;
+  return _constant.offset();
 }
 
 
@@ -507,12 +506,18 @@ int MachConstantNode::constant_offset() {
 #ifndef PRODUCT
 void MachNullCheckNode::format( PhaseRegAlloc *ra_, outputStream *st ) const {
   int reg = ra_->get_reg_first(in(1)->in(_vidx));
-  tty->print("%s %s", Name(), Matcher::regName[reg]);
+  st->print("%s %s", Name(), Matcher::regName[reg]);
 }
 #endif
 
 void MachNullCheckNode::emit(CodeBuffer &cbuf, PhaseRegAlloc *ra_) const {
   // only emits entries in the null-pointer exception handler table
+}
+void MachNullCheckNode::label_set(Label* label, uint block_num) {
+  // Nothing to emit
+}
+void MachNullCheckNode::save_label( Label** label, uint* block_num ) {
+  // Nothing to emit
 }
 
 const RegMask &MachNullCheckNode::in_RegMask( uint idx ) const {

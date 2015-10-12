@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,10 +29,8 @@ import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.AdjustmentEvent;
-import java.util.List;
 import java.util.ArrayList;
 import java.util.Iterator;
-import sun.awt.motif.X11FontMetrics;
 import sun.util.logging.PlatformLogger;
 
 // FIXME: implement multi-select
@@ -263,7 +261,7 @@ public class ListHelper implements XScrollbarClient {
     }
 
     public int y2index(int y) {
-        if (log.isLoggable(PlatformLogger.FINE)) {
+        if (log.isLoggable(PlatformLogger.Level.FINE)) {
             log.fine("y=" + y +", firstIdx=" + firstDisplayedIndex() +", itemHeight=" + getItemHeight()
                      + ",item_margin=" + ITEM_MARGIN);
         }

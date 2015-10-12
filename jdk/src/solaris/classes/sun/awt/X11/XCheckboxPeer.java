@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,6 +31,7 @@ import java.awt.event.*;
 import java.awt.image.BufferedImage;
 import javax.swing.plaf.basic.BasicGraphicsUtils;
 import java.awt.geom.AffineTransform;
+import java.util.Objects;
 
 import sun.util.logging.PlatformLogger;
 
@@ -135,14 +136,16 @@ class XCheckboxPeer extends XComponentPeer implements CheckboxPeer {
 
     public void keyReleased(KeyEvent e) {}
 
-    public void  setLabel(java.lang.String label) {
-        if ( label == null ) {
-            this.label = "";
-        } else {
-            this.label = label;
+    @Override
+    public void setLabel(String label) {
+        if (label == null) {
+            label = "";
         }
-        layout();
-        repaint();
+        if (!label.equals(this.label)) {
+            this.label = label;
+            layout();
+            repaint();
+        }
     }
 
     void handleJavaMouseEvent(MouseEvent e) {
@@ -172,7 +175,7 @@ class XCheckboxPeer extends XComponentPeer implements CheckboxPeer {
             Checkbox cb = (Checkbox) e.getSource();
 
             if (cb.contains(e.getX(), e.getY())) {
-                if (log.isLoggable(PlatformLogger.FINER)) {
+                if (log.isLoggable(PlatformLogger.Level.FINER)) {
                     log.finer("mousePressed() on " + target.getName() + " : armed = " + armed + ", pressed = " + pressed
                               + ", selected = " + selected + ", enabled = " + isEnabled());
                 }
@@ -190,7 +193,7 @@ class XCheckboxPeer extends XComponentPeer implements CheckboxPeer {
     }
 
     public void mouseReleased(MouseEvent e) {
-        if (log.isLoggable(PlatformLogger.FINER)) {
+        if (log.isLoggable(PlatformLogger.Level.FINER)) {
             log.finer("mouseReleased() on " + target.getName() + ": armed = " + armed + ", pressed = " + pressed
                       + ", selected = " + selected + ", enabled = " + isEnabled());
         }
@@ -215,7 +218,7 @@ class XCheckboxPeer extends XComponentPeer implements CheckboxPeer {
     }
 
     public void mouseEntered(MouseEvent e) {
-        if (log.isLoggable(PlatformLogger.FINER)) {
+        if (log.isLoggable(PlatformLogger.Level.FINER)) {
             log.finer("mouseEntered() on " + target.getName() + ": armed = " + armed + ", pressed = " + pressed
                       + ", selected = " + selected + ", enabled = " + isEnabled());
         }
@@ -226,7 +229,7 @@ class XCheckboxPeer extends XComponentPeer implements CheckboxPeer {
     }
 
     public void mouseExited(MouseEvent e) {
-        if (log.isLoggable(PlatformLogger.FINER)) {
+        if (log.isLoggable(PlatformLogger.Level.FINER)) {
             log.finer("mouseExited() on " + target.getName() + ": armed = " + armed + ", pressed = " + pressed
                       + ", selected = " + selected + ", enabled = " + isEnabled());
         }
@@ -297,40 +300,33 @@ class XCheckboxPeer extends XComponentPeer implements CheckboxPeer {
 
         double fsize = (double) checkBoxSize;
         myCheckMark = AffineTransform.getScaleInstance(fsize / MASTER_SIZE, fsize / MASTER_SIZE).createTransformedShape(MASTER_CHECKMARK);
-
     }
+    @Override
+    void paintPeer(final Graphics g) {
+        //layout();
+        Dimension size = getPeerSize();
+        Font f = getPeerFont();
+        flush();
+        g.setColor(getPeerBackground());   // erase the existing button
+        g.fillRect(0,0, size.width, size.height);
+        if (label != null) {
+            g.setFont(f);
+            paintText(g, textRect, label);
+        }
 
-    public void paint(Graphics g) {
-        if (g != null) {
-            //layout();
-            Dimension size = getPeerSize();
-            Font f = getPeerFont();
-
-            flush();
-            g.setColor(getPeerBackground());   // erase the existing button
-            g.fillRect(0,0, size.width, size.height);
-
-            if (label != null) {
-                g.setFont(f);
-                paintText(g, textRect, label);
-            }
-
-            if (hasFocus()) {
-                paintFocus(g,
-                           focusRect.x,
-                           focusRect.y,
-                           focusRect.width,
-                           focusRect.height);
-            }
-
-            // Paint the checkbox or radio button
-            if (checkBoxGroup == null) {
-                paintCheckbox(g, cbX, cbY, checkBoxSize, checkBoxSize);
-            }
-            else {
-                paintRadioButton(g, cbX, cbY, checkBoxSize, checkBoxSize);
-            }
-
+        if (hasFocus()) {
+            paintFocus(g,
+                       focusRect.x,
+                       focusRect.y,
+                       focusRect.width,
+                       focusRect.height);
+        }
+        // Paint the checkbox or radio button
+        if (checkBoxGroup == null) {
+            paintCheckbox(g, cbX, cbY, checkBoxSize, checkBoxSize);
+        }
+        else {
+            paintRadioButton(g, cbX, cbY, checkBoxSize, checkBoxSize);
         }
         flush();
     }
@@ -384,10 +380,6 @@ class XCheckboxPeer extends XComponentPeer implements CheckboxPeer {
             g.drawImage(buffer, x, y, null);
         }
     }
-    public void setFont(Font f) {
-        super.setFont(f);
-        target.repaint();
-    }
 
     public void paintRadioButton(Graphics g, int x, int y, int w, int h) {
 
@@ -431,16 +423,21 @@ class XCheckboxPeer extends XComponentPeer implements CheckboxPeer {
         g.drawRect(x,y,w,h);
     }
 
+    @Override
     public void setState(boolean state) {
         if (selected != state) {
             selected = state;
             repaint();
         }
     }
-    public void setCheckboxGroup(CheckboxGroup g) {
-        // If changed from grouped/ungrouped, need to repaint()
-        checkBoxGroup = g;
-        repaint();
+
+    @Override
+    public void setCheckboxGroup(final CheckboxGroup g) {
+        if (!Objects.equals(g, checkBoxGroup)) {
+            // If changed from grouped/ungrouped, need to repaint()
+            checkBoxGroup = g;
+            repaint();
+        }
     }
 
     // NOTE: This method is called by privileged threads.

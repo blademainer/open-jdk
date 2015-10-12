@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -139,9 +139,9 @@ public class BasicButtonListener implements MouseListener, MouseMotionListener,
                                JComponent.WHEN_IN_FOCUSED_WINDOW, map);
             }
             map.clear();
-            map.put(KeyStroke.getKeyStroke(m, InputEvent.ALT_MASK, false),
+            map.put(KeyStroke.getKeyStroke(m, BasicLookAndFeel.getFocusAcceleratorKeyMask(), false),
                     "pressed");
-            map.put(KeyStroke.getKeyStroke(m, InputEvent.ALT_MASK, true),
+            map.put(KeyStroke.getKeyStroke(m, BasicLookAndFeel.getFocusAcceleratorKeyMask(), true),
                     "released");
             map.put(KeyStroke.getKeyStroke(m, 0, true), "released");
         }

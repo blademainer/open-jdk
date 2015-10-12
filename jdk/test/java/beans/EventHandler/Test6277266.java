@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,9 +51,11 @@ public class Test6277266 {
                     )
             );
             throw new Error("SecurityException expected");
+        } catch (SecurityException exception) {
+            return; // expected security exception in JDK 7
         } catch (InvocationTargetException exception) {
             if (exception.getCause() instanceof SecurityException){
-                return; // expected security exception
+                return; // expected security exception in JDK 8
             }
             throw new Error("unexpected exception", exception);
         } catch (InterruptedException exception) {

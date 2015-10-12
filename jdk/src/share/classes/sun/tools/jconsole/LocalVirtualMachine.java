@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,7 +39,6 @@ import com.sun.tools.attach.AttachNotSupportedException;
 // Sun private
 import sun.management.ConnectorAddressLink;
 import sun.jvmstat.monitor.HostIdentifier;
-import sun.jvmstat.monitor.Monitor;
 import sun.jvmstat.monitor.MonitoredHost;
 import sun.jvmstat.monitor.MonitoredVm;
 import sun.jvmstat.monitor.MonitoredVmUtil;
@@ -131,14 +130,12 @@ public class LocalVirtualMachine {
 
     private static void getMonitoredVMs(Map<Integer, LocalVirtualMachine> map) {
         MonitoredHost host;
-        Set vms;
+        Set<Integer> vms;
         try {
             host = MonitoredHost.getMonitoredHost(new HostIdentifier((String)null));
             vms = host.activeVms();
-        } catch (java.net.URISyntaxException sx) {
-            throw new InternalError(sx.getMessage());
-        } catch (MonitorException mx) {
-            throw new InternalError(mx.getMessage());
+        } catch (java.net.URISyntaxException | MonitorException x) {
+            throw new InternalError(x.getMessage(), x);
         }
         for (Object vmid: vms) {
             if (vmid instanceof Integer) {

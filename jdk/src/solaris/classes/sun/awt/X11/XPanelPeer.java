@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -60,14 +60,13 @@ public class XPanelPeer extends XCanvasPeer implements PanelPeer {
     public Insets getInsets() {
         return new Insets(0, 0, 0, 0);
     }
-
     public void paint(Graphics g) {
         super.paint(g);
-        /*      SunGraphicsCallback.PaintHeavyweightComponentsCallback.getInstance().
-                runComponents(((Container)target).getComponents(), g,
-                SunGraphicsCallback.LIGHTWEIGHTS |
-                SunGraphicsCallback.HEAVYWEIGHTS);
-        */ }
+        SunGraphicsCallback.PaintHeavyweightComponentsCallback.getInstance().
+            runComponents(((Container)target).getComponents(), g,
+                          SunGraphicsCallback.LIGHTWEIGHTS |
+                          SunGraphicsCallback.HEAVYWEIGHTS);
+    }
     public void print(Graphics g) {
         super.print(g);
         SunGraphicsCallback.PrintHeavyweightComponentsCallback.getInstance().

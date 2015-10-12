@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -114,7 +114,7 @@ class ValueMap: public CompilationResourceObj {
   Value find_insert(Value x);
 
   void kill_memory();
-  void kill_field(ciField* field);
+  void kill_field(ciField* field, bool all_offsets);
   void kill_array(ValueType* type);
   void kill_exception();
   void kill_map(ValueMap* map);
@@ -136,16 +136,19 @@ class ValueNumberingVisitor: public InstructionVisitor {
  protected:
   // called by visitor functions for instructions that kill values
   virtual void kill_memory() = 0;
-  virtual void kill_field(ciField* field) = 0;
+  virtual void kill_field(ciField* field, bool all_offsets) = 0;
   virtual void kill_array(ValueType* type) = 0;
 
   // visitor functions
   void do_StoreField     (StoreField*      x) {
-    if (x->is_init_point()) {
-      // putstatic is an initialization point so treat it as a wide kill
+    if (x->is_init_point() ||  // putstatic is an initialization point so treat it as a wide kill
+        // This is actually too strict and the JMM doesn't require
+        // this in all cases (e.g. load a; volatile store b; load a)
+        // but possible future optimizations might require this.
+        x->field()->is_volatile()) {
       kill_memory();
     } else {
-      kill_field(x->field());
+      kill_field(x->field(), x->needs_patching());
     }
   }
   void do_StoreIndexed   (StoreIndexed*    x) { kill_array(x->type()); }
@@ -154,14 +157,15 @@ class ValueNumberingVisitor: public InstructionVisitor {
   void do_Invoke         (Invoke*          x) { kill_memory(); }
   void do_UnsafePutRaw   (UnsafePutRaw*    x) { kill_memory(); }
   void do_UnsafePutObject(UnsafePutObject* x) { kill_memory(); }
+  void do_UnsafeGetAndSetObject(UnsafeGetAndSetObject* x) { kill_memory(); }
   void do_Intrinsic      (Intrinsic*       x) { if (!x->preserves_state()) kill_memory(); }
 
   void do_Phi            (Phi*             x) { /* nothing to do */ }
   void do_Local          (Local*           x) { /* nothing to do */ }
   void do_Constant       (Constant*        x) { /* nothing to do */ }
   void do_LoadField      (LoadField*       x) {
-    if (x->is_init_point()) {
-      // getstatic is an initialization point so treat it as a wide kill
+    if (x->is_init_point() ||         // getstatic is an initialization point so treat it as a wide kill
+        x->field()->is_volatile()) {  // the JMM requires this
       kill_memory();
     }
   }
@@ -175,6 +179,7 @@ class ValueNumberingVisitor: public InstructionVisitor {
   void do_IfOp           (IfOp*            x) { /* nothing to do */ }
   void do_Convert        (Convert*         x) { /* nothing to do */ }
   void do_NullCheck      (NullCheck*       x) { /* nothing to do */ }
+  void do_TypeCast       (TypeCast*        x) { /* nothing to do */ }
   void do_NewInstance    (NewInstance*     x) { /* nothing to do */ }
   void do_NewTypeArray   (NewTypeArray*    x) { /* nothing to do */ }
   void do_NewObjectArray (NewObjectArray*  x) { /* nothing to do */ }
@@ -198,8 +203,14 @@ class ValueNumberingVisitor: public InstructionVisitor {
   void do_UnsafePrefetchRead (UnsafePrefetchRead*  x) { /* nothing to do */ }
   void do_UnsafePrefetchWrite(UnsafePrefetchWrite* x) { /* nothing to do */ }
   void do_ProfileCall    (ProfileCall*     x) { /* nothing to do */ }
+  void do_ProfileReturnType (ProfileReturnType*  x) { /* nothing to do */ }
   void do_ProfileInvoke  (ProfileInvoke*   x) { /* nothing to do */ };
   void do_RuntimeCall    (RuntimeCall*     x) { /* nothing to do */ };
+  void do_MemBar         (MemBar*          x) { /* nothing to do */ };
+  void do_RangeCheckPredicate(RangeCheckPredicate* x) { /* nothing to do */ };
+#ifdef ASSERT
+  void do_Assert         (Assert*          x) { /* nothing to do */ };
+#endif
 };
 
 
@@ -209,9 +220,9 @@ class ValueNumberingEffects: public ValueNumberingVisitor {
 
  public:
   // implementation for abstract methods of ValueNumberingVisitor
-  void          kill_memory()                    { _map->kill_memory(); }
-  void          kill_field(ciField* field)       { _map->kill_field(field); }
-  void          kill_array(ValueType* type)      { _map->kill_array(type); }
+  void          kill_memory()                                 { _map->kill_memory(); }
+  void          kill_field(ciField* field, bool all_offsets)  { _map->kill_field(field, all_offsets); }
+  void          kill_array(ValueType* type)                   { _map->kill_array(type); }
 
   ValueNumberingEffects(ValueMap* map): _map(map) {}
 };
@@ -219,22 +230,30 @@ class ValueNumberingEffects: public ValueNumberingVisitor {
 
 class GlobalValueNumbering: public ValueNumberingVisitor {
  private:
+  Compilation*  _compilation;     // compilation data
   ValueMap*     _current_map;     // value map of current block
   ValueMapArray _value_maps;      // list of value maps for all blocks
+  ValueSet      _processed_values;  // marker for instructions that were already processed
+  bool          _has_substitutions; // set to true when substitutions must be resolved
 
  public:
   // accessors
+  Compilation*  compilation() const              { return _compilation; }
   ValueMap*     current_map()                    { return _current_map; }
   ValueMap*     value_map_of(BlockBegin* block)  { return _value_maps.at(block->linear_scan_number()); }
   void          set_value_map_of(BlockBegin* block, ValueMap* map)   { assert(value_map_of(block) == NULL, ""); _value_maps.at_put(block->linear_scan_number(), map); }
 
+  bool          is_processed(Value v)            { return _processed_values.contains(v); }
+  void          set_processed(Value v)           { _processed_values.put(v); }
+
   // implementation for abstract methods of ValueNumberingVisitor
-  void          kill_memory()                    { current_map()->kill_memory(); }
-  void          kill_field(ciField* field)       { current_map()->kill_field(field); }
-  void          kill_array(ValueType* type)      { current_map()->kill_array(type); }
+  void          kill_memory()                                 { current_map()->kill_memory(); }
+  void          kill_field(ciField* field, bool all_offsets)  { current_map()->kill_field(field, all_offsets); }
+  void          kill_array(ValueType* type)                   { current_map()->kill_array(type); }
 
   // main entry point that performs global value numbering
   GlobalValueNumbering(IR* ir);
+  void          substitute(Instruction* instr);  // substitute instruction if it is contained in current value map
 };
 
 #endif // SHARE_VM_C1_C1_VALUEMAP_HPP

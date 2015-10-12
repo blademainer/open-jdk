@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -88,7 +88,7 @@ public abstract class ImageInputStreamImpl implements ImageInputStream {
     /**
      * The position prior to which data may be discarded.  Seeking
      * to a smaller position is not allowed.  <code>flushedPos</code>
-     * will always be >= 0.
+     * will always be {@literal >= 0}.
      */
     protected long flushedPos = 0;
 

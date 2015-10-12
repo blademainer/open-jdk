@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2009, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -65,7 +65,7 @@ class CrLf {
 }
 EOF
 $JAVAC CrLf.java
-$JAVA CrLf > META-INF${FS}MANIFEST.MF
+$JAVA ${TESTVMOPTS} CrLf > META-INF${FS}MANIFEST.MF
 zip $JFILE META-INF${FS}MANIFEST.MF A B
 
 $KT -alias a -dname CN=a -keyalg rsa -genkey -validity 300

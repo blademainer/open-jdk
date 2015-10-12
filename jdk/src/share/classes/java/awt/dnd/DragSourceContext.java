@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -63,7 +63,7 @@ import java.util.TooManyListenersException;
  * itself between the platform and the
  * listeners provided by the initiator of the drag operation.
  * <p>
- * <a name="defaultCursor" />
+ * <a name="defaultCursor"></a>
  * By default, {@code DragSourceContext} sets the cursor as appropriate
  * for the current state of the drag and drop operation. For example, if
  * the user has chosen {@linkplain DnDConstants#ACTION_MOVE the move action},
@@ -474,7 +474,7 @@ public class DragSourceContext
 
     protected synchronized void updateCurrentCursor(int sourceAct, int targetAct, int status) {
 
-        // if the cursor has been previously set then dont do any defaults
+        // if the cursor has been previously set then don't do any defaults
         // processing.
 
         if (useCustomCursor) {

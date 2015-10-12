@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,6 +53,7 @@ import java.security.PrivilegedAction;
 
 import sun.reflect.misc.MethodUtil;
 import sun.reflect.misc.ReflectUtil;
+import sun.swing.SwingUtilities2;
 import sun.util.CoreResourceBundleControl;
 
 /**
@@ -64,7 +65,7 @@ import sun.util.CoreResourceBundleControl;
  * future Swing releases. The current serialization support is
  * appropriate for short term storage or RMI between applications running
  * the same version of Swing.  As of 1.4, support for long term storage
- * of all JavaBeans<sup><font size="-2">TM</font></sup>
+ * of all JavaBeans&trade;
  * has been added to the <code>java.beans</code> package.
  * Please see {@link java.beans.XMLEncoder}.
  *
@@ -297,7 +298,7 @@ public class UIDefaults extends Hashtable<Object,Object>
         Map<String, Object> values = resourceCache.get(l);
 
         if (values == null) {
-            values = new HashMap<String, Object>();
+            values = new TextAndMnemonicHashMap();
             for (int i=resourceBundles.size()-1; i >= 0; i--) {
                 String bundleName = resourceBundles.get(i);
                 try {
@@ -677,6 +678,8 @@ public class UIDefaults extends Hashtable<Object,Object>
         try {
             String className = (String)get(uiClassID);
             if (className != null) {
+                ReflectUtil.checkPackageAccess(className);
+
                 Class cls = (Class)get(className);
                 if (cls == null) {
                     if (uiClassLoader == null) {
@@ -704,7 +707,7 @@ public class UIDefaults extends Hashtable<Object,Object>
 
 
     /**
-     * Returns the L&F class that renders this component.
+     * Returns the L&amp;F class that renders this component.
      *
      * @param uiClassID a string containing the class ID
      * @return the Class object returned by
@@ -1099,7 +1102,7 @@ public class UIDefaults extends Hashtable<Object,Object>
                         }
                         ReflectUtil.checkPackageAccess(className);
                         c = Class.forName(className, true, (ClassLoader)cl);
-                        checkAccess(c.getModifiers());
+                        SwingUtilities2.checkAccess(c.getModifiers());
                         if (methodName != null) {
                             Class[] types = getClassArray(args);
                             Method m = c.getMethod(methodName, types);
@@ -1107,7 +1110,7 @@ public class UIDefaults extends Hashtable<Object,Object>
                         } else {
                             Class[] types = getClassArray(args);
                             Constructor constructor = c.getConstructor(types);
-                            checkAccess(constructor.getModifiers());
+                            SwingUtilities2.checkAccess(constructor.getModifiers());
                             return constructor.newInstance(args);
                         }
                     } catch(Exception e) {
@@ -1120,13 +1123,6 @@ public class UIDefaults extends Hashtable<Object,Object>
                     return null;
                 }
             }, acc);
-        }
-
-        private void checkAccess(int modifiers) {
-            if(System.getSecurityManager() != null &&
-                    !Modifier.isPublic(modifiers)) {
-                throw new SecurityException("Resource is not accessible");
-            }
         }
 
         /*
@@ -1215,4 +1211,120 @@ public class UIDefaults extends Hashtable<Object,Object>
             return null;
         }
     }
+
+    /**
+     * <code>TextAndMnemonicHashMap</code> stores swing resource strings. Many of strings
+     * can have a mnemonic. For example:
+     *   FileChooser.saveButton.textAndMnemonic=&Save
+     * For this case method get returns "Save" for the key "FileChooser.saveButtonText" and
+     * mnemonic "S" for the key "FileChooser.saveButtonMnemonic"
+     *
+     * There are several patterns for the text and mnemonic suffixes which are checked by the
+     * <code>TextAndMnemonicHashMap</code> class.
+     * Patterns which are converted to the xxx.textAndMnemonic key:
+     * (xxxNameText, xxxNameMnemonic)
+     * (xxxNameText, xxxMnemonic)
+     * (xxx.nameText, xxx.mnemonic)
+     * (xxxText, xxxMnemonic)
+     *
+     * These patterns can have a mnemonic index in format
+     * (xxxDisplayedMnemonicIndex)
+     *
+     * Pattern which is converted to the xxx.titleAndMnemonic key:
+     * (xxxTitle, xxxMnemonic)
+     *
+     */
+    private static class TextAndMnemonicHashMap extends HashMap<String, Object> {
+
+        static final String AND_MNEMONIC = "AndMnemonic";
+        static final String TITLE_SUFFIX = ".titleAndMnemonic";
+        static final String TEXT_SUFFIX = ".textAndMnemonic";
+
+        @Override
+        public Object get(Object key) {
+
+            Object value = super.get(key);
+
+            if (value == null) {
+
+                boolean checkTitle = false;
+
+                String stringKey = key.toString();
+                String compositeKey = null;
+
+                if (stringKey.endsWith(AND_MNEMONIC)) {
+                    return null;
+                }
+
+                if (stringKey.endsWith(".mnemonic")) {
+                    compositeKey = composeKey(stringKey, 9, TEXT_SUFFIX);
+                } else if (stringKey.endsWith("NameMnemonic")) {
+                    compositeKey = composeKey(stringKey, 12, TEXT_SUFFIX);
+                } else if (stringKey.endsWith("Mnemonic")) {
+                    compositeKey = composeKey(stringKey, 8, TEXT_SUFFIX);
+                    checkTitle = true;
+                }
+
+                if (compositeKey != null) {
+                    value = super.get(compositeKey);
+                    if (value == null && checkTitle) {
+                        compositeKey = composeKey(stringKey, 8, TITLE_SUFFIX);
+                        value = super.get(compositeKey);
+                    }
+
+                    return value == null ? null : getMnemonicFromProperty(value.toString());
+                }
+
+                if (stringKey.endsWith("NameText")) {
+                    compositeKey = composeKey(stringKey, 8, TEXT_SUFFIX);
+                } else if (stringKey.endsWith(".nameText")) {
+                    compositeKey = composeKey(stringKey, 9, TEXT_SUFFIX);
+                } else if (stringKey.endsWith("Text")) {
+                    compositeKey = composeKey(stringKey, 4, TEXT_SUFFIX);
+                } else if (stringKey.endsWith("Title")) {
+                    compositeKey = composeKey(stringKey, 5, TITLE_SUFFIX);
+                }
+
+                if (compositeKey != null) {
+                    value = super.get(compositeKey);
+                    return value == null ? null : getTextFromProperty(value.toString());
+                }
+
+                if (stringKey.endsWith("DisplayedMnemonicIndex")) {
+                    compositeKey = composeKey(stringKey, 22, TEXT_SUFFIX);
+                    value = super.get(compositeKey);
+                    if (value == null) {
+                        compositeKey = composeKey(stringKey, 22, TITLE_SUFFIX);
+                        value = super.get(compositeKey);
+                    }
+                    return value == null ? null : getIndexFromProperty(value.toString());
+                }
+            }
+
+            return value;
+        }
+
+        String composeKey(String key, int reduce, String sufix) {
+            return key.substring(0, key.length() - reduce) + sufix;
+        }
+
+        String getTextFromProperty(String text) {
+            return text.replace("&", "");
+        }
+
+        String getMnemonicFromProperty(String text) {
+            int index = text.indexOf('&');
+            if (0 <= index && index < text.length() - 1) {
+                char c = text.charAt(index + 1);
+                return Integer.toString((int) Character.toUpperCase(c));
+            }
+            return null;
+        }
+
+        String getIndexFromProperty(String text) {
+            int index = text.indexOf('&');
+            return (index == -1) ? null : Integer.toString(index);
+        }
+    }
+
 }

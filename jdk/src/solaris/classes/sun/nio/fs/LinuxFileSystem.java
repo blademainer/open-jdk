@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -78,11 +78,11 @@ class LinuxFileSystem extends UnixFileSystem {
     Iterable<UnixMountEntry> getMountEntries(String fstab) {
         ArrayList<UnixMountEntry> entries = new ArrayList<>();
         try {
-            long fp = setmntent(fstab.getBytes(), "r".getBytes());
+            long fp = setmntent(Util.toBytes(fstab), Util.toBytes("r"));
             try {
                 for (;;) {
                     UnixMountEntry entry = new UnixMountEntry();
-                    int res = getextmntent(fp, entry);
+                    int res = getmntent(fp, entry);
                     if (res < 0)
                         break;
                     entries.add(entry);

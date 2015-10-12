@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,15 +29,6 @@
 // Defines Solaris specific flags. They are not available on other platforms.
 //
 #define RUNTIME_OS_FLAGS(develop, develop_pd, product, product_pd, diagnostic, notproduct) \
-                                                                               \
-  product(bool, UseISM, false,                                                 \
-          "Use Intimate Shared Memory (Solaris Only)")                         \
-                                                                               \
-  product(bool, UsePermISM, false,                                             \
-          "Obsolete flag for compatibility (same as UseISM)")                  \
-                                                                               \
-  product(bool, UseMPSS, true,                                                 \
-          "Use Multiple Page Size Support (Solaris 9 Only)")                   \
                                                                                \
   product(bool, UseExtendedFileIO, true,                                       \
           "Enable workaround for limitations of stdio FILE structure")

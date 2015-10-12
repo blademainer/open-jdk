@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -77,7 +77,7 @@ public class PaintEventDispatcher {
     public PaintEvent createPaintEvent(Component target, int x, int y, int w,
                                        int h) {
 
-        return new PaintEvent((Component)target, PaintEvent.PAINT,
+        return new PaintEvent(target, PaintEvent.PAINT,
                               new Rectangle(x, y, w, h));
     }
 

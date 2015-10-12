@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@ package com.sun.jndi.toolkit.url;
 
 import java.net.MalformedURLException;
 import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
 
 /**
  * Utilities for dealing with URLs.
@@ -61,29 +62,14 @@ final public class UrlUtil {
      * The string is subsequently converted using the specified encoding
      */
     public static final String decode(String s, String enc)
-        throws MalformedURLException, UnsupportedEncodingException {
-
-        int length = s.length();
-        byte[] bytes = new byte[length];
-        int j = 0;
-
-        for (int i = 0; i < length; i++) {
-            if (s.charAt(i) == '%') {
-                i++;  // skip %
-                try {
-                    bytes[j++] = (byte)
-                        Integer.parseInt(s.substring(i, i + 2), 16);
-
-                } catch (Exception e) {
-                    throw new MalformedURLException("Invalid URI encoding: " + s);
-                }
-                i++;  // skip first hex char; for loop will skip second one
-            } else {
-                bytes[j++] = (byte) s.charAt(i);
-            }
+            throws MalformedURLException, UnsupportedEncodingException {
+        try {
+            return URLDecoder.decode(s, enc);
+        } catch (IllegalArgumentException iae) {
+            MalformedURLException mue = new MalformedURLException("Invalid URI encoding: " + s);
+            mue.initCause(iae);
+            throw mue;
         }
-
-        return new String(bytes, 0, j, enc);
     }
 
     /**

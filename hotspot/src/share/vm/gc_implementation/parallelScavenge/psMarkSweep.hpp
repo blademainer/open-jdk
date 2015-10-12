@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,15 +36,15 @@ class PSOldGen;
 class PSMarkSweep : public MarkSweep {
  private:
   static elapsedTimer        _accumulated_time;
-  static unsigned int        _total_invocations;
   static jlong               _time_of_last_gc;   // ms
   static CollectorCounters*  _counters;
 
   // Closure accessors
   static OopClosure* mark_and_push_closure() { return &MarkSweep::mark_and_push_closure; }
+  static KlassClosure* follow_klass_closure() { return &MarkSweep::follow_klass_closure; }
   static VoidClosure* follow_stack_closure() { return (VoidClosure*)&MarkSweep::follow_stack_closure; }
   static OopClosure* adjust_pointer_closure() { return (OopClosure*)&MarkSweep::adjust_pointer_closure; }
-  static OopClosure* adjust_root_pointer_closure() { return (OopClosure*)&MarkSweep::adjust_root_pointer_closure; }
+  static KlassClosure* adjust_klass_closure() { return &MarkSweep::adjust_klass_closure; }
   static BoolObjectClosure* is_alive_closure() { return (BoolObjectClosure*)&MarkSweep::is_alive; }
 
  debug_only(public:)  // Used for PSParallelCompact debugging
@@ -78,13 +78,12 @@ class PSMarkSweep : public MarkSweep {
 
  public:
   static void invoke(bool clear_all_softrefs);
-  static void invoke_no_policy(bool clear_all_softrefs);
+  static bool invoke_no_policy(bool clear_all_softrefs);
 
   static void initialize();
 
   // Public accessors
   static elapsedTimer* accumulated_time() { return &_accumulated_time; }
-  static unsigned int total_invocations() { return _total_invocations; }
   static CollectorCounters* counters()    { return _counters; }
 
   // Time since last full gc (in milliseconds)

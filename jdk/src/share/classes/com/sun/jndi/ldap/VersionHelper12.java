@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,11 +25,12 @@
 
 package com.sun.jndi.ldap;
 
-import java.net.URL;
 import java.net.URLClassLoader;
 import java.net.MalformedURLException;
+import java.security.AccessControlContext;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import sun.misc.SharedSecrets;
 
 final class VersionHelper12 extends VersionHelper {
 
@@ -66,15 +67,15 @@ final class VersionHelper12 extends VersionHelper {
             }
     }
 
-    Class loadClass(String className) throws ClassNotFoundException {
+    Class<?> loadClass(String className) throws ClassNotFoundException {
         ClassLoader cl = getContextClassLoader();
         return Class.forName(className, true, cl);
     }
 
     private ClassLoader getContextClassLoader() {
-        return (ClassLoader) AccessController.doPrivileged(
-            new PrivilegedAction() {
-                public Object run() {
+        return AccessController.doPrivileged(
+            new PrivilegedAction<ClassLoader>() {
+                public ClassLoader run() {
                     return Thread.currentThread().getContextClassLoader();
                 }
             }
@@ -82,12 +83,16 @@ final class VersionHelper12 extends VersionHelper {
     }
 
     Thread createThread(final Runnable r) {
-        return (Thread) AccessController.doPrivileged(
-            new PrivilegedAction() {
-                public Object run() {
-                    return new Thread(r);
+        final AccessControlContext acc = AccessController.getContext();
+        // 4290486: doPrivileged is needed to create a thread in
+        // an environment that restricts "modifyThreadGroup".
+        return AccessController.doPrivileged(
+                new PrivilegedAction<Thread>() {
+                    public Thread run() {
+                        return SharedSecrets.getJavaLangAccess()
+                                .newThreadWithAcc(r, acc);
+                    }
                 }
-            }
         );
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,7 +36,7 @@ class SocketDispatcher extends NativeDispatcher
 {
 
     static {
-        Util.load();
+        IOUtil.load();
     }
 
     int read(FileDescriptor fd, long address, int len) throws IOException {
@@ -55,10 +55,11 @@ class SocketDispatcher extends NativeDispatcher
         return writev0(fd, address, len);
     }
 
-    void close(FileDescriptor fd) throws IOException {
+    void preClose(FileDescriptor fd) throws IOException {
+        preClose0(fd);
     }
 
-    void preClose(FileDescriptor fd) throws IOException {
+    void close(FileDescriptor fd) throws IOException {
         close0(fd);
     }
 
@@ -74,6 +75,8 @@ class SocketDispatcher extends NativeDispatcher
 
     static native long writev0(FileDescriptor fd, long address, int len)
         throws IOException;
+
+    static native void preClose0(FileDescriptor fd) throws IOException;
 
     static native void close0(FileDescriptor fd) throws IOException;
 }

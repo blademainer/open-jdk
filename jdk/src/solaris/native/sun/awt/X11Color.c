@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,7 +33,6 @@
 #include <math.h>
 #include <sys/time.h>
 #include <sys/resource.h>
-#include <alloca.h>
 #ifndef HEADLESS
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>

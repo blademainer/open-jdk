@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
+// Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
 // DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 //
 // This code is free software; you can redistribute it and/or modify it
@@ -53,20 +53,6 @@ fixcw:
 	fldcw    0(%esp)
 	popl     %eax
 	ret
-
-       .align  16
-       .globl  SafeFetch32
-       .globl  SafeFetchN
-       .globl  Fetch32PFI, Fetch32Resume
-SafeFetch32:
-SafeFetchN:
-        movl    0x8(%esp), %eax
-        movl    0x4(%esp), %ecx
-Fetch32PFI:
-        movl    (%ecx), %eax
-Fetch32Resume:
-        ret
-
 
         .align  16
         .globl  SpinPause

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,14 +25,13 @@
 #ifndef OS_SOLARIS_VM_OS_SOLARIS_INLINE_HPP
 #define OS_SOLARIS_VM_OS_SOLARIS_INLINE_HPP
 
-#include "runtime/atomic.hpp"
+#include "runtime/atomic.inline.hpp"
 #include "runtime/os.hpp"
+
 #ifdef TARGET_OS_ARCH_solaris_x86
-# include "atomic_solaris_x86.inline.hpp"
 # include "orderAccess_solaris_x86.inline.hpp"
 #endif
 #ifdef TARGET_OS_ARCH_solaris_sparc
-# include "atomic_solaris_sparc.inline.hpp"
 # include "orderAccess_solaris_sparc.inline.hpp"
 #endif
 
@@ -49,9 +48,6 @@
 inline const char* os::file_separator() { return "/"; }
 inline const char* os::line_separator() { return "\n"; }
 inline const char* os::path_separator() { return ":"; }
-
-inline const char* os::jlong_format_specifier()   { return "%lld"; }
-inline const char* os::julong_format_specifier()  { return "%llu"; }
 
 // File names are case-sensitive on windows only
 inline int os::file_name_strcmp(const char* s1, const char* s2) {
@@ -71,7 +67,7 @@ inline bool os::allocate_stack_guard_pages() {
 
 
 // On Solaris, reservations are made on a page by page basis, nothing to do.
-inline void os::split_reserved_memory(char *base, size_t size,
+inline void os::pd_split_reserved_memory(char *base, size_t size,
                                       size_t split, bool realloc) {
 }
 
@@ -93,7 +89,7 @@ inline int os::readdir_buf_size(const char *path) {
 
 inline struct dirent* os::readdir(DIR* dirp, dirent* dbuf) {
   assert(dirp != NULL, "just checking");
-#if defined(_LP64) || defined(_GNU_SOURCE)
+#if defined(_LP64) || defined(_GNU_SOURCE) || _FILE_OFFSET_BITS==64
   dirent* p;
   int status;
 
@@ -102,9 +98,9 @@ inline struct dirent* os::readdir(DIR* dirp, dirent* dbuf) {
     return NULL;
   } else
     return p;
-#else  // defined(_LP64) || defined(_GNU_SOURCE)
+#else  // defined(_LP64) || defined(_GNU_SOURCE) || _FILE_OFFSET_BITS==64
   return ::readdir_r(dirp, dbuf);
-#endif // defined(_LP64) || defined(_GNU_SOURCE)
+#endif // defined(_LP64) || defined(_GNU_SOURCE) || _FILE_OFFSET_BITS==64
 }
 
 inline int os::closedir(DIR *dirp) {
@@ -243,24 +239,25 @@ inline int os::socket_shutdown(int fd, int howto){
   return ::shutdown(fd, howto);
 }
 
-inline int os::get_sock_name(int fd, struct sockaddr *him, int *len){
-  return ::getsockname(fd, him, (socklen_t*) len);
+inline int os::get_sock_name(int fd, struct sockaddr* him, socklen_t* len){
+  return ::getsockname(fd, him, len);
 }
 
 inline int os::get_host_name(char* name, int namelen){
   return ::gethostname(name, namelen);
 }
 
-inline struct hostent*  os::get_host_by_name(char* name) {
+inline struct hostent* os::get_host_by_name(char* name) {
   return ::gethostbyname(name);
 }
+
 inline int os::get_sock_opt(int fd, int level, int optname,
-                             char *optval, int* optlen){
-  return ::getsockopt(fd, level, optname, optval, (socklen_t*) optlen);
+                            char* optval, socklen_t* optlen) {
+  return ::getsockopt(fd, level, optname, optval, optlen);
 }
 
 inline int os::set_sock_opt(int fd, int level, int optname,
-                             const char *optval, int optlen){
+                            const char *optval, socklen_t optlen) {
   return ::setsockopt(fd, level, optname, optval, optlen);
 }
 #endif // OS_SOLARIS_VM_OS_SOLARIS_INLINE_HPP

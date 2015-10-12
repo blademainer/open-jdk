@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -22,7 +22,7 @@
 #
 
 # @test
-# @bug 6317711 6944847
+# @bug 6317711 6944847 8024046
 # @summary Ensure the GSSName has the correct impl which respects
 # the contract for equals and hashCode across different configurations.
 
@@ -43,20 +43,28 @@ if [ "${TESTJAVA}" = "" ] ; then
    exit 1
 fi
 
+if [ "${COMPILEJAVA}" = "" ]; then
+    COMPILEJAVA="${TESTJAVA}"
+fi
+
 NATIVE=false
 
 # set platform-dependent variables
 OS=`uname -s`
 case "$OS" in
-  SunOS )
+  SunOS | Linux | Darwin )
     PATHSEP=":"
     FILESEP="/"
     NATIVE=true
-    ;;
-  Linux )
-    PATHSEP=":"
-    FILESEP="/"
-    NATIVE=true
+    # Not all *nix has native GSS libs installed
+    krb5-config --libs 2> /dev/null
+    if [ $? != 0 ]; then
+        # Fedora has a different path
+        /usr/kerberos/bin/krb5-config --libs 2> /dev/null
+        if [ $? != 0 ]; then
+            NATIVE=false
+        fi
+    fi
     ;;
   CYGWIN* )
     PATHSEP=";"
@@ -74,7 +82,7 @@ esac
 
 TEST=Krb5NameEquals
 
-${TESTJAVA}${FILESEP}bin${FILESEP}javac \
+${COMPILEJAVA}${FILESEP}bin${FILESEP}javac ${TESTJAVACOPTS} ${TESTTOOLVMOPTS} \
     -d ${TESTCLASSES}${FILESEP} \
     ${TESTSRC}${FILESEP}${TEST}.java
 
@@ -82,18 +90,27 @@ EXIT_STATUS=0
 
 if [ "${NATIVE}" = "true" ] ; then
     echo "Testing native provider"
-    ${TESTJAVA}${FILESEP}bin${FILESEP}java \
+    ${TESTJAVA}${FILESEP}bin${FILESEP}java ${TESTVMOPTS} \
         -classpath ${TESTCLASSES} \
         -Dsun.security.jgss.native=true \
         ${TEST}
     if [ $? != 0 ] ; then
         echo "Native provider fails"
         EXIT_STATUS=1
+        if [ "$OS" = "Linux" -a `arch` = "x86_64" ]; then
+            ${TESTJAVA}${FILESEP}bin${FILESEP}java -XshowSettings:properties -version 2> allprop
+            cat allprop | grep sun.arch.data.model | grep 32
+            if [ "$?" = "0" ]; then
+                echo "Running 32-bit JDK on 64-bit Linux. Maybe only 64-bit library is installed."
+                echo "Please manually check if this is the case. Treated as PASSED now."
+                EXIT_STATUS=0
+            fi
+        fi
     fi
 fi
 
 echo "Testing java provider"
-${TESTJAVA}${FILESEP}bin${FILESEP}java \
+${TESTJAVA}${FILESEP}bin${FILESEP}java ${TESTVMOPTS} \
         -classpath ${TESTCLASSES} \
         -Djava.security.krb5.realm=R \
         -Djava.security.krb5.kdc=127.0.0.1 \

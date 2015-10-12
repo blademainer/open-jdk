@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,8 +38,10 @@
 #include <jni.h>
 #include <jni_util.h>
 #include <jlong.h>
+#include <sizecalc.h>
 
 #include <awt.h>
+#include <awt_util.h>
 #include <jvm.h>
 
 #include <Region.h>
@@ -522,8 +524,12 @@ JNIEXPORT jboolean JNICALL Java_sun_awt_X11_XlibWrapper_XkbTranslateKeyCode
     //printf("native, output:  keysym:0x%0X; mods:0x%0X\n", *(unsigned int *)jlong_to_ptr(keysym_rtrn), *(unsigned int *)jlong_to_ptr(mods_rtrn));
     return b;
 }
-
-
+JNIEXPORT void JNICALL Java_sun_awt_X11_XlibWrapper_XkbSetDetectableAutoRepeat
+(JNIEnv *env, jclass clazz, jlong display, jboolean detectable)
+{
+    AWT_CHECK_HAVE_LOCK();
+    XkbSetDetectableAutoRepeat((Display *) jlong_to_ptr(display), detectable, NULL);
+}
 /*
  * Class:     sun_awt_X11_XlibWrapper
  * Method:    XNextEvent
@@ -1260,13 +1266,19 @@ JNIEXPORT jboolean JNICALL Java_sun_awt_X11_XlibWrapper_IsKanaKeyboard
 
 JavaVM* jvm = NULL;
 static int ToolkitErrorHandler(Display * dpy, XErrorEvent * event) {
-    if (jvm != NULL) {
-        JNIEnv * env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
-        return JNU_CallStaticMethodByName(env, NULL, "sun/awt/X11/XToolkit", "globalErrorHandler", "(JJ)I",
-                                          ptr_to_jlong(dpy), ptr_to_jlong(event)).i;
-    } else {
-        return 0;
+    JNIEnv * env;
+    // First call the native synthetic error handler declared in "awt_util.h" file.
+    if (current_native_xerror_handler != NULL) {
+        current_native_xerror_handler(dpy, event);
     }
+    if (jvm != NULL) {
+        env = (JNIEnv *)JNU_GetEnv(jvm, JNI_VERSION_1_2);
+        if (env) {
+            return JNU_CallStaticMethodByName(env, NULL, "sun/awt/X11/XErrorHandlerUtil",
+                "globalErrorHandler", "(JJ)I", ptr_to_jlong(dpy), ptr_to_jlong(event)).i;
+        }
+    }
+    return 0;
 }
 
 /*
@@ -1944,13 +1956,16 @@ secondary_loop_event(Display* dpy, XEvent* event, char* arg) {
 JNIEXPORT jboolean JNICALL
 Java_sun_awt_X11_XlibWrapper_XNextSecondaryLoopEvent(JNIEnv *env, jclass clazz,
                                                      jlong display, jlong ptr) {
+    uint32_t timeout = 1;
+
     AWT_CHECK_HAVE_LOCK();
     exitSecondaryLoop = False;
     while (!exitSecondaryLoop) {
         if (XCheckIfEvent((Display*) jlong_to_ptr(display), (XEvent*) jlong_to_ptr(ptr), secondary_loop_event, NULL)) {
             return JNI_TRUE;
         }
-        AWT_WAIT(AWT_SECONDARY_LOOP_TIMEOUT);
+        timeout = (timeout < AWT_SECONDARY_LOOP_TIMEOUT) ? (timeout << 1) : AWT_SECONDARY_LOOP_TIMEOUT;
+        AWT_WAIT(timeout);
     }
     return JNI_FALSE;
 }
@@ -2223,6 +2238,10 @@ Java_sun_awt_X11_XlibWrapper_SetBitmapShape
     RECT_T * pRect;
     int numrects;
 
+    if (!IS_SAFE_SIZE_MUL(width / 2 + 1, height)) {
+        return;
+    }
+
     AWT_CHECK_HAVE_LOCK();
 
     len = (*env)->GetArrayLength(env, bitmap);
@@ -2235,7 +2254,10 @@ Java_sun_awt_X11_XlibWrapper_SetBitmapShape
         return;
     }
 
-    pRect = (RECT_T *)malloc(worstBufferSize * sizeof(RECT_T));
+    pRect = (RECT_T *)SAFE_SIZE_ARRAY_ALLOC(malloc, worstBufferSize, sizeof(RECT_T));
+    if (!pRect) {
+        return;
+    }
 
     /* Note: the values[0] and values[1] are supposed to contain the width
      * and height (see XIconInfo.getIntData() for details). So, we do +2.

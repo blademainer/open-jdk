@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -82,12 +82,12 @@ public class WInputMethod extends InputMethodAdapter
     private final static boolean COMMIT_INPUT           = true;
     private final static boolean DISCARD_INPUT          = false;
 
-    private static Map[] highlightStyles;
+    private static Map<TextAttribute,Object> [] highlightStyles;
 
     // Initialize highlight mapping table
     static {
-        Map styles[] = new Map[4];
-        HashMap map;
+        Map<TextAttribute,Object> styles[] = new Map[4];
+        HashMap<TextAttribute,Object> map;
 
         // UNSELECTED_RAW_TEXT_HIGHLIGHT
         map = new HashMap(1);
@@ -410,7 +410,7 @@ public class WInputMethod extends InputMethodAdapter
     /**
      * @see java.awt.Toolkit#mapInputMethodHighlight
      */
-    static Map mapInputMethodHighlight(InputMethodHighlight highlight) {
+    static Map<TextAttribute,?> mapInputMethodHighlight(InputMethodHighlight highlight) {
         int index;
         int state = highlight.getState();
         if (state == InputMethodHighlight.RAW_TEXT) {

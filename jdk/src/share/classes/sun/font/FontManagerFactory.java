@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,10 +51,13 @@ public final class FontManagerFactory {
 
     private static final String DEFAULT_CLASS;
     static {
-        if (FontUtilities.isWindows)
+        if (FontUtilities.isWindows) {
             DEFAULT_CLASS = "sun.awt.Win32FontManager";
-        else
+        } else if (FontUtilities.isMacOSX) {
+            DEFAULT_CLASS = "sun.font.CFontManager";
+            } else {
             DEFAULT_CLASS = "sun.awt.X11FontManager";
+            }
     }
 
     /**
@@ -78,20 +81,11 @@ public final class FontManagerFactory {
                     ClassLoader cl = ClassLoader.getSystemClassLoader();
                     Class fmClass = Class.forName(fmClassName, true, cl);
                     instance = (FontManager) fmClass.newInstance();
-                } catch (ClassNotFoundException ex) {
-                    InternalError err = new InternalError();
-                    err.initCause(ex);
-                    throw err;
+                } catch (ClassNotFoundException |
+                         InstantiationException |
+                         IllegalAccessException ex) {
+                    throw new InternalError(ex);
 
-                } catch (InstantiationException ex) {
-                    InternalError err = new InternalError();
-                    err.initCause(ex);
-                    throw err;
-
-                } catch (IllegalAccessException ex) {
-                    InternalError err = new InternalError();
-                    err.initCause(ex);
-                    throw err;
                 }
                 return null;
             }

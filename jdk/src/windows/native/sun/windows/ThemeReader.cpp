@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,7 +35,7 @@
 //
 // These type definitions have been imported from UxTheme.h
 // They have been imported instead of including them, because
-// currently we dont require Platform SDK for building J2SE and
+// currently we don't require Platform SDK for building J2SE and
 // VC6 includes do not have UxTheme.h. When we move to VC7
 // we should remove these imports and just include
 //

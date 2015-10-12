@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -840,7 +840,7 @@ public class ImageTypeSpecifier {
      * not one of 1, 2, 4, 8, or 16.
      * @exception IllegalArgumentException if the
      * non-<code>null</code> LUT parameters do not have lengths of
-     * exactly <code>1 << bits</code>.
+     * exactly {@code 1 << bits}.
      * @exception IllegalArgumentException if <code>dataType</code> is
      * not one of <code>DataBuffer.TYPE_BYTE</code>,
      * <code>DataBuffer.TYPE_SHORT</code>,

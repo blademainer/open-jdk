@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,24 +29,9 @@ import java.awt.*;
 import java.awt.peer.*;
 import java.awt.event.*;
 
-import java.lang.reflect.Field;
-import sun.awt.SunToolkit;
+import sun.awt.AWTAccessor;
 
 class XCheckboxMenuItemPeer extends XMenuItemPeer implements CheckboxMenuItemPeer {
-
-    /************************************************
-     *
-     * Data members
-     *
-     ************************************************/
-
-    /*
-     * CheckboxMenuItem's fields
-     */
-    private final static Field f_state;
-    static {
-        f_state = SunToolkit.getField(CheckboxMenuItem.class, "state");
-    }
 
     /************************************************
      *
@@ -74,16 +59,8 @@ class XCheckboxMenuItemPeer extends XMenuItemPeer implements CheckboxMenuItemPee
      *
      ************************************************/
     boolean getTargetState() {
-        MenuItem target = getTarget();
-        if (target == null) {
-            return false;
-        }
-        try {
-            return f_state.getBoolean(target);
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        }
-        return false;
+        return AWTAccessor.getCheckboxMenuItemAccessor()
+                   .getState((CheckboxMenuItem)getTarget());
     }
 
     /************************************************

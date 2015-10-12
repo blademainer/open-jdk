@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -144,7 +144,7 @@ public abstract class LayoutPathImpl extends LayoutPath {
         /**
          * Reset the builder for a new path.  Datalen is a hint of how many
          * points will be in the path, and the working buffer will be sized
-         * to accomodate at least this number of points.  If datalen is zero,
+         * to accommodate at least this number of points.  If datalen is zero,
          * the working buffer is freed (it will be allocated on first use).
          */
         public void reset(int datalen) {

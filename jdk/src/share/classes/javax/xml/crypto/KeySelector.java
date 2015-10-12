@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@ import javax.xml.crypto.dsig.keyinfo.RetrievalMethod;
 /**
  * A selector that finds and returns a key using the data contained in a
  * {@link KeyInfo} object. An example of an implementation of
- * this class is one that searchs a {@link java.security.KeyStore} for
+ * this class is one that searches a {@link java.security.KeyStore} for
  * trusted keys that match information contained in a <code>KeyInfo</code>.
  *
  * <p>Whether or not the returned key is trusted and the mechanisms

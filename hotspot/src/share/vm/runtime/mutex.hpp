@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -84,7 +84,7 @@ class ParkEvent ;
 // The default length of monitor name is chosen to be 64 to avoid false sharing.
 static const int MONITOR_NAME_LEN = 64;
 
-class Monitor : public CHeapObj {
+class Monitor : public CHeapObj<mtInternal> {
 
  public:
   // A special lock: Is a lock where you are guaranteed not to block while you are

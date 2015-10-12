@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,8 @@
  * @summary Repeated failed timed waits shouldn't leak memory
  * @author Martin Buchholz
  */
+
+// Note: this file is now out of sync with the jsr166 CVS repository due to the fix for 7092140
 
 import java.util.*;
 import java.util.regex.*;
@@ -148,7 +150,7 @@ public class TimedAcquireLeak {
             String.valueOf(new Random().nextInt(Integer.MAX_VALUE));
 
         final String[] jobCmd = {
-            java, "-Xmx8m",
+            java, "-Xmx8m", "-XX:+UsePerfData",
             "-classpath", System.getProperty("test.classes", "."),
             childClassName, uniqueID
         };

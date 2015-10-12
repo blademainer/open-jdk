@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,15 +54,11 @@ public:
     // invoked on Toolkit thread
     static void _SetEchoChar(void *param);
 
-  protected:
-    LONG EditGetCharFromPos(POINT& pt);
-    virtual void Reshape(int x, int y, int w, int h);
+protected:
 
 private:
     void EditSetSel(CHARRANGE &cr);
-    void initialRescroll();
 
-    bool m_initialRescrollFlag;
 };
 
 #endif /* AWT_TEXTFIELD_H */

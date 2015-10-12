@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,15 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+/*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
 
 /*
  **********************************************************************
@@ -64,7 +73,7 @@
  *  6> Could add simpler code for pre-Solaris 7 releases which will
  *     perform slightly better on those OSs.  But again there
  *     are only modest gains to be had from these new code paths,
- *     so they've been ommitted here.
+ *     so they've been omitted here.
  *
  * Compile "cc -G -o <dest_dir>/libpoller.so -I ${JAVA_HOME}/include " \
  * -I ${JAVA_HOME}/include/solaris Poller.c" and place the <dest_dir>

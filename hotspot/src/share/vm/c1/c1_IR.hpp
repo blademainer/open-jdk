@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -149,6 +149,7 @@ class IRScope: public CompilationResourceObj {
   XHandlers*    _xhandlers;                      // the exception handlers
   int           _number_of_locks;                // the number of monitor lock slots needed
   bool          _monitor_pairing_ok;             // the monitor pairing info
+  bool          _wrote_final;                    // has written final field
   BlockBegin*   _start;                          // the start block, successsors are method entries
 
   BitMap        _requires_phi_function;          // bit is set if phi functions at loop headers are necessary for a local variable
@@ -181,6 +182,8 @@ class IRScope: public CompilationResourceObj {
   void          set_min_number_of_locks(int n)   { if (n > _number_of_locks) _number_of_locks = n; }
   bool          monitor_pairing_ok() const       { return _monitor_pairing_ok; }
   BlockBegin*   start() const                    { return _start; }
+  void          set_wrote_final()                { _wrote_final = true; }
+  bool          wrote_final    () const          { return _wrote_final; }
 };
 
 
@@ -251,6 +254,7 @@ class CodeEmitInfo: public CompilationResourceObj {
   OopMap*           _oop_map;
   ValueStack*       _stack;                      // used by deoptimization (contains also monitors
   bool              _is_method_handle_invoke;    // true if the associated call site is a MethodHandle call site.
+  bool              _deoptimize_on_exception;
 
   FrameMap*     frame_map() const                { return scope()->compilation()->frame_map(); }
   Compilation*  compilation() const              { return scope()->compilation(); }
@@ -258,7 +262,7 @@ class CodeEmitInfo: public CompilationResourceObj {
  public:
 
   // use scope from ValueStack
-  CodeEmitInfo(ValueStack* stack, XHandlers* exception_handlers);
+  CodeEmitInfo(ValueStack* stack, XHandlers* exception_handlers, bool deoptimize_on_exception = false);
 
   // make a copy
   CodeEmitInfo(CodeEmitInfo* info, ValueStack* stack = NULL);
@@ -269,6 +273,7 @@ class CodeEmitInfo: public CompilationResourceObj {
   IRScope* scope() const                         { return _scope; }
   XHandlers* exception_handlers() const          { return _exception_handlers; }
   ValueStack* stack() const                      { return _stack; }
+  bool deoptimize_on_exception() const           { return _deoptimize_on_exception; }
 
   void add_register_oop(LIR_Opr opr);
   void record_debug_info(DebugInformationRecorder* recorder, int pc_offset);
@@ -306,7 +311,8 @@ class IR: public CompilationResourceObj {
   int              max_stack() const             { return top_scope()->max_stack(); } // expensive
 
   // ir manipulation
-  void optimize();
+  void optimize_blocks();
+  void eliminate_null_checks();
   void compute_predecessors();
   void split_critical_edges();
   void compute_code();

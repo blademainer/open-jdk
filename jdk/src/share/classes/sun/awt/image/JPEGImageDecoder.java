@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,7 +54,12 @@ public class JPEGImageDecoder extends ImageDecoder {
 
     static {
         java.security.AccessController.doPrivileged(
-                  new sun.security.action.LoadLibraryAction("jpeg"));
+            new java.security.PrivilegedAction<Void>() {
+                public Void run() {
+                    System.loadLibrary("jpeg");
+                    return null;
+                }
+            });
         initIDs(InputStreamClass);
         RGBcolormodel = new DirectColorModel(24, 0xff0000, 0xff00, 0xff);
         ARGBcolormodel = ColorModel.getRGBdefault();

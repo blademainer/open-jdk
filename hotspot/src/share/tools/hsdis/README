@@ -1,4 +1,4 @@
-Copyright (c) 2008, Oracle and/or its affiliates. All rights reserved.
+Copyright (c) 2008, 2012, Oracle and/or its affiliates. All rights reserved.
 DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
   
 This code is free software; you can redistribute it and/or modify it
@@ -38,8 +38,14 @@ copy of the software from http://directory.fsf.org/project/binutils or
 one of it's mirrors.  Builds targetting windows should use at least
 2.19 and currently requires the use of a cross compiler.
 
+Binutils should be configured with the '--disable-nls' flag to disable
+Native Language Support, otherwise you might get an "undefined
+reference to `libintl_gettext'" if you try to load hsdis.so on systems
+which don't have NLS by default.  It also avoids build problems on
+other configurations that don't include the full NLS support.
+
 The makefile looks for the sources in build/binutils or you can
-specify it's location to the makefile using BINTUILS=path.  It will
+specify it's location to the makefile using BINUTILS=path.  It will
 configure binutils and build it first and then build and link the
 disasembly adapter.  Make all will build the default target for your
 platform.  If you platform support both 32 and 64 simultaneously then
@@ -75,8 +81,16 @@ will build the Win32 cross compiled version of hsdis based on 2.19.1.
 * Installing
 
 Products are named like build/$OS-$LIBARCH/hsdis-$LIBARCH.so.  You can
-install them on your LD_LIBRARY_PATH, or inside of your JRE next to
-$LIBARCH/libjvm.so.
+install them on your LD_LIBRARY_PATH, or inside of your JRE/JDK.  The
+search path in the JVM is:
+
+1. <home>/jre/lib/<arch>/<vm>/libhsdis-<arch>.so
+2. <home>/jre/lib/<arch>/<vm>/hsdis-<arch>.so
+3. <home>/jre/lib/<arch>/hsdis-<arch>.so
+4. hsdis-<arch>.so  (using LD_LIBRARY_PATH)
+
+Note that there's a bug in hotspot versions prior to hs22 that causes
+steps 2 and 3 to fail when used with JDK7.
 
 Now test:
 

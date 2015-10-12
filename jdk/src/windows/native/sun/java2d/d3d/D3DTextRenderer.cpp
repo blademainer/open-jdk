@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -444,7 +444,7 @@ D3DTR_UpdateCachedDestination(D3DContext *d3dc, D3DSDOps *dstOps,
             } else if (remainingWidth < ginfo->width) {
                 // in some cases, the x-advance may be slightly smaller
                 // than the actual width of the glyph; if so, adjust our
-                // estimate so that we can accomodate the entire glyph
+                // estimate so that we can accommodate the entire glyph
                 remainingWidth = ginfo->width;
             }
         } else {

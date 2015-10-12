@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,6 +34,8 @@ class MonitorValue;
 class ObjectValue;
 
 class Deoptimization : AllStatic {
+  friend class VMStructs;
+
  public:
   // What condition caused the deoptimization?
   enum DeoptReason {
@@ -127,7 +129,7 @@ class Deoptimization : AllStatic {
 
   // UnrollBlock is returned by fetch_unroll_info() to the deoptimization handler (blob).
   // This is only a CheapObj to ease debugging after a deopt failure
-  class UnrollBlock : public CHeapObj {
+  class UnrollBlock : public CHeapObj<mtCompiler> {
    private:
     int       _size_of_deoptimized_frame; // Size, in bytes, of current deoptimized frame
     int       _caller_adjustment;         // Adjustment, in bytes, to caller's SP by initial interpreted frame
@@ -137,7 +139,7 @@ class Deoptimization : AllStatic {
     address*  _frame_pcs;                 // Array of frame pc's, in bytes, for unrolling the stack
     intptr_t* _register_block;            // Block for storing callee-saved registers.
     BasicType _return_type;               // Tells if we have to restore double or long return value
-    intptr_t  _initial_fp;                // FP of the sender frame
+    intptr_t  _initial_info;              // Platform dependent data for the sender frame (was FP on x86)
     int       _caller_actual_parameters;  // The number of actual arguments at the
                                           // interpreted caller of the deoptimized frame
 
@@ -170,7 +172,7 @@ class Deoptimization : AllStatic {
     // Returns the total size of frames
     int size_of_frames() const;
 
-    void set_initial_fp(intptr_t fp) { _initial_fp = fp; }
+    void set_initial_info(intptr_t info) { _initial_info = info; }
 
     int caller_actual_parameters() const { return _caller_actual_parameters; }
 
@@ -184,7 +186,7 @@ class Deoptimization : AllStatic {
     static int register_block_offset_in_bytes()            { return offset_of(UnrollBlock, _register_block);            }
     static int return_type_offset_in_bytes()               { return offset_of(UnrollBlock, _return_type);               }
     static int counter_temp_offset_in_bytes()              { return offset_of(UnrollBlock, _counter_temp);              }
-    static int initial_fp_offset_in_bytes()                { return offset_of(UnrollBlock, _initial_fp);                }
+    static int initial_info_offset_in_bytes()              { return offset_of(UnrollBlock, _initial_info);              }
     static int unpack_kind_offset_in_bytes()               { return offset_of(UnrollBlock, _unpack_kind);               }
     static int sender_sp_temp_offset_in_bytes()            { return offset_of(UnrollBlock, _sender_sp_temp);            }
 
@@ -330,9 +332,9 @@ class Deoptimization : AllStatic {
   static void popframe_preserve_args(JavaThread* thread, int bytes_to_save, void* start_address);
 
  private:
-  static methodDataOop get_method_data(JavaThread* thread, methodHandle m, bool create_if_missing);
+  static MethodData* get_method_data(JavaThread* thread, methodHandle m, bool create_if_missing);
   // Update the mdo's count and per-BCI reason bits, returning previous state:
-  static ProfileData* query_update_method_data(methodDataHandle trap_mdo,
+  static ProfileData* query_update_method_data(MethodData* trap_mdo,
                                                int trap_bci,
                                                DeoptReason reason,
                                                //outputs:
@@ -353,7 +355,7 @@ class Deoptimization : AllStatic {
   // Note:  Histogram array size is 1-2 Kb.
 
  public:
-  static void update_method_data_from_interpreter(methodDataHandle trap_mdo, int trap_bci, int reason);
+  static void update_method_data_from_interpreter(MethodData* trap_mdo, int trap_bci, int reason);
 };
 
 class DeoptimizationMarker : StackObj {  // for profiling

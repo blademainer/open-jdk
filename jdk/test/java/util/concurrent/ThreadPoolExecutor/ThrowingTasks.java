@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ import java.security.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class ThrowingTasks {
     static final Random rnd = new Random();
@@ -101,8 +102,10 @@ public class ThrowingTasks {
     static class Thrower implements Runnable {
         Throwable t;
         Thrower(Throwable t) { this.t = t; }
-        @SuppressWarnings("deprecation")
-        public void run() { if (t != null) Thread.currentThread().stop(t); }
+        public void run() {
+            if (t != null)
+                ThrowingTasks.<RuntimeException>uncheckedThrow(t);
+        }
     }
 
     static final Thrower noThrower      = new Thrower(null);
@@ -154,6 +157,7 @@ public class ThrowingTasks {
     }
 
     static class CheckingExecutor extends ThreadPoolExecutor {
+        private final ReentrantLock lock = new ReentrantLock();
         CheckingExecutor() {
             super(10, 10,
                   1L, TimeUnit.HOURS,
@@ -161,10 +165,20 @@ public class ThrowingTasks {
                   tf);
         }
         @Override protected void beforeExecute(Thread t, Runnable r) {
-            allStarted.countDown();
-            if (allStarted.getCount() < getCorePoolSize())
+            final boolean lessThanCorePoolSize;
+            // Add a lock to sync allStarted.countDown() and
+            // allStarted.getCount() < getCorePoolSize()
+            lock.lock();
+            try {
+                allStarted.countDown();
+                lessThanCorePoolSize = allStarted.getCount() < getCorePoolSize();
+            } finally {
+                lock.unlock();
+            }
+            if (lessThanCorePoolSize) {
                 try { allContinue.await(); }
                 catch (InterruptedException x) { unexpected(x); }
+            }
             beforeExecuteCount.getAndIncrement();
             check(! isTerminated());
             ((Flaky)r).beforeExecute.run();
@@ -265,4 +279,8 @@ public class ThrowingTasks {
         try {realMain(args);} catch (Throwable t) {unexpected(t);}
         System.out.printf("%nPassed = %d, failed = %d%n%n", passed, failed);
         if (failed > 0) throw new AssertionError("Some tests failed");}
+    @SuppressWarnings("unchecked") static <T extends Throwable>
+        void uncheckedThrow(Throwable t) throws T {
+        throw (T)t; // rely on vacuous cast
+    }
 }

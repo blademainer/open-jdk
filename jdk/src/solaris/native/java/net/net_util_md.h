@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,7 +37,7 @@
 #endif
 
 
-#ifdef __linux__
+#if defined(__linux__) || defined(MACOSX)
 extern int NET_Timeout(int s, long timeout);
 extern int NET_Read(int s, void* buf, size_t len);
 extern int NET_RecvFrom(int s, void *buf, int len, unsigned int flags,
@@ -81,6 +81,9 @@ extern int NET_Poll(struct pollfd *ufds, unsigned int nfds, int timeout);
 int getDefaultIPv6Interface(struct in6_addr *target_addr);
 #endif
 
+#ifdef __solaris__
+extern int net_getParam(char *driver, char *param);
+#endif
 
 /* needed from libsocket on Solaris 8 */
 
@@ -101,10 +104,6 @@ extern getnameinfo_f getnameinfo_ptr;
 void ThrowUnknownHostExceptionWithGaiError(JNIEnv *env,
                                            const char* hostname,
                                            int gai_error);
-
-/* do we have address translation support */
-
-extern jboolean NET_addrtransAvailable();
 
 #define NET_WAIT_READ   0x01
 #define NET_WAIT_WRITE  0x02
@@ -148,7 +147,6 @@ extern jint NET_Wait(JNIEnv *env, jint fd, jint flags, jint timeout);
  *  Utilities
  */
 #ifdef __linux__
-extern int kernelIsV22();
 extern int kernelIsV24();
 #endif
 

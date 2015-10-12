@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,6 +44,14 @@ import java.util.Properties;
 public class HToolkit extends SunToolkit
     implements ComponentFactory {
 
+    private static final KeyboardFocusManagerPeer kfmPeer = new KeyboardFocusManagerPeer() {
+        public void setCurrentFocusedWindow(Window win) {}
+        public Window getCurrentFocusedWindow() { return null; }
+        public void setCurrentFocusOwner(Component comp) {}
+        public Component getCurrentFocusOwner() { return null; }
+        public void clearGlobalFocusOwner(Window activeWindow) {}
+    };
+
     public HToolkit() {
     }
 
@@ -52,6 +60,11 @@ public class HToolkit extends SunToolkit
      */
 
     public WindowPeer createWindow(Window target)
+        throws HeadlessException {
+        throw new HeadlessException();
+    }
+
+    public FramePeer createLightweightFrame(LightweightFrame target)
         throws HeadlessException {
         throw new HeadlessException();
     }
@@ -152,15 +165,9 @@ public class HToolkit extends SunToolkit
         throw new HeadlessException();
     }
 
-    public KeyboardFocusManagerPeer createKeyboardFocusManagerPeer(KeyboardFocusManager manager) {
+    public KeyboardFocusManagerPeer getKeyboardFocusManagerPeer() {
         // See 6833019.
-        return
-            new KeyboardFocusManagerPeer() {
-                public Window getCurrentFocusedWindow() { return null; }
-                public void setCurrentFocusOwner(Component comp) {}
-                public Component getCurrentFocusOwner() { return null; }
-                public void clearGlobalFocusOwner(Window activeWindow) {}
-            };
+        return kfmPeer;
     }
 
     public TrayIconPeer createTrayIcon(TrayIcon target)

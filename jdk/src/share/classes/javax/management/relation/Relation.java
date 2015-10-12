@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -236,7 +236,7 @@ public interface Relation {
      * Retrieves MBeans referenced in the various roles of the relation.
      *
      * @return a HashMap mapping:
-     * <P> ObjectName -> ArrayList of String (role names)
+     * <P> ObjectName {@literal ->} ArrayList of String (role names)
      */
     public Map<ObjectName,List<String>> getReferencedMBeans();
 

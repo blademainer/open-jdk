@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -177,8 +177,8 @@ typedef struct jzentry {  /* Zip file entry */
  */
 typedef struct jzcell {
     unsigned int hash;    /* 32 bit hashcode on name */
-    jlong cenpos;         /* Offset of central directory file header */
     unsigned int next;    /* hash chain: index into jzfile->entries */
+    jlong cenpos;         /* Offset of central directory file header */
 } jzcell;
 
 typedef struct cencache {
@@ -210,6 +210,7 @@ typedef struct jzfile {   /* Zip file */
                              start of the file. */
     jboolean usemmap;     /* if mmap is used. */
 #endif
+    jboolean locsig;      /* if zip file starts with LOCSIG */
     cencache cencache;    /* CEN header cache */
     ZFILE zfd;            /* open file descriptor */
     void *lock;           /* read lock */

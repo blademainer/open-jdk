@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,15 +31,15 @@ package com.sun.jdi.request;
  * @author Robert Field
  * @since  1.3
  */
-public class DuplicateRequestException extends RuntimeException
-{
-    public DuplicateRequestException()
-    {
+@jdk.Exported
+public class DuplicateRequestException extends RuntimeException {
+    private static final long serialVersionUID = -3719784920313411060L;
+
+    public DuplicateRequestException() {
         super();
     }
 
-    public DuplicateRequestException(String s)
-    {
+    public DuplicateRequestException(String s) {
         super(s);
     }
 }

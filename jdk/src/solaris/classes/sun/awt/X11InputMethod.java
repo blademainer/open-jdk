@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,6 +57,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import sun.util.logging.PlatformLogger;
 import java.util.StringTokenizer;
 import java.util.regex.Pattern;
@@ -104,7 +105,7 @@ public abstract class X11InputMethod extends InputMethodAdapter {
 
     //reset the XIC if necessary
     private boolean   needResetXIC = false;
-    private Component needResetXICClient = null;
+    private WeakReference<Component> needResetXICClient = new WeakReference<>(null);
 
     // The use of compositionEnableSupported is to reduce unnecessary
     // native calls if set/isCompositionEnabled
@@ -272,14 +273,14 @@ public abstract class X11InputMethod extends InputMethodAdapter {
            called on the passive client when endComposition is called.
         */
         if (needResetXIC && haveActiveClient() &&
-            getClientComponent() != needResetXICClient){
+            getClientComponent() != needResetXICClient.get()){
             resetXIC();
 
             // needs to reset the last xic focussed component.
             lastXICFocussedComponent = null;
             isLastXICActive = false;
 
-            needResetXICClient = null;
+            needResetXICClient.clear();
             needResetXIC = false;
         }
     }
@@ -325,8 +326,10 @@ public abstract class X11InputMethod extends InputMethodAdapter {
             return;
 
         if (lastXICFocussedComponent != null){
-            if (log.isLoggable(PlatformLogger.FINE)) log.fine("XICFocused {0}, AWTFocused {1}",
-                                                              lastXICFocussedComponent, awtFocussedComponent);
+            if (log.isLoggable(PlatformLogger.Level.FINE)) {
+                log.fine("XICFocused {0}, AWTFocused {1}",
+                         lastXICFocussedComponent, awtFocussedComponent);
+            }
         }
 
         if (pData == 0) {
@@ -415,6 +418,10 @@ public abstract class X11InputMethod extends InputMethodAdapter {
             setXICFocus(getPeer(lastXICFocussedComponent), false, isLastXICActive);
             lastXICFocussedComponent = null;
             isLastXICActive = false;
+
+            resetXIC();
+            needResetXICClient.clear();
+            needResetXIC = false;
         }
     }
 
@@ -474,7 +481,7 @@ public abstract class X11InputMethod extends InputMethodAdapter {
         disableInputMethod();
         if (needResetXIC) {
             resetXIC();
-            needResetXICClient = null;
+            needResetXICClient.clear();
             needResetXIC = false;
         }
     }
@@ -873,7 +880,7 @@ public abstract class X11InputMethod extends InputMethodAdapter {
         boolean active = haveActiveClient();
         if (active && composedText == null && committedText == null){
             needResetXIC = true;
-            needResetXICClient = getClientComponent();
+            needResetXICClient = new WeakReference<>(getClientComponent());
             return;
         }
 

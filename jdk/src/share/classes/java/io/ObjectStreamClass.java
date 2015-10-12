@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,7 +49,10 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import sun.misc.Unsafe;
+import sun.reflect.CallerSensitive;
+import sun.reflect.Reflection;
 import sun.reflect.ReflectionFactory;
+import sun.reflect.misc.ReflectUtil;
 
 /**
  * Serialization's descriptor for classes.  It contains the name and
@@ -123,14 +126,39 @@ public class ObjectStreamClass implements Serializable {
      */
     private boolean hasBlockExternalData = true;
 
+    /**
+     * Contains information about InvalidClassException instances to be thrown
+     * when attempting operations on an invalid class. Note that instances of
+     * this class are immutable and are potentially shared among
+     * ObjectStreamClass instances.
+     */
+    private static class ExceptionInfo {
+        private final String className;
+        private final String message;
+
+        ExceptionInfo(String cn, String msg) {
+            className = cn;
+            message = msg;
+        }
+
+        /**
+         * Returns (does not throw) an InvalidClassException instance created
+         * from the information in this object, suitable for being thrown by
+         * the caller.
+         */
+        InvalidClassException newInvalidClassException() {
+            return new InvalidClassException(className, message);
+        }
+    }
+
     /** exception (if any) thrown while attempting to resolve class */
     private ClassNotFoundException resolveEx;
     /** exception (if any) to throw if non-enum deserialization attempted */
-    private InvalidClassException deserializeEx;
+    private ExceptionInfo deserializeEx;
     /** exception (if any) to throw if non-enum serialization attempted */
-    private InvalidClassException serializeEx;
+    private ExceptionInfo serializeEx;
     /** exception (if any) to throw if default serialization attempted */
-    private InvalidClassException defaultSerializeEx;
+    private ExceptionInfo defaultSerializeEx;
 
     /** serializable fields */
     private ObjectStreamField[] fields;
@@ -144,7 +172,7 @@ public class ObjectStreamClass implements Serializable {
     private volatile ClassDataSlot[] dataLayout;
 
     /** serialization-appropriate constructor, or null if none */
-    private Constructor cons;
+    private Constructor<?> cons;
     /** class-defined writeObject method, or null if none */
     private Method writeObjectMethod;
     /** class-defined readObject method, or null if none */
@@ -233,7 +261,17 @@ public class ObjectStreamClass implements Serializable {
      *
      * @return  the <code>Class</code> instance that this descriptor represents
      */
+    @CallerSensitive
     public Class<?> forClass() {
+        if (cl == null) {
+            return null;
+        }
+        if (System.getSecurityManager() != null) {
+            Class<?> caller = Reflection.getCallerClass();
+            if (ReflectUtil.needsPackageAccessCheck(caller.getClassLoader(), cl.getClassLoader())) {
+                ReflectUtil.checkPackageAccess(cl);
+            }
+        }
         return cl;
     }
 
@@ -444,7 +482,8 @@ public class ObjectStreamClass implements Serializable {
                         fields = getSerialFields(cl);
                         computeFieldOffsets();
                     } catch (InvalidClassException e) {
-                        serializeEx = deserializeEx = e;
+                        serializeEx = deserializeEx =
+                            new ExceptionInfo(e.classname, e.getMessage());
                         fields = NO_FIELDS;
                     }
 
@@ -478,20 +517,19 @@ public class ObjectStreamClass implements Serializable {
             fieldRefl = getReflector(fields, this);
         } catch (InvalidClassException ex) {
             // field mismatches impossible when matching local fields vs. self
-            throw new InternalError();
+            throw new InternalError(ex);
         }
 
         if (deserializeEx == null) {
             if (isEnum) {
-                deserializeEx = new InvalidClassException(name, "enum type");
+                deserializeEx = new ExceptionInfo(name, "enum type");
             } else if (cons == null) {
-                deserializeEx = new InvalidClassException(
-                    name, "no valid constructor");
+                deserializeEx = new ExceptionInfo(name, "no valid constructor");
             }
         }
         for (int i = 0; i < fields.length; i++) {
             if (fields[i].getField() == null) {
-                defaultSerializeEx = new InvalidClassException(
+                defaultSerializeEx = new ExceptionInfo(
                     name, "unmatched serializable field(s) declared");
             }
         }
@@ -601,8 +639,8 @@ public class ObjectStreamClass implements Serializable {
                     (externalizable != localDesc.externalizable) ||
                     !(serializable || externalizable))
                 {
-                    deserializeEx = new InvalidClassException(localDesc.name,
-                        "class invalid for deserialization");
+                    deserializeEx = new ExceptionInfo(
+                        localDesc.name, "class invalid for deserialization");
                 }
             }
 
@@ -727,11 +765,7 @@ public class ObjectStreamClass implements Serializable {
      */
     void checkDeserialize() throws InvalidClassException {
         if (deserializeEx != null) {
-            InvalidClassException ice =
-                new InvalidClassException(deserializeEx.classname,
-                                          deserializeEx.getMessage());
-            ice.initCause(deserializeEx);
-            throw ice;
+            throw deserializeEx.newInvalidClassException();
         }
     }
 
@@ -742,11 +776,7 @@ public class ObjectStreamClass implements Serializable {
      */
     void checkSerialize() throws InvalidClassException {
         if (serializeEx != null) {
-            InvalidClassException ice =
-                new InvalidClassException(serializeEx.classname,
-                                          serializeEx.getMessage());
-            ice.initCause(serializeEx);
-            throw ice;
+            throw serializeEx.newInvalidClassException();
         }
     }
 
@@ -759,11 +789,7 @@ public class ObjectStreamClass implements Serializable {
      */
     void checkDefaultSerialize() throws InvalidClassException {
         if (defaultSerializeEx != null) {
-            InvalidClassException ice =
-                new InvalidClassException(defaultSerializeEx.classname,
-                                          defaultSerializeEx.getMessage());
-            ice.initCause(defaultSerializeEx);
-            throw ice;
+            throw defaultSerializeEx.newInvalidClassException();
         }
     }
 
@@ -941,7 +967,7 @@ public class ObjectStreamClass implements Serializable {
                 return cons.newInstance();
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -969,7 +995,7 @@ public class ObjectStreamClass implements Serializable {
                 }
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -1000,7 +1026,7 @@ public class ObjectStreamClass implements Serializable {
                 }
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -1028,7 +1054,7 @@ public class ObjectStreamClass implements Serializable {
                 }
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -1053,11 +1079,11 @@ public class ObjectStreamClass implements Serializable {
                     throw (ObjectStreamException) th;
                 } else {
                     throwMiscException(th);
-                    throw new InternalError();  // never reached
+                    throw new InternalError(th);  // never reached
                 }
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -1082,11 +1108,11 @@ public class ObjectStreamClass implements Serializable {
                     throw (ObjectStreamException) th;
                 } else {
                     throwMiscException(th);
-                    throw new InternalError();  // never reached
+                    throw new InternalError(th);  // never reached
                 }
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -1138,7 +1164,14 @@ public class ObjectStreamClass implements Serializable {
             end = end.getSuperclass();
         }
 
+        HashSet<String> oscNames = new HashSet<>(3);
+
         for (ObjectStreamClass d = this; d != null; d = d.superDesc) {
+            if (oscNames.contains(d.name)) {
+                throw new InvalidClassException("Circular reference.");
+            } else {
+                oscNames.add(d.name);
+            }
 
             // search up inheritance hierarchy for class with matching name
             String searchName = (d.cl != null) ? d.cl.getName() : d.name;
@@ -1308,9 +1341,9 @@ public class ObjectStreamClass implements Serializable {
      * Access checks are disabled on the returned constructor (if any), since
      * the defining class may still be non-public.
      */
-    private static Constructor getExternalizableConstructor(Class<?> cl) {
+    private static Constructor<?> getExternalizableConstructor(Class<?> cl) {
         try {
-            Constructor cons = cl.getDeclaredConstructor((Class<?>[]) null);
+            Constructor<?> cons = cl.getDeclaredConstructor((Class<?>[]) null);
             cons.setAccessible(true);
             return ((cons.getModifiers() & Modifier.PUBLIC) != 0) ?
                 cons : null;
@@ -1324,7 +1357,7 @@ public class ObjectStreamClass implements Serializable {
      * superclass, or null if none found.  Access checks are disabled on the
      * returned constructor (if any).
      */
-    private static Constructor getSerializableConstructor(Class<?> cl) {
+    private static Constructor<?> getSerializableConstructor(Class<?> cl) {
         Class<?> initCl = cl;
         while (Serializable.class.isAssignableFrom(initCl)) {
             if ((initCl = initCl.getSuperclass()) == null) {
@@ -1332,7 +1365,7 @@ public class ObjectStreamClass implements Serializable {
             }
         }
         try {
-            Constructor cons = initCl.getDeclaredConstructor((Class<?>[]) null);
+            Constructor<?> cons = initCl.getDeclaredConstructor((Class<?>[]) null);
             int mods = cons.getModifiers();
             if ((mods & Modifier.PRIVATE) != 0 ||
                 ((mods & (Modifier.PUBLIC | Modifier.PROTECTED)) == 0 &&
@@ -1713,7 +1746,7 @@ public class ObjectStreamClass implements Serializable {
                 dout.writeUTF("()V");
             }
 
-            Constructor[] cons = cl.getDeclaredConstructors();
+            Constructor<?>[] cons = cl.getDeclaredConstructors();
             MemberSignature[] consSigs = new MemberSignature[cons.length];
             for (int i = 0; i < cons.length; i++) {
                 consSigs[i] = new MemberSignature(cons[i]);
@@ -1774,7 +1807,7 @@ public class ObjectStreamClass implements Serializable {
             }
             return hash;
         } catch (IOException ex) {
-            throw new InternalError();
+            throw new InternalError(ex);
         } catch (NoSuchAlgorithmException ex) {
             throw new SecurityException(ex.getMessage());
         }
@@ -1802,7 +1835,7 @@ public class ObjectStreamClass implements Serializable {
             signature = getClassSignature(field.getType());
         }
 
-        public MemberSignature(Constructor cons) {
+        public MemberSignature(Constructor<?> cons) {
             member = cons;
             name = cons.getName();
             signature = getMethodSignature(

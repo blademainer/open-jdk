@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -72,7 +72,7 @@ import sun.swing.SwingUtilities2;
  * future Swing releases. The current serialization support is
  * appropriate for short term storage or RMI between applications running
  * the same version of Swing.  As of 1.4, support for long term storage
- * of all JavaBeans<sup><font size="-2">TM</font></sup>
+ * of all JavaBeans&trade;
  * has been added to the <code>java.beans</code> package.
  * Please see {@link java.beans.XMLEncoder}.
  *
@@ -291,11 +291,10 @@ public class MetalLookAndFeel extends BasicLookAndFeel
      * Populates {@code table} with system colors. The following values are
      * added to {@code table}:
      * <table border="1" cellpadding="1" cellspacing="0"
-     *         summary="Metal's system color mapping"
-     *         valign="top" >
+     *         summary="Metal's system color mapping">
      *  <tr valign="top"  align="left">
-     *    <th bgcolor="#CCCCFF" align="left">Key
-     *    <th bgcolor="#CCCCFF" align="left">Value
+     *    <th style="background-color:#CCCCFF" align="left">Key
+     *    <th style="background-color:#CCCCFF" align="left">Value
      *  <tr valign="top"  align="left">
      *    <td>"desktop"
      *    <td>{@code theme.getDesktopColor()}
@@ -844,9 +843,6 @@ public class MetalLookAndFeel extends BasicLookAndFeel
             "FileChooser.newFolderIcon", new SwingLazyValue("javax.swing.plaf.metal.MetalIconFactory", "getFileChooserNewFolderIcon"),
             "FileChooser.upFolderIcon", new SwingLazyValue("javax.swing.plaf.metal.MetalIconFactory", "getFileChooserUpFolderIcon"),
 
-            "FileChooser.lookInLabelMnemonic", new Integer(KeyEvent.VK_I),
-            "FileChooser.fileNameLabelMnemonic", new Integer(KeyEvent.VK_N),
-            "FileChooser.filesOfTypeLabelMnemonic", new Integer(KeyEvent.VK_T),
             "FileChooser.usesSingleFilePane", Boolean.TRUE,
             "FileChooser.ancestorInputMap",
                new UIDefaults.LazyInputMap(new Object[] {
@@ -1742,7 +1738,7 @@ public class MetalLookAndFeel extends BasicLookAndFeel
     public static FontUIResource getControlTextFont() { return getCurrentTheme().getControlTextFont();}
 
     /**
-     * Returns the sytem text font of the current theme. This is a
+     * Returns the system text font of the current theme. This is a
      * cover method for {@code getCurrentTheme().getSystemTextFont()}.
      *
      * @return the system text font
@@ -2167,7 +2163,7 @@ public class MetalLookAndFeel extends BasicLookAndFeel
     /**
      * Returns a {@code LayoutStyle} implementing the Java look and feel
      * design guidelines as specified at
-     * <a href="http://java.sun.com/products/jlf/ed2/book/HIG.Visual2.html">http://java.sun.com/products/jlf/ed2/book/HIG.Visual2.html</a>.
+     * <a href="http://www.oracle.com/technetwork/java/hig-136467.html">http://www.oracle.com/technetwork/java/hig-136467.html</a>.
      *
      * @return LayoutStyle implementing the Java look and feel design
      *         guidelines
@@ -2365,7 +2361,7 @@ public class MetalLookAndFeel extends BasicLookAndFeel
     }
 
     // From the JLF Design Guidelines:
-    // http://java.sun.com/products/jlf/ed2/book/HIG.Visual2.html
+    // http://www.oracle.com/technetwork/java/jlf-135985.html
     private static class MetalLayoutStyle extends DefaultLayoutStyle {
         private static MetalLayoutStyle INSTANCE = new MetalLayoutStyle();
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,6 +29,12 @@
 #include "nio.h"
 #include "nio_util.h"
 #include "sun_nio_ch_FileKey.h"
+
+#ifdef _ALLBSD_SOURCE
+#define stat64 stat
+
+#define fstat64 fstat
+#endif
 
 static jfieldID key_st_dev;    /* id for FileKey.st_dev */
 static jfieldID key_st_ino;    /* id for FileKey.st_ino */

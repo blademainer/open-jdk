@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -318,7 +318,7 @@ public class SimpleAsynchronousFileChannelImpl
                 try {
                     begin();
                     do {
-                        n = IOUtil.read(fdObj, dst, position, nd, null);
+                        n = IOUtil.read(fdObj, dst, position, nd);
                     } while ((n == IOStatus.INTERRUPTED) && isOpen());
                     if (n < 0 && !isOpen())
                         throw new AsynchronousCloseException();
@@ -372,7 +372,7 @@ public class SimpleAsynchronousFileChannelImpl
                 try {
                     begin();
                     do {
-                        n = IOUtil.write(fdObj, src, position, nd, null);
+                        n = IOUtil.write(fdObj, src, position, nd);
                     } while ((n == IOStatus.INTERRUPTED) && isOpen());
                     if (n < 0 && !isOpen())
                         throw new AsynchronousCloseException();

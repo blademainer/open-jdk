@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -72,6 +72,7 @@ import javax.swing.SwingWorker;
  *
  * @since 1.6
  */
+@jdk.Exported
 public abstract class JConsolePlugin {
     private volatile JConsoleContext context = null;
     private List<PropertyChangeListener> listeners = null;

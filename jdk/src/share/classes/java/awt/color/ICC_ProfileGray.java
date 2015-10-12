@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,8 @@
  * questions.
  */
 
-/**********************************************************************
+/*
+ **********************************************************************
  **********************************************************************
  **********************************************************************
  *** COPYRIGHT (c) Eastman Kodak Company, 1997                      ***
@@ -35,7 +36,7 @@
 
 package java.awt.color;
 
-import java.awt.image.LookupTable;
+import sun.java2d.cmm.Profile;
 import sun.java2d.cmm.ProfileDeferralInfo;
 
 /**
@@ -63,7 +64,6 @@ import sun.java2d.cmm.ProfileDeferralInfo;
 </pre>
  * The inverse transform is done by converting the PCS Y components to
  * device Gray via the inverse of the grayTRC.
- * <p>
  */
 
 
@@ -76,8 +76,8 @@ extends ICC_Profile {
     /**
      * Constructs a new ICC_ProfileGray from a CMM ID.
      */
-    ICC_ProfileGray(long ID) {
-        super(ID);
+    ICC_ProfileGray(Profile p) {
+        super(p);
     }
 
     /**

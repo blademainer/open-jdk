@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,9 @@
  */
 
 #include "precompiled.hpp"
+#include "ci/ciMetadata.hpp"
 #include "ci/ciMethodData.hpp"
+#include "ci/ciReplay.hpp"
 #include "ci/ciUtilities.hpp"
 #include "memory/allocation.inline.hpp"
 #include "memory/resourceArea.hpp"
@@ -35,8 +37,8 @@
 // ------------------------------------------------------------------
 // ciMethodData::ciMethodData
 //
-ciMethodData::ciMethodData(methodDataHandle h_md) : ciObject(h_md) {
-  assert(h_md() != NULL, "no null method data");
+ciMethodData::ciMethodData(MethodData* md) : ciMetadata(md) {
+  assert(md != NULL, "no null method data");
   Copy::zero_to_words((HeapWord*) &_orig, sizeof(_orig) / sizeof(HeapWord));
   _data = NULL;
   _data_size = 0;
@@ -51,13 +53,14 @@ ciMethodData::ciMethodData(methodDataHandle h_md) : ciObject(h_md) {
   _hint_di = first_di();
   // Initialize the escape information (to "don't know.");
   _eflags = _arg_local = _arg_stack = _arg_returned = 0;
+  _parameters = NULL;
 }
 
 // ------------------------------------------------------------------
 // ciMethodData::ciMethodData
 //
-// No methodDataOop.
-ciMethodData::ciMethodData() : ciObject() {
+// No MethodData*.
+ciMethodData::ciMethodData() : ciMetadata(NULL) {
   Copy::zero_to_words((HeapWord*) &_orig, sizeof(_orig) / sizeof(HeapWord));
   _data = NULL;
   _data_size = 0;
@@ -72,11 +75,14 @@ ciMethodData::ciMethodData() : ciObject() {
   _hint_di = first_di();
   // Initialize the escape information (to "don't know.");
   _eflags = _arg_local = _arg_stack = _arg_returned = 0;
+  _parameters = NULL;
 }
 
 void ciMethodData::load_data() {
-  methodDataOop mdo = get_methodDataOop();
-  if (mdo == NULL) return;
+  MethodData* mdo = get_MethodData();
+  if (mdo == NULL) {
+    return;
+  }
 
   // To do: don't copy the data if it is not "ripe" -- require a minimum #
   // of invocations.
@@ -84,11 +90,9 @@ void ciMethodData::load_data() {
   // Snapshot the data -- actually, take an approximate snapshot of
   // the data.  Any concurrently executing threads may be changing the
   // data as we copy it.
-  int skip_header = oopDesc::header_size();
-  Copy::disjoint_words((HeapWord*) mdo              + skip_header,
-                       (HeapWord*) &_orig           + skip_header,
-                       sizeof(_orig) / HeapWordSize - skip_header);
-  DEBUG_ONLY(*_orig.adr_method() = NULL);  // no dangling oops, please
+  Copy::disjoint_words((HeapWord*) mdo,
+                       (HeapWord*) &_orig,
+                       sizeof(_orig) / HeapWordSize);
   Arena* arena = CURRENT_ENV->arena();
   _data_size = mdo->data_size();
   _extra_data_size = mdo->extra_data_size();
@@ -106,8 +110,14 @@ void ciMethodData::load_data() {
     ci_data = next_data(ci_data);
     data = mdo->next_data(data);
   }
+  if (mdo->parameters_type_data() != NULL) {
+    _parameters = data_layout_at(mdo->parameters_type_data_di());
+    ciParametersTypeData* parameters = new ciParametersTypeData(_parameters);
+    parameters->translate_from(mdo->parameters_type_data());
+  }
+
   // Note:  Extra data are all BitData, and do not need translation.
-  _current_mileage = methodDataOopDesc::mileage_of(mdo->method());
+  _current_mileage = MethodData::mileage_of(mdo->method());
   _invocation_counter = mdo->invocation_count();
   _backedge_counter = mdo->backedge_count();
   _state = mdo->is_mature()? mature_state: immature_state;
@@ -116,18 +126,35 @@ void ciMethodData::load_data() {
   _arg_local = mdo->arg_local();
   _arg_stack = mdo->arg_stack();
   _arg_returned  = mdo->arg_returned();
+#ifndef PRODUCT
+  if (ReplayCompiles) {
+    ciReplay::initialize(this);
+  }
+#endif
 }
 
-void ciReceiverTypeData::translate_receiver_data_from(ProfileData* data) {
+void ciReceiverTypeData::translate_receiver_data_from(const ProfileData* data) {
   for (uint row = 0; row < row_limit(); row++) {
-    klassOop k = data->as_ReceiverTypeData()->receiver(row);
+    Klass* k = data->as_ReceiverTypeData()->receiver(row);
     if (k != NULL) {
-      ciKlass* klass = CURRENT_ENV->get_object(k)->as_klass();
+      ciKlass* klass = CURRENT_ENV->get_klass(k);
       set_receiver(row, klass);
     }
   }
 }
 
+
+void ciTypeStackSlotEntries::translate_type_data_from(const TypeStackSlotEntries* entries) {
+  for (int i = 0; i < _number_of_entries; i++) {
+    intptr_t k = entries->type(i);
+    TypeStackSlotEntries::set_type(i, translate_klass(k));
+  }
+}
+
+void ciReturnTypeEntry::translate_type_data_from(const ReturnTypeEntry* ret) {
+  intptr_t k = ret->type();
+  set_type(translate_klass(k));
+}
 
 // Get the data at an arbitrary (sort of) data index.
 ciProfileData* ciMethodData::data_at(int data_index) {
@@ -159,6 +186,12 @@ ciProfileData* ciMethodData::data_at(int data_index) {
     return new ciMultiBranchData(data_layout);
   case DataLayout::arg_info_data_tag:
     return new ciArgInfoData(data_layout);
+  case DataLayout::call_type_data_tag:
+    return new ciCallTypeData(data_layout);
+  case DataLayout::virtual_call_type_data_tag:
+    return new ciVirtualCallTypeData(data_layout);
+  case DataLayout::parameters_type_data_tag:
+    return new ciParametersTypeData(data_layout);
   };
 }
 
@@ -184,7 +217,7 @@ ciProfileData* ciMethodData::bci_to_data(int bci) {
   // bci_to_extra_data(bci) ...
   DataLayout* dp  = data_layout_at(data_size());
   DataLayout* end = data_layout_at(data_size() + extra_data_size());
-  for (; dp < end; dp = methodDataOopDesc::next_extra(dp)) {
+  for (; dp < end; dp = MethodData::next_extra(dp)) {
     if (dp->tag() == DataLayout::no_tag) {
       _saw_free_extra_data = true;  // observed an empty slot (common case)
       return NULL;
@@ -236,7 +269,7 @@ int ciMethodData::trap_recompiled_at(ciProfileData* data) {
 
 void ciMethodData::clear_escape_info() {
   VM_ENTRY_MARK;
-  methodDataOop mdo = get_methodDataOop();
+  MethodData* mdo = get_MethodData();
   if (mdo != NULL) {
     mdo->clear_escape_info();
     ArgInfoData *aid = arg_info();
@@ -248,10 +281,10 @@ void ciMethodData::clear_escape_info() {
   _eflags = _arg_local = _arg_stack = _arg_returned = 0;
 }
 
-// copy our escape info to the methodDataOop if it exists
+// copy our escape info to the MethodData* if it exists
 void ciMethodData::update_escape_info() {
   VM_ENTRY_MARK;
-  methodDataOop mdo = get_methodDataOop();
+  MethodData* mdo = get_MethodData();
   if ( mdo != NULL) {
     mdo->set_eflags(_eflags);
     mdo->set_arg_local(_arg_local);
@@ -266,7 +299,7 @@ void ciMethodData::update_escape_info() {
 
 void ciMethodData::set_compilation_stats(short loops, short blocks) {
   VM_ENTRY_MARK;
-  methodDataOop mdo = get_methodDataOop();
+  MethodData* mdo = get_MethodData();
   if (mdo != NULL) {
     mdo->set_num_loops(loops);
     mdo->set_num_blocks(blocks);
@@ -275,25 +308,61 @@ void ciMethodData::set_compilation_stats(short loops, short blocks) {
 
 void ciMethodData::set_would_profile(bool p) {
   VM_ENTRY_MARK;
-  methodDataOop mdo = get_methodDataOop();
+  MethodData* mdo = get_MethodData();
   if (mdo != NULL) {
     mdo->set_would_profile(p);
   }
 }
 
-bool ciMethodData::has_escape_info() {
-  return eflag_set(methodDataOopDesc::estimated);
+void ciMethodData::set_argument_type(int bci, int i, ciKlass* k) {
+  VM_ENTRY_MARK;
+  MethodData* mdo = get_MethodData();
+  if (mdo != NULL) {
+    ProfileData* data = mdo->bci_to_data(bci);
+    if (data->is_CallTypeData()) {
+      data->as_CallTypeData()->set_argument_type(i, k->get_Klass());
+    } else {
+      assert(data->is_VirtualCallTypeData(), "no arguments!");
+      data->as_VirtualCallTypeData()->set_argument_type(i, k->get_Klass());
+    }
+  }
 }
 
-void ciMethodData::set_eflag(methodDataOopDesc::EscapeFlag f) {
+void ciMethodData::set_parameter_type(int i, ciKlass* k) {
+  VM_ENTRY_MARK;
+  MethodData* mdo = get_MethodData();
+  if (mdo != NULL) {
+    mdo->parameters_type_data()->set_type(i, k->get_Klass());
+  }
+}
+
+void ciMethodData::set_return_type(int bci, ciKlass* k) {
+  VM_ENTRY_MARK;
+  MethodData* mdo = get_MethodData();
+  if (mdo != NULL) {
+    ProfileData* data = mdo->bci_to_data(bci);
+    if (data->is_CallTypeData()) {
+      data->as_CallTypeData()->set_return_type(k->get_Klass());
+    } else {
+      assert(data->is_VirtualCallTypeData(), "no arguments!");
+      data->as_VirtualCallTypeData()->set_return_type(k->get_Klass());
+    }
+  }
+}
+
+bool ciMethodData::has_escape_info() {
+  return eflag_set(MethodData::estimated);
+}
+
+void ciMethodData::set_eflag(MethodData::EscapeFlag f) {
   set_bits(_eflags, f);
 }
 
-void ciMethodData::clear_eflag(methodDataOopDesc::EscapeFlag f) {
+void ciMethodData::clear_eflag(MethodData::EscapeFlag f) {
   clear_bits(_eflags, f);
 }
 
-bool ciMethodData::eflag_set(methodDataOopDesc::EscapeFlag f) const {
+bool ciMethodData::eflag_set(MethodData::EscapeFlag f) const {
   return mask_bits(_eflags, f) != 0;
 }
 
@@ -338,8 +407,8 @@ uint ciMethodData::arg_modified(int arg) const {
 }
 
 ByteSize ciMethodData::offset_of_slot(ciProfileData* data, ByteSize slot_offset_in_data) {
-  // Get offset within methodDataOop of the data array
-  ByteSize data_offset = methodDataOopDesc::data_offset();
+  // Get offset within MethodData* of the data array
+  ByteSize data_offset = MethodData::data_offset();
 
   // Get cell offset of the ProfileData within data array
   int cell_offset = dp_to_di(data->dp());
@@ -354,7 +423,7 @@ ciArgInfoData *ciMethodData::arg_info() const {
   // Should be last, have to skip all traps.
   DataLayout* dp  = data_layout_at(data_size());
   DataLayout* end = data_layout_at(data_size() + extra_data_size());
-  for (; dp < end; dp = methodDataOopDesc::next_extra(dp)) {
+  for (; dp < end; dp = MethodData::next_extra(dp)) {
     if (dp->tag() == DataLayout::arg_info_data_tag)
       return new ciArgInfoData(dp);
   }
@@ -364,7 +433,80 @@ ciArgInfoData *ciMethodData::arg_info() const {
 
 // Implementation of the print method.
 void ciMethodData::print_impl(outputStream* st) {
-  ciObject::print_impl(st);
+  ciMetadata::print_impl(st);
+}
+
+void ciMethodData::dump_replay_data(outputStream* out) {
+  ResourceMark rm;
+  MethodData* mdo = get_MethodData();
+  Method* method = mdo->method();
+  Klass* holder = method->method_holder();
+  out->print("ciMethodData %s %s %s %d %d",
+             holder->name()->as_quoted_ascii(),
+             method->name()->as_quoted_ascii(),
+             method->signature()->as_quoted_ascii(),
+             _state,
+             current_mileage());
+
+  // dump the contents of the MDO header as raw data
+  unsigned char* orig = (unsigned char*)&_orig;
+  int length = sizeof(_orig);
+  out->print(" orig %d", length);
+  for (int i = 0; i < length; i++) {
+    out->print(" %d", orig[i]);
+  }
+
+  // dump the MDO data as raw data
+  int elements = data_size() / sizeof(intptr_t);
+  out->print(" data %d", elements);
+  for (int i = 0; i < elements; i++) {
+    // We could use INTPTR_FORMAT here but that's a zero justified
+    // which makes comparing it with the SA version of this output
+    // harder.
+#ifdef _LP64
+    out->print(" 0x%" FORMAT64_MODIFIER "x", data()[i]);
+#else
+    out->print(" 0x%x", data()[i]);
+#endif
+  }
+
+  // The MDO contained oop references as ciObjects, so scan for those
+  // and emit pairs of offset and klass name so that they can be
+  // reconstructed at runtime.  The first round counts the number of
+  // oop references and the second actually emits them.
+  int count = 0;
+  for (int round = 0; round < 2; round++) {
+    if (round == 1) out->print(" oops %d", count);
+    ProfileData* pdata = first_data();
+    for ( ; is_valid(pdata); pdata = next_data(pdata)) {
+      if (pdata->is_ReceiverTypeData()) {
+        ciReceiverTypeData* vdata = (ciReceiverTypeData*)pdata;
+        for (uint i = 0; i < vdata->row_limit(); i++) {
+          ciKlass* k = vdata->receiver(i);
+          if (k != NULL) {
+            if (round == 0) {
+              count++;
+            } else {
+              out->print(" %d %s", dp_to_di(vdata->dp() + in_bytes(vdata->receiver_offset(i))) / sizeof(intptr_t), k->name()->as_quoted_ascii());
+            }
+          }
+        }
+      } else if (pdata->is_VirtualCallData()) {
+        ciVirtualCallData* vdata = (ciVirtualCallData*)pdata;
+        for (uint i = 0; i < vdata->row_limit(); i++) {
+          ciKlass* k = vdata->receiver(i);
+          if (k != NULL) {
+            if (round == 0) {
+              count++;
+            } else {
+              out->print(" %d %s", dp_to_di(vdata->dp() + in_bytes(vdata->receiver_offset(i))) / sizeof(intptr_t), k->name()->as_quoted_ascii());
+            }
+          }
+        }
+      }
+    }
+  }
+  out->cr();
 }
 
 #ifndef PRODUCT
@@ -383,7 +525,7 @@ void ciMethodData::print_data_on(outputStream* st) {
   st->print_cr("--- Extra data:");
   DataLayout* dp  = data_layout_at(data_size());
   DataLayout* end = data_layout_at(data_size() + extra_data_size());
-  for (; dp < end; dp = methodDataOopDesc::next_extra(dp)) {
+  for (; dp < end; dp = MethodData::next_extra(dp)) {
     if (dp->tag() == DataLayout::no_tag)  continue;
     if (dp->tag() == DataLayout::bit_data_tag) {
       data = new BitData(dp);
@@ -398,7 +540,50 @@ void ciMethodData::print_data_on(outputStream* st) {
   }
 }
 
-void ciReceiverTypeData::print_receiver_data_on(outputStream* st) {
+void ciTypeEntries::print_ciklass(outputStream* st, intptr_t k) {
+  if (TypeEntries::is_type_none(k)) {
+    st->print("none");
+  } else if (TypeEntries::is_type_unknown(k)) {
+    st->print("unknown");
+  } else {
+    valid_ciklass(k)->print_name_on(st);
+  }
+  if (TypeEntries::was_null_seen(k)) {
+    st->print(" (null seen)");
+  }
+}
+
+void ciTypeStackSlotEntries::print_data_on(outputStream* st) const {
+  for (int i = 0; i < _number_of_entries; i++) {
+    _pd->tab(st);
+    st->print("%d: stack (%u) ", i, stack_slot(i));
+    print_ciklass(st, type(i));
+    st->cr();
+  }
+}
+
+void ciReturnTypeEntry::print_data_on(outputStream* st) const {
+  _pd->tab(st);
+  st->print("ret ");
+  print_ciklass(st, type());
+  st->cr();
+}
+
+void ciCallTypeData::print_data_on(outputStream* st) const {
+  print_shared(st, "ciCallTypeData");
+  if (has_arguments()) {
+    tab(st, true);
+    st->print("argument types");
+    args()->print_data_on(st);
+  }
+  if (has_return()) {
+    tab(st, true);
+    st->print("return type");
+    ret()->print_data_on(st);
+  }
+}
+
+void ciReceiverTypeData::print_receiver_data_on(outputStream* st) const {
   uint row;
   int entries = 0;
   for (row = 0; row < row_limit(); row++) {
@@ -414,13 +599,33 @@ void ciReceiverTypeData::print_receiver_data_on(outputStream* st) {
   }
 }
 
-void ciReceiverTypeData::print_data_on(outputStream* st) {
+void ciReceiverTypeData::print_data_on(outputStream* st) const {
   print_shared(st, "ciReceiverTypeData");
   print_receiver_data_on(st);
 }
 
-void ciVirtualCallData::print_data_on(outputStream* st) {
+void ciVirtualCallData::print_data_on(outputStream* st) const {
   print_shared(st, "ciVirtualCallData");
   rtd_super()->print_receiver_data_on(st);
+}
+
+void ciVirtualCallTypeData::print_data_on(outputStream* st) const {
+  print_shared(st, "ciVirtualCallTypeData");
+  rtd_super()->print_receiver_data_on(st);
+  if (has_arguments()) {
+    tab(st, true);
+    st->print("argument types");
+    args()->print_data_on(st);
+  }
+  if (has_return()) {
+    tab(st, true);
+    st->print("return type");
+    ret()->print_data_on(st);
+  }
+}
+
+void ciParametersTypeData::print_data_on(outputStream* st) const {
+  st->print_cr("Parametertypes");
+  parameters()->print_data_on(st);
 }
 #endif

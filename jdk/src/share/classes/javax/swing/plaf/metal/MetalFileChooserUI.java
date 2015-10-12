@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -46,7 +46,7 @@ import sun.awt.shell.ShellFolder;
 import sun.swing.*;
 
 /**
- * Metal L&F implementation of a FileChooser.
+ * Metal L&amp;F implementation of a FileChooser.
  *
  * @author Jeff Dinkins
  */
@@ -461,16 +461,16 @@ public class MetalFileChooserUI extends BasicFileChooserUI {
 
         Locale l = fc.getLocale();
 
-        lookInLabelMnemonic = UIManager.getInt("FileChooser.lookInLabelMnemonic");
+        lookInLabelMnemonic = getMnemonic("FileChooser.lookInLabelMnemonic", l);
         lookInLabelText = UIManager.getString("FileChooser.lookInLabelText",l);
         saveInLabelText = UIManager.getString("FileChooser.saveInLabelText",l);
 
-        fileNameLabelMnemonic = UIManager.getInt("FileChooser.fileNameLabelMnemonic");
+        fileNameLabelMnemonic = getMnemonic("FileChooser.fileNameLabelMnemonic", l);
         fileNameLabelText = UIManager.getString("FileChooser.fileNameLabelText",l);
-        folderNameLabelMnemonic = UIManager.getInt("FileChooser.folderNameLabelMnemonic");
+        folderNameLabelMnemonic = getMnemonic("FileChooser.folderNameLabelMnemonic", l);
         folderNameLabelText = UIManager.getString("FileChooser.folderNameLabelText",l);
 
-        filesOfTypeLabelMnemonic = UIManager.getInt("FileChooser.filesOfTypeLabelMnemonic");
+        filesOfTypeLabelMnemonic = getMnemonic("FileChooser.filesOfTypeLabelMnemonic", l);
         filesOfTypeLabelText = UIManager.getString("FileChooser.filesOfTypeLabelText",l);
 
         upFolderToolTipText =  UIManager.getString("FileChooser.upFolderToolTipText",l);
@@ -487,6 +487,10 @@ public class MetalFileChooserUI extends BasicFileChooserUI {
 
         detailsViewButtonToolTipText = UIManager.getString("FileChooser.detailsViewButtonToolTipText",l);
         detailsViewButtonAccessibleName = UIManager.getString("FileChooser.detailsViewButtonAccessibleName",l);
+    }
+
+    private Integer getMnemonic(String key, Locale l) {
+        return SwingUtilities2.getUIDefaultsInt(key, l);
     }
 
     protected void installListeners(JFileChooser fc) {

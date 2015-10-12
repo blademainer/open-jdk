@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,9 +41,6 @@ static jfieldID handle_fdID;
 /* field id for jint 'fd' in java.io.FileDescriptor used for socket fds */
 static jfieldID fd_fdID;
 
-/* false for 95/98/ME, true for NT/W2K */
-static jboolean onNT = JNI_FALSE;
-
 JNIEXPORT jboolean JNICALL
 Java_sun_security_provider_NativeSeedGenerator_nativeGenerateSeed
 (JNIEnv *env, jclass clazz, jbyteArray randArray);
@@ -55,13 +52,6 @@ Java_sun_security_provider_NativeSeedGenerator_nativeGenerateSeed
 JNIEXPORT void JNICALL
 Java_sun_nio_ch_IOUtil_initIDs(JNIEnv *env, jclass clazz)
 {
-    OSVERSIONINFO ver;
-    ver.dwOSVersionInfoSize = sizeof(ver);
-    GetVersionEx(&ver);
-    if (ver.dwPlatformId == VER_PLATFORM_WIN32_NT) {
-        onNT = JNI_TRUE;
-    }
-
     clazz = (*env)->FindClass(env, "java/io/FileDescriptor");
     fd_fdID = (*env)->GetFieldID(env, clazz, "fd", "I");
     handle_fdID = (*env)->GetFieldID(env, clazz, "handle", "J");
@@ -79,6 +69,13 @@ Java_sun_nio_ch_IOUtil_randomBytes(JNIEnv *env, jclass clazz,
                                                                     clazz,
                                                                     randArray);
 }
+
+JNIEXPORT jint JNICALL
+Java_sun_nio_ch_IOUtil_iovMax(JNIEnv *env, jclass this)
+{
+    return 16;
+}
+
 
 jint
 convertReturnVal(JNIEnv *env, jint n, jboolean reading)
@@ -204,10 +201,4 @@ jlong
 handleval(JNIEnv *env, jobject fdo)
 {
     return (*env)->GetLongField(env, fdo, handle_fdID);
-}
-
-jboolean
-isNT()
-{
-    return onNT;
 }

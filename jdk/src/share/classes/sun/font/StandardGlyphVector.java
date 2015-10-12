@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -1740,8 +1740,9 @@ public class StandardGlyphVector extends GlyphVector {
                                                      tx,
                                                      sgv.font.getStyle(),
                                                      aa, fm);
-
-            FontStrike strike = sgv.font2D.getStrike(desc);  // !!! getStrike(desc, false)
+            // Get the strike via the handle. Shouldn't matter
+            // if we've invalidated the font but its an extra precaution.
+            FontStrike strike = sgv.font2D.handle.font2D.getStrike(desc);  // !!! getStrike(desc, false)
 
             return new GlyphStrike(sgv, strike, dx, dy);
         }

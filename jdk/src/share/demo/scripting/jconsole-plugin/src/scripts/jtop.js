@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,20 +30,29 @@
  */
 
 /*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
+
+/*
  * This code is "ported" from JTop demo. This file defines
  * 'jtop' function. jtop prints threads sorting by CPU time. 
  * jtop can be called once or periodically from a timer thread. 
  * To call this once, just call 'jtop()' in script console prompt. 
  * To call jtop in a timer thread, you can use
  *
- *     var t = setTimeout(function () { jtop(print); }, 2000); 
+ *     var t = setInterval(function () { jtop(print); }, 2000); 
  *
  * The above call prints threads in sorted order for every 2 seconds.
  * The print output goes to OS console window from which jconsole was 
  * started. The timer can be cancelled later by clearTimeout() function
  * as shown below:
- * 
- *     clearTimeout(t);    
+ *
+ *     clearInterval(t);
  */
 
 /**
@@ -53,10 +62,10 @@
 function getThreadList() {
     var tmbean = newPlatformMXBeanProxy(
         "java.lang:type=Threading",
-        java.lang.management.ThreadMXBean);
+        java.lang.management.ThreadMXBean.class);
 
     if (!tmbean.isThreadCpuTimeSupported()) {
-        return;
+        return java.util.Collections.EMPTY_LIST;
     }
 
     tmbean.setThreadCpuTimeEnabled(true);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,6 +48,36 @@
 #include "threads_md.h"
 #endif
 
+#ifdef __APPLE__
+#define LIB_SUFFIX "dylib"
+#else
+#define LIB_SUFFIX "so"
+#endif
+
+static void dll_build_name(char* buffer, size_t buflen,
+                           const char* paths, const char* fname) {
+    char *path, *paths_copy, *next_token;
+
+    paths_copy = strdup(paths);
+    if (paths_copy == NULL) {
+        return;
+    }
+
+    next_token = NULL;
+    path = strtok_r(paths_copy, PATH_SEPARATOR, &next_token);
+
+    while (path != NULL) {
+        snprintf(buffer, buflen, "%s/lib%s." LIB_SUFFIX, path, fname);
+        if (access(buffer, F_OK) == 0) {
+            break;
+        }
+        *buffer = '\0';
+        path = strtok_r(NULL, PATH_SEPARATOR, &next_token);
+    }
+
+    free(paths_copy);
+}
+
 /*
  * create a string for the JNI native function name by adding the
  * appropriate decorations.
@@ -66,20 +96,20 @@ dbgsysBuildFunName(char *name, int nameLen, int args_size, int encodingIndex)
  * appropriate pre and extensions to a filename and the path
  */
 void
-dbgsysBuildLibName(char *holder, int holderlen, char *pname, char *fname)
+dbgsysBuildLibName(char *holder, int holderlen, const char *pname, const char *fname)
 {
     const int pnamelen = pname ? strlen(pname) : 0;
 
+    *holder = '\0';
     /* Quietly truncate on buffer overflow.  Should be an error. */
     if (pnamelen + (int)strlen(fname) + 10 > holderlen) {
-        *holder = '\0';
         return;
     }
 
     if (pnamelen == 0) {
-        (void)snprintf(holder, holderlen, "lib%s.so", fname);
+        (void)snprintf(holder, holderlen, "lib%s." LIB_SUFFIX, fname);
     } else {
-        (void)snprintf(holder, holderlen, "%s/lib%s.so", pname, fname);
+      dll_build_name(holder, holderlen, pname, fname);
     }
 }
 

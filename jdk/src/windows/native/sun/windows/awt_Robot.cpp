@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -192,15 +192,6 @@ inline jint AwtRobot::WinToJavaPixel(USHORT r, USHORT g, USHORT b)
     return value;
 }
 
-jint AwtRobot::GetRGBPixel( jint x, jint y)
-{
-    HDC hdc = ::CreateDC(TEXT("DISPLAY"), NULL, NULL, NULL);
-    COLORREF ref = ::GetPixel( hdc, x, y );
-    ::DeleteDC(hdc);
-    jint value = WinToJavaPixel(GetRValue(ref), GetGValue(ref), GetBValue(ref));
-    return value;
-}
-
 void AwtRobot::GetRGBPixels(jint x, jint y, jint width, jint height, jintArray pixelArray)
 {
     DASSERT(width > 0 && height > 0);
@@ -234,7 +225,9 @@ void AwtRobot::GetRGBPixels(jint x, jint y, jint width, jint height, jintArray p
     static const int BITS_PER_PIXEL = 32;
     static const int BYTES_PER_PIXEL = BITS_PER_PIXEL/8;
 
+    if (!IS_SAFE_SIZE_MUL(width, height)) throw std::bad_alloc();
     int numPixels = width*height;
+    if (!IS_SAFE_SIZE_MUL(BYTES_PER_PIXEL, numPixels)) throw std::bad_alloc();
     int pixelDataSize = BYTES_PER_PIXEL*numPixels;
     DASSERT(pixelDataSize > 0 && pixelDataSize % 4 == 0);
     // allocate memory for BITMAPINFO + pixel data
@@ -244,6 +237,9 @@ void AwtRobot::GetRGBPixels(jint x, jint y, jint width, jint height, jintArray p
     // end of our block of memory.  Now we allocate sufficient memory.
     // See MSDN docs for BITMAPINFOHEADER -bchristi
 
+    if (!IS_SAFE_SIZE_ADD(sizeof(BITMAPINFOHEADER) + 3 * sizeof(RGBQUAD), pixelDataSize)) {
+        throw std::bad_alloc();
+    }
     BITMAPINFO * pinfo = (BITMAPINFO *)(new BYTE[sizeof(BITMAPINFOHEADER) + 3 * sizeof(RGBQUAD) + pixelDataSize]);
 
     // pixel data starts after 3 RGBQUADS for color masks
@@ -398,15 +394,6 @@ JNIEXPORT void JNICALL Java_sun_awt_windows_WRobotPeer_mouseWheel(
     CATCH_BAD_ALLOC;
 }
 
-JNIEXPORT jint JNICALL Java_sun_awt_windows_WRobotPeer_getRGBPixelImpl(
-    JNIEnv * env, jobject self, jint x, jint y)
-{
-    TRY;
-
-    return AwtRobot::GetRobot(self)->GetRGBPixel(x, y);
-
-    CATCH_BAD_ALLOC_RET(0);
-}
 JNIEXPORT void JNICALL Java_sun_awt_windows_WRobotPeer_getRGBPixels(
     JNIEnv *env, jobject self, jint x, jint y, jint width, jint height, jintArray pixelArray)
 {

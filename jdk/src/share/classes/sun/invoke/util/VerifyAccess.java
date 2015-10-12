@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@ package sun.invoke.util;
 
 import java.lang.reflect.Modifier;
 import static java.lang.reflect.Modifier.*;
+import sun.reflect.Reflection;
 
 /**
  * This class centralizes information about the JVM's linkage access control.
@@ -37,6 +38,8 @@ public class VerifyAccess {
     private VerifyAccess() { }  // cannot instantiate
 
     private static final int PACKAGE_ONLY = 0;
+    private static final int PACKAGE_ALLOWED = java.lang.invoke.MethodHandles.Lookup.PACKAGE;
+    private static final int PROTECTED_OR_PACKAGE_ALLOWED = (PACKAGE_ALLOWED|PROTECTED);
     private static final int ALL_ACCESS_MODES = (PUBLIC|PRIVATE|PROTECTED|PACKAGE_ONLY);
     private static final boolean ALLOW_NESTMATE_ACCESS = false;
 
@@ -82,35 +85,42 @@ public class VerifyAccess {
     public static boolean isMemberAccessible(Class<?> refc,  // symbolic ref class
                                              Class<?> defc,  // actual def class
                                              int      mods,  // actual member mods
-                                             Class<?> lookupClass) {
-        // Usually refc and defc are the same, but if they differ, verify them both.
-        if (refc != defc) {
-            if (!isClassAccessible(refc, lookupClass)) {
-                // Note that defc is verified in the switch below.
-                return false;
-            }
-            if ((mods & (ALL_ACCESS_MODES|STATIC)) == (PROTECTED|STATIC)) {
-                // Apply the special rules for refc here.
-                if (!isRelatedClass(refc, lookupClass))
-                    return isSamePackage(defc, lookupClass);
-                // If refc == defc, the call to isPublicSuperClass will do
-                // the whole job, since in that case refc (as defc) will be
-                // a superclass of the lookup class.
-            }
+                                             Class<?> lookupClass,
+                                             int      allowedModes) {
+        if (allowedModes == 0)  return false;
+        assert((allowedModes & PUBLIC) != 0 &&
+               (allowedModes & ~(ALL_ACCESS_MODES|PACKAGE_ALLOWED)) == 0);
+        // The symbolic reference class (refc) must always be fully verified.
+        if (!isClassAccessible(refc, lookupClass, allowedModes)) {
+            return false;
         }
-        if (defc == lookupClass)
+        // Usually refc and defc are the same, but verify defc also in case they differ.
+        if (defc == lookupClass &&
+            (allowedModes & PRIVATE) != 0)
             return true;        // easy check; all self-access is OK
         switch (mods & ALL_ACCESS_MODES) {
         case PUBLIC:
-            if (refc != defc)  return true;  // already checked above
-            return isClassAccessible(refc, lookupClass);
+            return true;  // already checked above
         case PROTECTED:
-            return isSamePackage(defc, lookupClass) || isPublicSuperClass(defc, lookupClass);
-        case PACKAGE_ONLY:
-            return isSamePackage(defc, lookupClass);
+            if ((allowedModes & PROTECTED_OR_PACKAGE_ALLOWED) != 0 &&
+                isSamePackage(defc, lookupClass))
+                return true;
+            if ((allowedModes & PROTECTED) == 0)
+                return false;
+            if ((mods & STATIC) != 0 &&
+                !isRelatedClass(refc, lookupClass))
+                return false;
+            if ((allowedModes & PROTECTED) != 0 &&
+                isSuperClass(defc, lookupClass))
+                return true;
+            return false;
+        case PACKAGE_ONLY:  // That is, zero.  Unmarked member is package-only access.
+            return ((allowedModes & PACKAGE_ALLOWED) != 0 &&
+                    isSamePackage(defc, lookupClass));
         case PRIVATE:
             // Loosened rules for privates follows access rules for inner classes.
             return (ALLOW_NESTMATE_ACCESS &&
+                    (allowedModes & PRIVATE) != 0 &&
                     isSamePackageMember(defc, lookupClass));
         default:
             throw new IllegalArgumentException("bad modifiers: "+Modifier.toString(mods));
@@ -123,8 +133,18 @@ public class VerifyAccess {
                 lookupClass.isAssignableFrom(refc));
     }
 
-    static boolean isPublicSuperClass(Class<?> defc, Class<?> lookupClass) {
-        return isPublic(defc.getModifiers()) && defc.isAssignableFrom(lookupClass);
+    static boolean isSuperClass(Class<?> defc, Class<?> lookupClass) {
+        return defc.isAssignableFrom(lookupClass);
+    }
+
+    static int getClassModifiers(Class<?> c) {
+        // This would return the mask stored by javac for the source-level modifiers.
+        //   return c.getModifiers();
+        // But what we need for JVM access checks are the actual bits from the class header.
+        // ...But arrays and primitives are synthesized with their own odd flags:
+        if (c.isArray() || c.isPrimitive())
+            return c.getModifiers();
+        return Reflection.getClassAccessFlags(c);
     }
 
     /**
@@ -138,26 +158,71 @@ public class VerifyAccess {
      * @param refc the symbolic reference class to which access is being checked (C)
      * @param lookupClass the class performing the lookup (D)
      */
-    public static boolean isClassAccessible(Class<?> refc, Class<?> lookupClass) {
-        int mods = refc.getModifiers();
+    public static boolean isClassAccessible(Class<?> refc, Class<?> lookupClass,
+                                            int allowedModes) {
+        if (allowedModes == 0)  return false;
+        assert((allowedModes & PUBLIC) != 0 &&
+               (allowedModes & ~(ALL_ACCESS_MODES|PACKAGE_ALLOWED)) == 0);
+        int mods = getClassModifiers(refc);
         if (isPublic(mods))
             return true;
-        if (isSamePackage(lookupClass, refc))
+        if ((allowedModes & PACKAGE_ALLOWED) != 0 &&
+            isSamePackage(lookupClass, refc))
             return true;
         return false;
     }
 
     /**
+     * Decide if the given method type, attributed to a member or symbolic
+     * reference of a given reference class, is really visible to that class.
+     * @param type the supposed type of a member or symbolic reference of refc
+     * @param refc the class attempting to make the reference
+     */
+    public static boolean isTypeVisible(Class<?> type, Class<?> refc) {
+        if (type == refc)  return true;  // easy check
+        while (type.isArray())  type = type.getComponentType();
+        if (type.isPrimitive() || type == Object.class)  return true;
+        ClassLoader parent = type.getClassLoader();
+        if (parent == null)  return true;
+        ClassLoader child  = refc.getClassLoader();
+        if (child == null)  return false;
+        if (parent == child || loadersAreRelated(parent, child, true))
+            return true;
+        // Do it the hard way:  Look up the type name from the refc loader.
+        try {
+            Class<?> res = child.loadClass(type.getName());
+            return (type == res);
+        } catch (ClassNotFoundException ex) {
+            return false;
+        }
+    }
+
+    /**
+     * Decide if the given method type, attributed to a member or symbolic
+     * reference of a given reference class, is really visible to that class.
+     * @param type the supposed type of a member or symbolic reference of refc
+     * @param refc the class attempting to make the reference
+     */
+    public static boolean isTypeVisible(java.lang.invoke.MethodType type, Class<?> refc) {
+        for (int n = -1, max = type.parameterCount(); n < max; n++) {
+            Class<?> ptype = (n < 0 ? type.returnType() : type.parameterType(n));
+            if (!isTypeVisible(ptype, refc))
+                return false;
+        }
+        return true;
+    }
+
+    /**
      * Test if two classes have the same class loader and package qualifier.
-     * @param class1
-     * @param class2
+     * @param class1 a class
+     * @param class2 another class
      * @return whether they are in the same package
      */
     public static boolean isSamePackage(Class<?> class1, Class<?> class2) {
         assert(!class1.isArray() && !class2.isArray());
         if (class1 == class2)
             return true;
-        if (!loadersAreRelated(class1.getClassLoader(), class2.getClassLoader(), false))
+        if (class1.getClassLoader() != class2.getClassLoader())
             return false;
         String name1 = class1.getName(), name2 = class2.getName();
         int dot = name1.lastIndexOf('.');
@@ -183,8 +248,8 @@ public class VerifyAccess {
     /**
      * Test if two classes are defined as part of the same package member (top-level class).
      * If this is true, they can share private access with each other.
-     * @param class1
-     * @param class2
+     * @param class1 a class
+     * @param class2 another class
      * @return whether they are identical or nested together
      */
     public static boolean isSamePackageMember(Class<?> class1, Class<?> class2) {
@@ -226,8 +291,8 @@ public class VerifyAccess {
     /**
      * Is the class loader of parentClass identical to, or an ancestor of,
      * the class loader of childClass?
-     * @param parentClass
-     * @param childClass
+     * @param parentClass a class
+     * @param childClass another class, which may be a descendent of the first class
      * @return whether parentClass precedes or equals childClass in class loader order
      */
     public static boolean classLoaderIsAncestor(Class<?> parentClass, Class<?> childClass) {

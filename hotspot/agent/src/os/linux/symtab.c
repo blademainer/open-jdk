@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -305,7 +305,7 @@ static struct symtab* build_symtab_from_build_id(Elf64_Nhdr *note)
 
   unsigned char *bytes
     = (unsigned char*)(note+1) + note->n_namesz;
-  unsigned char *filename
+  char *filename
     = (build_id_to_debug_filename (note->n_descsz, bytes));
 
   fd = pathmap_open(filename);

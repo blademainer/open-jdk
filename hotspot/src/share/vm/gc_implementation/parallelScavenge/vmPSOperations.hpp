@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,34 +32,16 @@
 class VM_ParallelGCFailedAllocation: public VM_GC_Operation {
  private:
   size_t    _size;
-  bool      _is_tlab;
   HeapWord* _result;
 
  public:
-  VM_ParallelGCFailedAllocation(size_t size, bool is_tlab,
-                                unsigned int gc_count);
+  VM_ParallelGCFailedAllocation(size_t size, unsigned int gc_count);
 
   virtual VMOp_Type type() const {
     return VMOp_ParallelGCFailedAllocation;
   }
   virtual void doit();
 
-  HeapWord* result() const       { return _result; }
-};
-
-class VM_ParallelGCFailedPermanentAllocation: public VM_GC_Operation {
-private:
-  size_t    _size;
-  HeapWord* _result;
-
- public:
-  VM_ParallelGCFailedPermanentAllocation(size_t size,
-                                         unsigned int gc_count,
-                                         unsigned int full_gc_count);
-  virtual VMOp_Type type() const {
-    return VMOp_ParallelGCFailedPermanentAllocation;
-  }
-  virtual void doit();
   HeapWord* result() const       { return _result; }
 };
 

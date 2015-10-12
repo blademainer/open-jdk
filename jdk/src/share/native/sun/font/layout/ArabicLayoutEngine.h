@@ -75,7 +75,7 @@ public:
      * @internal
      */
     ArabicOpenTypeLayoutEngine(const LEFontInstance *fontInstance, le_int32 scriptCode, le_int32 languageCode,
-                            le_int32 typoFlags, const GlyphSubstitutionTableHeader *gsubTable, LEErrorCode &success);
+                            le_int32 typoFlags, const LEReferenceTo<GlyphSubstitutionTableHeader> &gsubTable, LEErrorCode &success);
 
     /**
      * This constructor is used when the font requires a "canned" GSUB table which can't be known
@@ -209,7 +209,7 @@ protected:
      * This method converts the Arabic Presentation Forms in the temp glyph array
      * into actual glyph indices using ArabicOpenTypeLayoutEngine::mapCharsToGlyps.
      *
-     * Input paramters:
+     * Input parameters:
      * @param tempGlyphs - the input presentation forms
      * @param tempCharIndices - the input character index array
      * @param tempGlyphCount - the number of Presentation Froms

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -65,7 +65,8 @@ public interface SnmpMibSubRequest extends SnmpMibRequest {
      * @return The elements of the enumeration are instances of
      *         {@link com.sun.jmx.snmp.SnmpVarBind}
      */
-    public Enumeration getElements();
+    @Override
+    public Enumeration<SnmpVarBind> getElements();
 
     /**
      * Return the list of varbind to be handled by the SNMP MIB node.
@@ -85,6 +86,7 @@ public interface SnmpMibSubRequest extends SnmpMibRequest {
      * @return The elements of the vector are instances of
      *         {@link com.sun.jmx.snmp.SnmpVarBind}
      */
+    @Override
     public Vector<SnmpVarBind> getSubList();
 
     /**

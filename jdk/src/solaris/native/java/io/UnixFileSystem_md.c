@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,9 +38,16 @@
 #include "jlong.h"
 #include "jvm.h"
 #include "io_util.h"
+#include "io_util_md.h"
 #include "java_io_FileSystem.h"
 #include "java_io_UnixFileSystem.h"
 
+#if defined(_ALLBSD_SOURCE)
+#define dirent64 dirent
+#define readdir64_r readdir_r
+#define stat64 stat
+#define statvfs64 statvfs
+#endif
 
 /* -- Field IDs -- */
 
@@ -70,11 +77,15 @@ Java_java_io_UnixFileSystem_canonicalize0(JNIEnv *env, jobject this,
 
     WITH_PLATFORM_STRING(env, pathname, path) {
         char canonicalPath[JVM_MAXPATHLEN];
-        if (canonicalize(JVM_NativePath((char *)path),
+        if (canonicalize((char *)path,
                          canonicalPath, JVM_MAXPATHLEN) < 0) {
             JNU_ThrowIOExceptionWithLastError(env, "Bad pathname");
         } else {
+#ifdef MACOSX
+            rv = newStringPlatform(env, canonicalPath);
+#else
             rv = JNU_NewStringPlatform(env, canonicalPath);
+#endif
         }
     } END_PLATFORM_STRING(env, path);
     return rv;
@@ -230,19 +241,18 @@ Java_java_io_UnixFileSystem_createFileExclusively(JNIEnv *env, jclass cls,
     jboolean rv = JNI_FALSE;
 
     WITH_PLATFORM_STRING(env, pathname, path) {
-        int fd;
-        if (!strcmp (path, "/")) {
-            fd = JVM_EEXIST;    /* The root directory always exists */
-        } else {
-            fd = JVM_Open(path, JVM_O_RDWR | JVM_O_CREAT | JVM_O_EXCL, 0666);
-        }
-        if (fd < 0) {
-            if (fd != JVM_EEXIST) {
-                JNU_ThrowIOExceptionWithLastError(env, path);
+        FD fd;
+        /* The root directory always exists */
+        if (strcmp (path, "/")) {
+            fd = handleOpen(path, O_RDWR | O_CREAT | O_EXCL, 0666);
+            if (fd < 0) {
+                if (errno != EEXIST)
+                    JNU_ThrowIOExceptionWithLastError(env, path);
+            } else {
+                if (close(fd) == -1)
+                    JNU_ThrowIOExceptionWithLastError(env, path);
+                rv = JNI_TRUE;
             }
-        } else {
-            JVM_Close(fd);
-            rv = JNI_TRUE;
         }
     } END_PLATFORM_STRING(env, path);
     return rv;
@@ -305,7 +315,11 @@ Java_java_io_UnixFileSystem_list(JNIEnv *env, jobject this,
             if (JNU_CopyObjectArray(env, rv, old, len) < 0) goto error;
             (*env)->DeleteLocalRef(env, old);
         }
+#ifdef MACOSX
+        name = newStringPlatform(env, ptr->d_name);
+#else
         name = JNU_NewStringPlatform(env, ptr->d_name);
+#endif
         if (name == NULL) goto error;
         (*env)->SetObjectArrayElement(env, rv, len++, name);
         (*env)->DeleteLocalRef(env, name);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -87,7 +87,7 @@ void getAudioDevices(AudioDevicePath* adPath, int* count);
 
 /*
  * fills adDesc from the audio device given in path
- * returns 0 if an error occured
+ * returns 0 if an error occurred
  * if getNames is 0, only path and pathctl are filled
  */
 int getAudioDeviceDescription(char* path, AudioDeviceDescription* adDesc, int getNames);

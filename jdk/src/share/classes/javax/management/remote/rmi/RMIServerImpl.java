@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -117,7 +117,7 @@ public abstract class RMIServerImpl implements Closeable, RMIServer {
      * server.</p>
      *
      * @return the default <code>ClassLoader</code> used by this
-     * connector server.</p>
+     * connector server.
      *
      * @see #setDefaultClassLoader
      */
@@ -474,6 +474,15 @@ public abstract class RMIServerImpl implements Closeable, RMIServer {
         String clientHost = "";
         try {
             clientHost = RemoteServer.getClientHost();
+            /*
+             * According to the rules specified in the javax.management.remote
+             * package description, a numeric IPv6 address (detected by the
+             * presence of otherwise forbidden ":" character) forming a part
+             * of the connection id must be enclosed in square brackets.
+             */
+            if (clientHost.contains(":")) {
+                clientHost = "[" + clientHost + "]";
+            }
         } catch (ServerNotActiveException e) {
             logger.trace("makeConnectionId", "getClientHost", e);
         }

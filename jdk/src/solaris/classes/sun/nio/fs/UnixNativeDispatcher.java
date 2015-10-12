@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -100,7 +100,7 @@ class UnixNativeDispatcher {
      */
     static long fopen(UnixPath filename, String mode) throws UnixException {
         NativeBuffer pathBuffer = copyToNativeBuffer(filename);
-        NativeBuffer modeBuffer = NativeBuffers.asNativeBuffer(mode.getBytes());
+        NativeBuffer modeBuffer = NativeBuffers.asNativeBuffer(Util.toBytes(mode));
         try {
             return fopen0(pathBuffer.address(), modeBuffer.address());
         } finally {
@@ -473,7 +473,7 @@ class UnixNativeDispatcher {
      * @return  passwd->pw_uid
      */
     static int getpwnam(String name) throws UnixException {
-        NativeBuffer buffer = NativeBuffers.asNativeBuffer(name.getBytes());
+        NativeBuffer buffer = NativeBuffers.asNativeBuffer(Util.toBytes(name));
         try {
             return getpwnam0(buffer.address());
         } finally {
@@ -488,7 +488,7 @@ class UnixNativeDispatcher {
      * @return  group->gr_name
      */
     static int getgrnam(String name) throws UnixException {
-        NativeBuffer buffer = NativeBuffers.asNativeBuffer(name.getBytes());
+        NativeBuffer buffer = NativeBuffers.asNativeBuffer(Util.toBytes(name));
         try {
             return getgrnam0(buffer.address());
         } finally {
@@ -496,11 +496,6 @@ class UnixNativeDispatcher {
         }
     }
     private static native int getgrnam0(long nameAddress) throws UnixException;
-
-    /**
-     * int getextmntent(FILE *fp, struct extmnttab *mp, int len);
-     */
-    static native int getextmntent(long fp, UnixMountEntry entry) throws UnixException;
 
     /**
      * statvfs(const char* path, struct statvfs *buf)
@@ -542,26 +537,42 @@ class UnixNativeDispatcher {
      */
     static native byte[] strerror(int errnum);
 
-    // indicates if openat, unlinkat, etc. is supported
-    private static final boolean hasAtSysCalls;
-    static boolean supportsAtSysCalls() {
-        return hasAtSysCalls;
+    /**
+     * Capabilities
+     */
+    private static final int SUPPORTS_OPENAT        = 1 << 1;    // syscalls
+    private static final int SUPPORTS_FUTIMES       = 1 << 2;
+    private static final int SUPPORTS_BIRTHTIME     = 1 << 16;   // other features
+    private static final int capabilities;
+
+    /**
+     * Supports openat and other *at calls.
+     */
+    static boolean openatSupported() {
+        return (capabilities & SUPPORTS_OPENAT) != 0;
     }
 
-    // initialize syscalls and fieldIDs
+    /**
+     * Supports futimes or futimesat
+     */
+    static boolean futimesSupported() {
+        return (capabilities & SUPPORTS_FUTIMES) != 0;
+    }
+
+    /**
+     * Supports file birth (creation) time attribute
+     */
+    static boolean birthtimeSupported() {
+        return (capabilities & SUPPORTS_BIRTHTIME) != 0;
+    }
+
     private static native int init();
-
-    // flags returned by init to indicate capabilities
-    private static final int HAS_AT_SYSCALLS = 0x1;
-
     static {
         AccessController.doPrivileged(new PrivilegedAction<Void>() {
             public Void run() {
                 System.loadLibrary("nio");
                 return null;
         }});
-        int flags = init();
-
-        hasAtSysCalls = (flags & HAS_AT_SYSCALLS) > 0;
+        capabilities = init();
     }
 }

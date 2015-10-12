@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -418,7 +418,7 @@ public class ConstantPoolPatch {
 
     private static final Map<Class<?>, Byte> CONSTANT_VALUE_CLASS_TAG
         = new IdentityHashMap<Class<?>, Byte>();
-    private static final Class[] CONSTANT_VALUE_CLASS = new Class[16];
+    private static final Class<?>[] CONSTANT_VALUE_CLASS = new Class<?>[16];
     static {
         Object[][] values = {
             {Integer.class, CONSTANT_Integer},

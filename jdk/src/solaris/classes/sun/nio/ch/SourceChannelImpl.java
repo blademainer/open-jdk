@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,7 +37,7 @@ class SourceChannelImpl
 {
 
     // Used to make native read and write calls
-    private static NativeDispatcher nd;
+    private static final NativeDispatcher nd = new FileDispatcherImpl();
 
     // The file descriptor associated with this channel
     FileDescriptor fd;
@@ -84,7 +84,8 @@ class SourceChannelImpl
 
     protected void implCloseSelectableChannel() throws IOException {
         synchronized (stateLock) {
-            nd.preClose(fd);
+            if (state != ST_KILLED)
+                nd.preClose(fd);
             long th = thread;
             if (th != 0)
                 NativeThread.signal(th);
@@ -164,7 +165,7 @@ class SourceChannelImpl
                     return 0;
                 thread = NativeThread.current();
                 do {
-                    n = IOUtil.read(fd, dst, -1, nd, lock);
+                    n = IOUtil.read(fd, dst, -1, nd);
                 } while ((n == IOStatus.INTERRUPTED) && isOpen());
                 return IOStatus.normalize(n);
             } finally {
@@ -205,10 +206,4 @@ class SourceChannelImpl
             }
         }
     }
-
-    static {
-        Util.load();
-        nd = new FileDispatcherImpl();
-    }
-
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,6 +24,7 @@
 
 package sun.jvm.hotspot.tools;
 
+import sun.jvm.hotspot.debugger.JVMDebugger;
 import sun.jvm.hotspot.tools.*;
 
 import sun.jvm.hotspot.oops.*;
@@ -42,10 +43,18 @@ import java.util.Comparator;
  * summary of these objects in the form of a histogram.
  */
 public class FinalizerInfo extends Tool {
+
+    public FinalizerInfo() {
+        super();
+    }
+
+    public FinalizerInfo(JVMDebugger d) {
+        super(d);
+    }
+
     public static void main(String[] args) {
         FinalizerInfo finfo = new FinalizerInfo();
-        finfo.start(args);
-        finfo.stop();
+        finfo.execute(args);
     }
 
     public void run() {

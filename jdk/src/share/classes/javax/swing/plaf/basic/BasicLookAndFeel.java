@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -47,6 +47,7 @@ import java.lang.reflect.*;
 import javax.sound.sampled.*;
 
 import sun.awt.AppContext;
+import sun.awt.SunToolkit;
 
 import sun.swing.SwingLazyValue;
 import sun.swing.SwingUtilities2;
@@ -95,7 +96,7 @@ import java.beans.PropertyChangeEvent;
  * future Swing releases. The current serialization support is
  * appropriate for short term storage or RMI between applications running
  * the same version of Swing.  As of 1.4, support for long term storage
- * of all JavaBeans<sup><font size="-2">TM</font></sup>
+ * of all JavaBeans&trade;
  * has been added to the <code>java.beans</code> package.
  * Please see {@link java.beans.XMLEncoder}.
  *
@@ -432,7 +433,7 @@ public abstract class BasicLookAndFeel extends LookAndFeel implements Serializab
      * used for getting localized defaults.  Also initialize the default
      * locale used when no locale is passed into UIDefaults.get().  The
      * default locale should generally not be relied upon. It is here for
-     * compatability with releases prior to 1.4.
+     * compatibility with releases prior to 1.4.
      */
     private void initResourceBundle(UIDefaults table) {
         table.setDefaultLocale( Locale.getDefault() );
@@ -860,6 +861,7 @@ public abstract class BasicLookAndFeel extends LookAndFeel implements Serializab
                          "END", "endPassThrough",
                        "ENTER", "enterPressed"
                  }),
+            "ComboBox.noActionOnKeyNavigation", Boolean.FALSE,
 
             // *** FileChooser
 
@@ -1152,7 +1154,9 @@ public abstract class BasicLookAndFeel extends LookAndFeel implements Serializab
             "Menu.menuPopupOffsetY", new Integer(0),
             "Menu.submenuPopupOffsetX", new Integer(0),
             "Menu.submenuPopupOffsetY", new Integer(0),
-            "Menu.shortcutKeys", new int[] {KeyEvent.ALT_MASK},
+            "Menu.shortcutKeys", new int[]{
+                SwingUtilities2.getSystemMnemonicKeyMask()
+            },
             "Menu.crossMenuMnemonic", Boolean.TRUE,
             // Menu.cancelMode affects the cancel menu action behaviour;
             // currently supports:
@@ -1909,6 +1913,15 @@ public abstract class BasicLookAndFeel extends LookAndFeel implements Serializab
 
         table.putDefaults(defaults);
     }
+
+    static int getFocusAcceleratorKeyMask() {
+        Toolkit tk = Toolkit.getDefaultToolkit();
+        if (tk instanceof SunToolkit) {
+            return ((SunToolkit)tk).getFocusAcceleratorKeyMask();
+        }
+        return ActionEvent.ALT_MASK;
+    }
+
 
 
     /**

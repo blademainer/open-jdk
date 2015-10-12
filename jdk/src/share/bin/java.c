@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -104,8 +104,8 @@ static jboolean ParseArguments(int *pargc, char ***pargv,
 static jboolean InitializeJVM(JavaVM **pvm, JNIEnv **penv,
                               InvocationFunctions *ifn);
 static jstring NewPlatformString(JNIEnv *env, char *s);
-static jobjectArray NewPlatformStringArray(JNIEnv *env, char **strv, int strc);
 static jclass LoadMainClass(JNIEnv *env, int mode, char *name);
+static jclass GetApplicationClass(JNIEnv *env);
 
 static void TranslateApplicationArgs(int jargc, const char **jargv, int *pargc, char ***pargv);
 static jboolean AddApplicationOptions(int cpathc, const char **cpathv);
@@ -147,42 +147,25 @@ static int knownVMsLimit = 0;
 static void GrowKnownVMs();
 static int  KnownVMIndex(const char* name);
 static void FreeKnownVMs();
-static void ShowSplashScreen();
 static jboolean IsWildCardEnabled();
 
-#define ARG_CHECK(n, f, a) if (n < 1) { \
-    JLI_ReportErrorMessage(f, a); \
-    printUsage = JNI_TRUE; \
-    *pret = 1; \
-    return JNI_TRUE; \
-}
+#define ARG_CHECK(AC_arg_count, AC_failure_message, AC_questionable_arg) \
+    do { \
+        if (AC_arg_count < 1) { \
+            JLI_ReportErrorMessage(AC_failure_message, AC_questionable_arg); \
+            printUsage = JNI_TRUE; \
+            *pret = 1; \
+            return JNI_TRUE; \
+        } \
+    } while (JNI_FALSE)
 
 /*
  * Running Java code in primordial thread caused many problems. We will
  * create a new thread to invoke JVM. See 6316197 for more information.
  */
-static jlong threadStackSize = 0;  /* stack size of the new thread */
+static jlong threadStackSize    = 0;  /* stack size of the new thread */
 static jlong maxHeapSize        = 0;  /* max heap size */
 static jlong initialHeapSize    = 0;  /* inital heap size */
-
-int JNICALL JavaMain(void * args); /* entry point                  */
-
-enum LaunchMode {               // cf. sun.launcher.LauncherHelper
-    LM_UNKNOWN = 0,
-    LM_CLASS,
-    LM_JAR
-};
-
-static const char *launchModeNames[]
-    = { "Unknown", "Main class", "JAR file" };
-
-typedef struct {
-    int    argc;
-    char **argv;
-    int    mode;
-    char  *what;
-    InvocationFunctions ifn;
-} JavaMainArgs;
 
 /*
  * Entry point.
@@ -210,6 +193,7 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
     jlong start, end;
     char jvmpath[MAXPATHLEN];
     char jrepath[MAXPATHLEN];
+    char jvmcfg[MAXPATHLEN];
 
     _fVersion = fullversion;
     _dVersion = dotversion;
@@ -221,6 +205,14 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
 
     InitLauncher(javaw);
     DumpState();
+    if (JLI_IsTraceLauncher()) {
+        int i;
+        printf("Command line args:\n");
+        for (i = 0; i < argc ; i++) {
+            printf("argv[%d] = %s\n", i, argv[i]);
+        }
+        AddOption("-Dsun.java.launcher.diag=true", NULL);
+    }
 
     /*
      * Make sure the specified version of the JRE is running.
@@ -241,18 +233,10 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
      */
     SelectVersion(argc, argv, &main_class);
 
-    if (JLI_IsTraceLauncher()) {
-        int i;
-        printf("Command line args:\n");
-        for (i = 0; i < argc ; i++) {
-            printf("argv[%d] = %s\n", i, argv[i]);
-        }
-        AddOption("-Dsun.java.launcher.diag=true", NULL);
-    }
-
     CreateExecutionEnvironment(&argc, &argv,
                                jrepath, sizeof(jrepath),
-                               jvmpath, sizeof(jvmpath));
+                               jvmpath, sizeof(jvmpath),
+                               jvmcfg,  sizeof(jvmcfg));
 
     ifn.CreateJavaVM = 0;
     ifn.GetDefaultJavaVMInitArgs = 0;
@@ -312,11 +296,7 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
     /* set the -Dsun.java.launcher.* platform properties */
     SetJavaLauncherPlatformProps();
 
-    /* Show the splash screen if needed */
-    ShowSplashScreen();
-
-    return ContinueInNewThread(&ifn, argc, argv, mode, what, ret);
-
+    return JVMInit(&ifn, threadStackSize, argc, argv, mode, what, ret);
 }
 /*
  * Always detach the main thread so that it appears to have ended when
@@ -333,29 +313,37 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
  * mainThread.isAlive() to work as expected.
  */
 #define LEAVE() \
-    if ((*vm)->DetachCurrentThread(vm) != 0) { \
-        JLI_ReportErrorMessage(JVM_ERROR2); \
-        ret = 1; \
-    } \
-    (*vm)->DestroyJavaVM(vm); \
-    return ret \
+    do { \
+        if ((*vm)->DetachCurrentThread(vm) != JNI_OK) { \
+            JLI_ReportErrorMessage(JVM_ERROR2); \
+            ret = 1; \
+        } \
+        if (JNI_TRUE) { \
+            (*vm)->DestroyJavaVM(vm); \
+            return ret; \
+        } \
+    } while (JNI_FALSE)
 
-#define CHECK_EXCEPTION_NULL_LEAVE(e) \
-    if ((*env)->ExceptionOccurred(env)) { \
-        JLI_ReportExceptionDescription(env); \
-        LEAVE(); \
-    } \
-    if ((e) == NULL) { \
-        JLI_ReportErrorMessage(JNI_ERROR); \
-        LEAVE(); \
-    }
+#define CHECK_EXCEPTION_NULL_LEAVE(CENL_exception) \
+    do { \
+        if ((*env)->ExceptionOccurred(env)) { \
+            JLI_ReportExceptionDescription(env); \
+            LEAVE(); \
+        } \
+        if ((CENL_exception) == NULL) { \
+            JLI_ReportErrorMessage(JNI_ERROR); \
+            LEAVE(); \
+        } \
+    } while (JNI_FALSE)
 
-#define CHECK_EXCEPTION_LEAVE(rv) \
-    if ((*env)->ExceptionOccurred(env)) { \
-        JLI_ReportExceptionDescription(env); \
-        ret = (rv); \
-        LEAVE(); \
-    }
+#define CHECK_EXCEPTION_LEAVE(CEL_return_value) \
+    do { \
+        if ((*env)->ExceptionOccurred(env)) { \
+            JLI_ReportExceptionDescription(env); \
+            ret = (CEL_return_value); \
+            LEAVE(); \
+        } \
+    } while (JNI_FALSE)
 
 int JNICALL
 JavaMain(void * _args)
@@ -370,16 +358,24 @@ JavaMain(void * _args)
     JavaVM *vm = 0;
     JNIEnv *env = 0;
     jclass mainClass = NULL;
+    jclass appClass = NULL; // actual application class being launched
     jmethodID mainID;
     jobjectArray mainArgs;
     int ret = 0;
     jlong start, end;
+
+    RegisterThread();
 
     /* Initialize the virtual machine */
     start = CounterGet();
     if (!InitializeJVM(&vm, &env, &ifn)) {
         JLI_ReportErrorMessage(JVM_ERROR1);
         exit(1);
+    }
+
+    if (showSettings != NULL) {
+        ShowSettings(env, showSettings);
+        CHECK_EXCEPTION_LEAVE(1);
     }
 
     if (printVersion || showVersion) {
@@ -390,10 +386,6 @@ JavaMain(void * _args)
         }
     }
 
-    if (showSettings != NULL) {
-        ShowSettings(env, showSettings);
-        CHECK_EXCEPTION_LEAVE(1);
-    }
     /* If the user specified neither a class name nor a JAR file */
     if (printXUsage || printUsage || what == 0 || mode == LM_UNKNOWN) {
         PrintUsage(env, printXUsage);
@@ -440,10 +432,28 @@ JavaMain(void * _args)
      *          all environments,
      *     2)   Remove the vestages of maintaining main_class through
      *          the environment (and remove these comments).
+     *
+     * This method also correctly handles launching existing JavaFX
+     * applications that may or may not have a Main-Class manifest entry.
      */
     mainClass = LoadMainClass(env, mode, what);
     CHECK_EXCEPTION_NULL_LEAVE(mainClass);
-
+    /*
+     * In some cases when launching an application that needs a helper, e.g., a
+     * JavaFX application with no main method, the mainClass will not be the
+     * applications own main class but rather a helper class. To keep things
+     * consistent in the UI we need to track and report the application main class.
+     */
+    appClass = GetApplicationClass(env);
+    NULL_CHECK_RETURN_VALUE(appClass, -1);
+    /*
+     * PostJVMInit uses the class name as the application name for GUI purposes,
+     * for example, on OSX this sets the application name in the menu bar for
+     * both SWT and JavaFX. So we'll pass the actual application class here
+     * instead of mainClass as that may be a launcher or helper class instead
+     * of the application class.
+     */
+    PostJVMInit(env, appClass, vm);
     /*
      * The LoadMainClass not only loads the main class, it will also ensure
      * that the main method's signature is correct, therefore further checking
@@ -454,8 +464,8 @@ JavaMain(void * _args)
                                        "([Ljava/lang/String;)V");
     CHECK_EXCEPTION_NULL_LEAVE(mainID);
 
-    /* Build argument array */
-    mainArgs = NewPlatformStringArray(env, argv, argc);
+    /* Build platform specific argument array */
+    mainArgs = CreateApplicationArgs(env, argv, argc);
     CHECK_EXCEPTION_NULL_LEAVE(mainArgs);
 
     /* Invoke main method. */
@@ -714,6 +724,13 @@ SetClassPath(const char *s)
     char *def;
     const char *orig = s;
     static const char format[] = "-Djava.class.path=%s";
+    /*
+     * usually we should not get a null pointer, but there are cases where
+     * we might just get one, in which case we simply ignore it, and let the
+     * caller deal with it
+     */
+    if (s == NULL)
+        return;
     s = JLI_WildcardExpandClasspath(s);
     def = JLI_MemAlloc(sizeof(format)
                        - 2 /* strlen("%s") */
@@ -1066,7 +1083,9 @@ ParseArguments(int *pargc, char ***pargv,
                    JLI_StrCmp(arg, "-jre-restrict-search") == 0 ||
                    JLI_StrCCmp(arg, "-splash:") == 0) {
             ; /* Ignore machine independent options already handled */
-        } else if (RemovableOption(arg) ) {
+        } else if (ProcessPlatformOption(arg)) {
+            ; /* Processing of platform dependent options */
+        } else if (RemovableOption(arg)) {
             ; /* Do not pass option to vm. */
         } else {
             AddOption(arg, NULL);
@@ -1128,21 +1147,11 @@ InitializeJVM(JavaVM **pvm, JNIEnv **penv, InvocationFunctions *ifn)
     return r == JNI_OK;
 }
 
-
-#define NULL_CHECK0(e) if ((e) == 0) { \
-    JLI_ReportErrorMessage(JNI_ERROR); \
-    return 0; \
-  }
-
-#define NULL_CHECK(e) if ((e) == 0) { \
-    JLI_ReportErrorMessage(JNI_ERROR); \
-    return; \
-  }
-
 static jclass helperClass = NULL;
 
-static jclass
-GetLauncherHelperClass(JNIEnv *env) {
+jclass
+GetLauncherHelperClass(JNIEnv *env)
+{
     if (helperClass == NULL) {
         NULL_CHECK0(helperClass = FindBootStrapClass(env,
                 "sun/launcher/LauncherHelper"));
@@ -1186,7 +1195,7 @@ NewPlatformString(JNIEnv *env, char *s)
  * Returns a new array of Java string objects for the specified
  * array of platform strings.
  */
-static jobjectArray
+jobjectArray
 NewPlatformStringArray(JNIEnv *env, char **strv, int strc)
 {
     jarray cls;
@@ -1224,24 +1233,31 @@ LoadMainClass(JNIEnv *env, int mode, char *name)
                 "checkAndLoadMain",
                 "(ZILjava/lang/String;)Ljava/lang/Class;"));
 
-    switch (mode) {
-        case LM_CLASS:
-            str = NewPlatformString(env, name);
-            break;
-        default:
-            str = (*env)->NewStringUTF(env, name);
-            break;
-    }
+    str = NewPlatformString(env, name);
     result = (*env)->CallStaticObjectMethod(env, cls, mid, USE_STDERR, mode, str);
 
     if (JLI_IsTraceLauncher()) {
         end   = CounterGet();
         printf("%ld micro seconds to load main class\n",
                (long)(jint)Counter2Micros(end-start));
-        printf("----_JAVA_LAUNCHER_DEBUG----\n");
+        printf("----%s----\n", JLDEBUG_ENV_ENTRY);
     }
 
     return (jclass)result;
+}
+
+static jclass
+GetApplicationClass(JNIEnv *env)
+{
+    jmethodID mid;
+    jobject result;
+    jclass cls = GetLauncherHelperClass(env);
+    NULL_CHECK0(cls);
+    NULL_CHECK0(mid = (*env)->GetStaticMethodID(env, cls,
+                "getApplicationClass",
+                "()Ljava/lang/Class;"));
+
+    return (*env)->CallStaticObjectMethod(env, cls, mid);
 }
 
 /*
@@ -1604,10 +1620,9 @@ PrintUsage(JNIEnv* env, jboolean doXUsage)
  * mechanism.
  */
 jint
-ReadKnownVMs(const char *jrepath, const char * arch, jboolean speculative)
+ReadKnownVMs(const char *jvmCfgName, jboolean speculative)
 {
     FILE *jvmCfg;
-    char jvmCfgName[MAXPATHLEN+20];
     char line[MAXPATHLEN+20];
     int cnt = 0;
     int lineno = 0;
@@ -1620,8 +1635,6 @@ ReadKnownVMs(const char *jrepath, const char * arch, jboolean speculative)
     if (JLI_IsTraceLauncher()) {
         start = CounterGet();
     }
-    JLI_Snprintf(jvmCfgName, sizeof(jvmCfgName), "%s%slib%s%s%sjvm.cfg",
-        jrepath, FILESEP, FILESEP, arch, FILESEP);
 
     jvmCfg = fopen(jvmCfgName, "r");
     if (jvmCfg == NULL) {
@@ -1776,12 +1789,11 @@ FreeKnownVMs()
     JLI_MemFree(knownVMs);
 }
 
-
 /*
  * Displays the splash screen according to the jar file name
  * and image file names stored in environment variables
  */
-static void
+void
 ShowSplashScreen()
 {
     const char *jar_name = getenv(SPLASH_JAR_ENV_ENTRY);
@@ -1858,8 +1870,9 @@ IsWildCardEnabled()
     return _wc_enabled;
 }
 
-static int
-ContinueInNewThread(InvocationFunctions* ifn, int argc, char **argv,
+int
+ContinueInNewThread(InvocationFunctions* ifn, jlong threadStackSize,
+                    int argc, char **argv,
                     int mode, char *what, int ret)
 {
 

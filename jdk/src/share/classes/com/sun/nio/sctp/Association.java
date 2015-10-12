@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,6 +51,7 @@ package com.sun.nio.sctp;
  *
  * @since 1.7
  */
+@jdk.Exported
 public class Association {
     private final int associationID;
     private final int maxInStreams;
@@ -58,6 +59,13 @@ public class Association {
 
     /**
      * Initializes a new instance of this class.
+     *
+     * @param  associationID
+     *         The association ID
+     * @param  maxInStreams
+     *         The maximum number of inbound streams
+     * @param  maxOutStreams
+     *         The maximum number of outbound streams
      */
     protected Association(int associationID,
                           int maxInStreams,

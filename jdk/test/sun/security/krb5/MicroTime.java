@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,7 +22,7 @@
  */
 /*
  * @test
- * @bug 6882687
+ * @bug 6882687 8011124
  * @summary KerberosTime too imprecise
  */
 
@@ -32,11 +32,11 @@ public class MicroTime {
     public static void main(String[] args) throws Exception {
         // We count how many different KerberosTime values
         // can be acquired within one second.
-        KerberosTime t1 = new KerberosTime(true);
+        KerberosTime t1 = KerberosTime.now();
         KerberosTime last = t1;
         int count = 0;
         while (true) {
-            KerberosTime t2 = new KerberosTime(true);
+            KerberosTime t2 = KerberosTime.now();
             if (t2.getTime() - t1.getTime() > 1000) break;
             if (!last.equals(t2)) {
                 last = t2;

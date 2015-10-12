@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,7 @@ package javax.smartcardio;
 import java.util.*;
 
 /**
- * A Smart Card terminal, sometimes refered to as a Smart Card Reader.
+ * A Smart Card terminal, sometimes referred to as a Smart Card Reader.
  * A CardTerminal object can be obtained by calling
  * {@linkplain CardTerminals#list}
  * or {@linkplain CardTerminals#getTerminal CardTerminals.getTerminal()}.

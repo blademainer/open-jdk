@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
 # @bug 4312217 4785473
 # @summary Test the use of the -classpath switch in the serialver application.
 # @author Naveen Sanjeeva
-# 
+#
 # @build Test
 # @run shell run.sh
 
@@ -43,11 +43,11 @@ if [ "${TESTJAVA}" = "" ] ; then
   echo "FAILED!!!"
   exit 1
 fi
-  
+
 # set platform-dependent variables
 OS=`uname -s`
 case "$OS" in
-  SunOS | Linux )
+  SunOS | Linux | Darwin )
     PS=":"    ;;
   Windows* | CYGWIN* )
     PS=";"    ;;

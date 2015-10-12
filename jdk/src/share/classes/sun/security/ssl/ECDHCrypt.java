@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,7 +31,6 @@ import java.security.spec.*;
 
 import javax.crypto.SecretKey;
 import javax.crypto.KeyAgreement;
-import javax.crypto.spec.*;
 
 /**
  * Helper class for the ECDH key exchange. It generates the appropriate

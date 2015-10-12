@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -122,7 +122,7 @@ public abstract class CardChannel {
 
     /**
      * Transmits the command APDU stored in the command ByteBuffer and receives
-     * the reponse APDU in the response ByteBuffer.
+     * the response APDU in the response ByteBuffer.
      *
      * <p>The command buffer must contain valid command APDU data starting
      * at <code>command.position()</code> and the APDU must be

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2007, 2008, 2009 Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -36,29 +36,31 @@
 #include "runtime/os.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #include "gc_implementation/g1/heapRegion.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
 int AbstractAssembler::code_fill_byte() {
   return 0;
 }
 
+#ifdef ASSERT
+bool AbstractAssembler::pd_check_instruction_mark() {
+  ShouldNotCallThis();
+  return false;
+}
+#endif
+
 void Assembler::pd_patch_instruction(address branch, address target) {
   ShouldNotCallThis();
 }
 
-#ifndef PRODUCT
-void Assembler::pd_print_patched_instruction(address branch) {
-  ShouldNotCallThis();
-}
-#endif // PRODUCT
-
 void MacroAssembler::align(int modulus) {
   while (offset() % modulus != 0)
-    emit_byte(AbstractAssembler::code_fill_byte());
+    emit_int8(AbstractAssembler::code_fill_byte());
 }
 
 void MacroAssembler::bang_stack_with_offset(int offset) {
@@ -66,18 +68,23 @@ void MacroAssembler::bang_stack_with_offset(int offset) {
 }
 
 void MacroAssembler::advance(int bytes) {
-  _code_pos += bytes;
-  sync();
+  code_section()->set_end(code_section()->end() + bytes);
 }
 
 RegisterOrConstant MacroAssembler::delayed_value_impl(
   intptr_t* delayed_value_addr, Register tmpl, int offset) {
   ShouldNotCallThis();
+  return RegisterOrConstant();
 }
 
 void MacroAssembler::store_oop(jobject obj) {
   code_section()->relocate(pc(), oop_Relocation::spec_for_immediate());
   emit_address((address) obj);
+}
+
+void MacroAssembler::store_Metadata(Metadata* md) {
+  code_section()->relocate(pc(), metadata_Relocation::spec_for_immediate());
+  emit_address((address) md);
 }
 
 static void should_not_call() {

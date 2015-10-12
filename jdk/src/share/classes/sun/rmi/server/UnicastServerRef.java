@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -67,6 +67,7 @@ import sun.security.action.GetBooleanAction;
  * @author  Roger Riggs
  * @author  Peter Jones
  */
+@SuppressWarnings("deprecation")
 public class UnicastServerRef extends UnicastRef
     implements ServerRef, Dispatcher
 {
@@ -189,7 +190,7 @@ public class UnicastServerRef extends UnicastRef
                                boolean permanent)
         throws RemoteException
     {
-        Class implClass = impl.getClass();
+        Class<?> implClass = impl.getClass();
         Remote stub;
 
         try {
@@ -298,7 +299,7 @@ public class UnicastServerRef extends UnicastRef
             logCall(obj, method);
 
             // unmarshal parameters
-            Class[] types = method.getParameterTypes();
+            Class<?>[] types = method.getParameterTypes();
             Object[] params = new Object[types.length];
 
             try {
@@ -327,7 +328,7 @@ public class UnicastServerRef extends UnicastRef
             // marshal return value
             try {
                 ObjectOutput out = call.getResultStream(true);
-                Class rtype = method.getReturnType();
+                Class<?> rtype = method.getReturnType();
                 if (rtype != void.class) {
                     marshalValue(rtype, result, out);
                 }
@@ -390,6 +391,12 @@ public class UnicastServerRef extends UnicastRef
             ObjectInput in;
             try {
                 in = call.getInputStream();
+                try {
+                    Class<?> clazz = Class.forName("sun.rmi.transport.DGCImpl_Skel");
+                    if (clazz.isAssignableFrom(skel.getClass())) {
+                        ((MarshalInputStream)in).useCodebaseOnly();
+                    }
+                } catch (ClassNotFoundException ignore) { }
                 hash = in.readLong();
             } catch (Exception readEx) {
                 throw new UnmarshalException("error unmarshalling call header",
@@ -531,7 +538,7 @@ public class UnicastServerRef extends UnicastRef
         HashToMethod_Maps() {}
 
         protected Map<Long,Method> computeValue(Class<?> remoteClass) {
-            Map<Long,Method> map = new HashMap<Long,Method>();
+            Map<Long,Method> map = new HashMap<>();
             for (Class<?> cl = remoteClass;
                  cl != null;
                  cl = cl.getSuperclass())

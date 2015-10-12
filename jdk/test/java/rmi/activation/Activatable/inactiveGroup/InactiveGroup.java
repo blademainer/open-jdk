@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,10 +29,7 @@
  * @author Ann Wollrath
  *
  * @library ../../../testlibrary
- * @build TestLibrary RMID ActivationLibrary
- * @build ActivateMe
- * @build InactiveGroup
- * @build InactiveGroup_Stub
+ * @build TestLibrary RMID ActivationLibrary ActivateMe InactiveGroup_Stub
  * @run main/othervm/policy=security.policy/timeout=240 InactiveGroup
  */
 

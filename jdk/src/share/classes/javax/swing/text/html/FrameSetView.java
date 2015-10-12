@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -157,7 +157,7 @@ class FrameSetView extends javax.swing.text.BoxView {
      * to the children along the major axis.
      *
      * @param targetSpan the total span given to the view, which
-     *  whould be used to layout the children
+     *  would be used to layout the children
      * @param axis the axis being layed out
      * @param offsets the offsets from the origin of the view for
      *  each of the child views; this is a return value and is
@@ -267,7 +267,7 @@ class FrameSetView extends javax.swing.text.BoxView {
             // they share priority, however, unspecified what happens when
             // overallocation occurs.)
 
-            // addendum is that we behave similiar to netscape in that specified
+            // addendum is that we behave similar to netscape in that specified
             // widths have precedance over percentage widths...
 
             float vTotal = (float)(targetSpan - remainingSpace);

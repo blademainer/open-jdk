@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 1998, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,7 +41,7 @@ public interface MultipleMaster {
   public  int getNumDesignAxes();
 
   /**
-   * Returns an array of design limits interleaved in the form [from->to]
+   * Returns an array of design limits interleaved in the form [from&rarr;to]
    * for each axis.  For example,
    * design limits for weight could be from 0.1 to 1.0. The values are
    * returned in the same order returned by

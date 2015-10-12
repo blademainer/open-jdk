@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,6 +24,7 @@
  */
 package javax.swing;
 
+import sun.reflect.misc.ReflectUtil;
 import sun.swing.SwingUtilities2;
 import sun.swing.UIAction;
 
@@ -32,9 +33,6 @@ import java.applet.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.dnd.DropTarget;
-
-import java.util.Vector;
-import java.util.Hashtable;
 
 import java.lang.reflect.*;
 
@@ -319,7 +317,8 @@ public class SwingUtilities implements SwingConstants
             newEvent = new MouseWheelEvent(newSource,
                                            sourceWheelEvent.getID(),
                                            sourceWheelEvent.getWhen(),
-                                           sourceWheelEvent.getModifiers(),
+                                           sourceWheelEvent.getModifiers()
+                                                   | sourceWheelEvent.getModifiersEx(),
                                            p.x,p.y,
                                            sourceWheelEvent.getXOnScreen(),
                                            sourceWheelEvent.getYOnScreen(),
@@ -334,7 +333,8 @@ public class SwingUtilities implements SwingConstants
             newEvent = new MenuDragMouseEvent(newSource,
                                               sourceMenuDragEvent.getID(),
                                               sourceMenuDragEvent.getWhen(),
-                                              sourceMenuDragEvent.getModifiers(),
+                                              sourceMenuDragEvent.getModifiers()
+                                                      | sourceMenuDragEvent.getModifiersEx(),
                                               p.x,p.y,
                                               sourceMenuDragEvent.getXOnScreen(),
                                               sourceMenuDragEvent.getYOnScreen(),
@@ -347,13 +347,14 @@ public class SwingUtilities implements SwingConstants
             newEvent = new MouseEvent(newSource,
                                       sourceEvent.getID(),
                                       sourceEvent.getWhen(),
-                                      sourceEvent.getModifiers(),
+                                      sourceEvent.getModifiers()
+                                              | sourceEvent.getModifiersEx(),
                                       p.x,p.y,
                                       sourceEvent.getXOnScreen(),
                                       sourceEvent.getYOnScreen(),
                                       sourceEvent.getClickCount(),
                                       sourceEvent.isPopupTrigger(),
-                                      MouseEvent.NOBUTTON );
+                                      sourceEvent.getButton());
         }
         return newEvent;
     }
@@ -792,7 +793,8 @@ public class SwingUtilities implements SwingConstants
      * @return true if the left mouse button was active
      */
     public static boolean isLeftMouseButton(MouseEvent anEvent) {
-         return ((anEvent.getModifiers() & InputEvent.BUTTON1_MASK) != 0);
+         return ((anEvent.getModifiersEx() & InputEvent.BUTTON1_DOWN_MASK) != 0 ||
+                 anEvent.getButton() == MouseEvent.BUTTON1);
     }
 
     /**
@@ -802,7 +804,8 @@ public class SwingUtilities implements SwingConstants
      * @return true if the middle mouse button was active
      */
     public static boolean isMiddleMouseButton(MouseEvent anEvent) {
-        return ((anEvent.getModifiers() & InputEvent.BUTTON2_MASK) == InputEvent.BUTTON2_MASK);
+        return ((anEvent.getModifiersEx() & InputEvent.BUTTON2_DOWN_MASK) != 0 ||
+                anEvent.getButton() == MouseEvent.BUTTON2);
     }
 
     /**
@@ -812,7 +815,8 @@ public class SwingUtilities implements SwingConstants
      * @return true if the right mouse button was active
      */
     public static boolean isRightMouseButton(MouseEvent anEvent) {
-        return ((anEvent.getModifiers() & InputEvent.BUTTON3_MASK) == InputEvent.BUTTON3_MASK);
+        return ((anEvent.getModifiersEx() & InputEvent.BUTTON3_DOWN_MASK) != 0 ||
+                anEvent.getButton() == MouseEvent.BUTTON3);
     }
 
     /**
@@ -1274,8 +1278,7 @@ public class SwingUtilities implements SwingConstants
      * <p>
      * Additional documentation and examples for this method can be
      * found in
-     * <A HREF="http://java.sun.com/docs/books/tutorial/uiswing/misc/threads.html">How to Use Threads</a>,
-     * in <em>The Java Tutorial</em>.
+     * <A HREF="http://docs.oracle.com/javase/tutorial/uiswing/concurrency/index.html">Concurrency in Swing</a>.
      * <p>
      * As of 1.3 this method is just a cover for <code>java.awt.EventQueue.invokeLater()</code>.
      * <p>
@@ -1326,14 +1329,13 @@ public class SwingUtilities implements SwingConstants
      * <p>
      * Additional documentation and examples for this method can be
      * found in
-     * <A HREF="http://java.sun.com/docs/books/tutorial/uiswing/misc/threads.html">How to Use Threads</a>,
-     * in <em>The Java Tutorial</em>.
+     * <A HREF="http://docs.oracle.com/javase/tutorial/uiswing/concurrency/index.html">Concurrency in Swing</a>.
      * <p>
      * As of 1.3 this method is just a cover for
      * <code>java.awt.EventQueue.invokeAndWait()</code>.
      *
      * @exception  InterruptedException if we're interrupted while waiting for
-     *             the event dispatching thread to finish excecuting
+     *             the event dispatching thread to finish executing
      *             <code>doRun.run()</code>
      * @exception  InvocationTargetException  if an exception is thrown
      *             while running <code>doRun</code>
@@ -1868,6 +1870,7 @@ public class SwingUtilities implements SwingConstants
 
 
     static Class<?> loadSystemClass(String className) throws ClassNotFoundException {
+        ReflectUtil.checkPackageAccess(className);
         return Class.forName(className, true, Thread.currentThread().
                              getContextClassLoader());
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,10 @@
 #define OGLFuncs_md_h_Included
 
 #include <stdlib.h>
-#include <link.h>
+#ifndef MACOSX
+#include <dlfcn.h>
+#endif
+#include "jvm_md.h"
 #include "J2D_GL/glx.h"
 #include "OGLFuncMacros.h"
 
@@ -113,7 +116,7 @@ do { \
     { \
         char *libGLPath = getenv("J2D_ALT_LIBGL_PATH"); \
         if (libGLPath == NULL) { \
-            libGLPath = "libGL.so.1"; \
+            libGLPath = VERSIONED_JNI_LIB_NAME("GL", "1"); \
         } \
         OGL_LIB_HANDLE = dlopen(libGLPath, RTLD_LAZY | RTLD_LOCAL); \
     } \

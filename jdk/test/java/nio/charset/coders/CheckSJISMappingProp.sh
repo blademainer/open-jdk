@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -34,9 +34,9 @@
 
 OS=`uname -s`
 case "$OS" in
-  SunOS | Linux ) ;;
+  SunOS | Linux | Darwin ) ;;
   # Skip locale test for Windows
-  Windows* )
+  Windows* | CYGWIN* )
     echo "Passed"; exit 0 ;;
   * ) echo "Unrecognized system!" ;  exit 1 ;;
 esac
@@ -51,7 +51,7 @@ expectPass() {
 }
 
 
-JAVA="${TESTJAVA}/bin/java -cp ${TESTCLASSES}"
+JAVA="${TESTJAVA}/bin/java ${TESTVMOPTS} -cp ${TESTCLASSES}"
 runTest() {
   echo "Testing:" ${1}
   LC_ALL="$1" ; export LC_ALL
@@ -67,7 +67,7 @@ runTest() {
   expectPass $?
 }
 
-# Run the test in the common Solaris/Linux locales
+# Run the test in the common Solaris/Linux/Mac OS locales
 # Tests will simply run in current locale if locale isn't supported
 # on the test machine/platform
 

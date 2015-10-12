@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,8 +51,8 @@ import java.text.CharacterIterator;
  * <li>{@link #charsWidth(char[], int, int)}
  * </ul>
  * <p>
- * <img src="doc-files/FontMetrics-1.gif" alt="The letter 'p' showing its 'reference point'" border=15 align
- * ALIGN=right HSPACE=10 VSPACE=7>
+ * <img src="doc-files/FontMetrics-1.gif" alt="The letter 'p' showing its 'reference point'"
+ * style="border:15px; float:right; margin: 7px 10px;">
  * Note that the implementations of these methods are
  * inefficient, so they are usually overridden with more efficient
  * toolkit-specific implementations.

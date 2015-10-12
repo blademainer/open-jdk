@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -36,11 +36,7 @@
 
 OS=`uname -s`
 case "$OS" in
-  SunOS )
-    PS=":"
-    FS="/"
-    ;;
-  Linux )
+  SunOS | Linux | Darwin )
     PS=":"
     FS="/"
     ;;
@@ -67,12 +63,17 @@ then
   exit 1
 fi
 
+if [ "${COMPILEJAVA}" = "" ]
+then
+  COMPILEJAVA="${TESTJAVA}"
+fi
+
 if [ "${TESTSRC}" = "" ]
 then
   echo "TESTSRC not set.  Test cannot execute.  Failed."
   exit 1
 fi
- 
+
 if [ "${TESTCLASSES}" = "" ]
 then
   echo "TESTCLASSES not set.  Test cannot execute.  Failed."
@@ -80,6 +81,6 @@ then
 fi
 
 JAVA="${TESTJAVA}/bin/java"
-JAVAC="${TESTJAVA}/bin/javac"
-JAR="${TESTJAVA}/bin/jar"
+JAVAC="${COMPILEJAVA}/bin/javac"
+JAR="${COMPILEJAVA}/bin/jar"
 

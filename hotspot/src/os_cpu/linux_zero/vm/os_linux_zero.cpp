@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2007, 2008, 2009, 2010 Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -49,16 +49,10 @@
 #include "runtime/osThread.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/timer.hpp"
-#include "thread_linux.inline.hpp"
 #include "utilities/events.hpp"
 #include "utilities/vmError.hpp"
-#ifdef COMPILER1
-#include "c1/c1_Runtime1.hpp"
-#endif
-#ifdef COMPILER2
-#include "opto/runtime.hpp"
-#endif
 
 address os::current_stack_pointer() {
   address dummy = (address) &dummy;
@@ -98,7 +92,7 @@ char* os::non_memory_address_word() {
 #endif // SPARC
 }
 
-void os::initialize_thread() {
+void os::initialize_thread(Thread * thr){
   // Nothing to do.
 }
 
@@ -319,7 +313,7 @@ static void current_stack_region(address *bottom, size_t *size) {
   int res = pthread_getattr_np(pthread_self(), &attr);
   if (res != 0) {
     if (res == ENOMEM) {
-      vm_exit_out_of_memory(0, "pthread_getattr_np");
+      vm_exit_out_of_memory(0, OOM_MMAP_ERROR, "pthread_getattr_np");
     }
     else {
       fatal(err_msg("pthread_getattr_np failed with errno = %d", res));
@@ -416,16 +410,6 @@ extern "C" {
   int SpinPause() {
   }
 
-  int SafeFetch32(int *adr, int errValue) {
-    int value = errValue;
-    value = *adr;
-    return value;
-  }
-  intptr_t SafeFetchN(intptr_t *adr, intptr_t errValue) {
-    intptr_t value = errValue;
-    value = *adr;
-    return value;
-  }
 
   void _Copy_conjoint_jshorts_atomic(jshort* from, jshort* to, size_t count) {
     if (from > to) {
@@ -506,3 +490,8 @@ extern "C" {
   }
 };
 #endif // !_LP64
+
+#ifndef PRODUCT
+void os::verify_stack_alignment() {
+}
+#endif

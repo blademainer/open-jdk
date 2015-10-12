@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,24 +33,11 @@
 #ifdef TARGET_OS_FAMILY_windows
 # include "os_windows.inline.hpp"
 #endif
-#ifdef TARGET_OS_ARCH_linux_x86
-# include "atomic_linux_x86.inline.hpp"
+#ifdef TARGET_OS_FAMILY_bsd
+# include "os_bsd.inline.hpp"
 #endif
-#ifdef TARGET_OS_ARCH_linux_sparc
-# include "atomic_linux_sparc.inline.hpp"
-#endif
-#ifdef TARGET_OS_ARCH_linux_zero
-# include "atomic_linux_zero.inline.hpp"
-#endif
-#ifdef TARGET_OS_ARCH_solaris_x86
-# include "atomic_solaris_x86.inline.hpp"
-#endif
-#ifdef TARGET_OS_ARCH_solaris_sparc
-# include "atomic_solaris_sparc.inline.hpp"
-#endif
-#ifdef TARGET_OS_ARCH_windows_x86
-# include "atomic_windows_x86.inline.hpp"
-#endif
+
+#include "runtime/atomic.inline.hpp"
 
 jbyte Atomic::cmpxchg(jbyte exchange_value, volatile jbyte* dest, jbyte compare_value) {
   assert(sizeof(jbyte) == 1, "assumption.");
@@ -83,3 +70,42 @@ unsigned Atomic::cmpxchg(unsigned int exchange_value,
   return (unsigned int)Atomic::cmpxchg((jint)exchange_value, (volatile jint*)dest,
                                        (jint)compare_value);
 }
+
+jlong Atomic::add(jlong    add_value, volatile jlong*    dest) {
+  jlong old = load(dest);
+  jlong new_value = old + add_value;
+  while (old != cmpxchg(new_value, dest, old)) {
+    old = load(dest);
+    new_value = old + add_value;
+  }
+  return old;
+}
+
+void Atomic::inc(volatile short* dest) {
+  // Most platforms do not support atomic increment on a 2-byte value. However,
+  // if the value occupies the most significant 16 bits of an aligned 32-bit
+  // word, then we can do this with an atomic add of 0x10000 to the 32-bit word.
+  //
+  // The least significant parts of this 32-bit word will never be affected, even
+  // in case of overflow/underflow.
+  //
+  // Use the ATOMIC_SHORT_PAIR macro to get the desired alignment.
+#ifdef VM_LITTLE_ENDIAN
+  assert((intx(dest) & 0x03) == 0x02, "wrong alignment");
+  (void)Atomic::add(0x10000, (volatile int*)(dest-1));
+#else
+  assert((intx(dest) & 0x03) == 0x00, "wrong alignment");
+  (void)Atomic::add(0x10000, (volatile int*)(dest));
+#endif
+}
+
+void Atomic::dec(volatile short* dest) {
+#ifdef VM_LITTLE_ENDIAN
+  assert((intx(dest) & 0x03) == 0x02, "wrong alignment");
+  (void)Atomic::add(-0x10000, (volatile int*)(dest-1));
+#else
+  assert((intx(dest) & 0x03) == 0x00, "wrong alignment");
+  (void)Atomic::add(-0x10000, (volatile int*)(dest));
+#endif
+}
+

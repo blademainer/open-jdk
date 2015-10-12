@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,7 +33,9 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <limits.h>
+#if !defined(_ALLBSD_SOURCE)
 #include <alloca.h>
+#endif
 
 
 /* Note: The comments in this file use the terminology

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
+import java.util.Locale;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
@@ -135,10 +136,10 @@ class NTLM {
 
         int readInt(int offset) throws NTLMException {
             try {
-                return internal[offset] & 0xff +
-                        (internal[offset+1] & 0xff << 8) +
-                        (internal[offset+2] & 0xff << 16) +
-                        (internal[offset+3] & 0xff << 24);
+                return (internal[offset] & 0xff) +
+                        ((internal[offset+1] & 0xff) << 8) +
+                        ((internal[offset+2] & 0xff) << 16) +
+                        ((internal[offset+3] & 0xff) << 24);
             } catch (ArrayIndexOutOfBoundsException ex) {
                 throw new NTLMException(NTLMException.PACKET_READ_ERROR,
                         "Input message incorrect size");
@@ -147,8 +148,8 @@ class NTLM {
 
         int readShort(int offset) throws NTLMException {
             try {
-                return internal[offset] & 0xff +
-                        (internal[offset+1] & 0xff << 8);
+                return (internal[offset] & 0xff) +
+                        ((internal[offset+1] & 0xff << 8));
             } catch (ArrayIndexOutOfBoundsException ex) {
                 throw new NTLMException(NTLMException.PACKET_READ_ERROR,
                         "Input message incorrect size");
@@ -410,7 +411,8 @@ class NTLM {
 
     static byte[] getP1(char[] password) {
         try {
-            return new String(password).toUpperCase().getBytes("ISO8859_1");
+            return new String(password).toUpperCase(
+                                    Locale.ENGLISH).getBytes("ISO8859_1");
         } catch (UnsupportedEncodingException ex) {
             return null;
         }

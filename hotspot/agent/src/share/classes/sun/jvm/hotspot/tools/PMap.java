@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,6 +31,15 @@ import sun.jvm.hotspot.debugger.cdbg.*;
 import sun.jvm.hotspot.runtime.*;
 
 public class PMap extends Tool {
+
+   public PMap() {
+       super();
+   }
+
+   public PMap(JVMDebugger d) {
+       super(d);
+   }
+
    public void run() {
       run(System.out);
    }
@@ -58,13 +67,8 @@ public class PMap extends Tool {
       }
    }
 
-   protected boolean requiresVM() {
-      return false;
-   }
-
    public static void main(String[] args) throws Exception {
       PMap t = new PMap();
-      t.start(args);
-      t.stop();
+      t.execute(args);
    }
 }

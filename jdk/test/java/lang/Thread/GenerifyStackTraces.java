@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
 
 /*
  * @test
- * @bug     4919105
+ * @bug     4919105 8004177
  * @summary Generified basic unit test of Thread.getAllStackTraces()
  * @author  Mandy Chung
  */
@@ -33,7 +33,6 @@ import java.util.*;
 public class GenerifyStackTraces {
 
     private static Object go = new Object();
-    private static Object dumpObj = new Object();
     private static String[] methodNames = {"run", "A", "B", "C", "Done"};
     private static int DONE_DEPTH = 5;
     private static boolean testFailed = false;
@@ -48,9 +47,14 @@ public class GenerifyStackTraces {
         one = new ThreadOne();
         one.start();
 
-        Thread dt = new DumpThread();
-        dt.setDaemon(true);
+        DumpThread dt = new DumpThread();
         dt.start();
+
+        try {
+            one.join();
+        } finally {
+            dt.shutdown();
+        }
 
         if (testFailed) {
             throw new RuntimeException("Test Failed.");
@@ -58,9 +62,11 @@ public class GenerifyStackTraces {
     }
 
     static class DumpThread extends Thread {
+        private volatile boolean finished = false;
+
         public void run() {
             int depth = 2;
-            while (true) {
+            while (!finished) {
                 // At each iterator, wait until ThreadOne blocks
                 // to wait for thread dump.
                 // Then dump stack trace and notify ThreadOne to continue.
@@ -74,6 +80,11 @@ public class GenerifyStackTraces {
                     testFailed = true;
                 }
             }
+        }
+
+        public void shutdown() throws InterruptedException {
+            finished = true;
+            this.join();
         }
     }
 

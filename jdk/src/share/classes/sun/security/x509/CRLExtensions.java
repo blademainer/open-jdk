@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,11 +32,12 @@ import java.lang.reflect.InvocationTargetException;
 import java.security.cert.CRLException;
 import java.security.cert.CertificateException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Enumeration;
-import java.util.Hashtable;
+import java.util.Map;
+import java.util.TreeMap;
 
 import sun.security.util.*;
-import sun.misc.HexDumpEncoder;
 
 /**
  * This class defines the CRL Extensions.
@@ -62,7 +63,8 @@ import sun.misc.HexDumpEncoder;
  */
 public class CRLExtensions {
 
-    private Hashtable<String,Extension> map = new Hashtable<String,Extension>();
+    private Map<String,Extension> map = Collections.synchronizedMap(
+            new TreeMap<String,Extension>());
     private boolean unsupportedCritExt = false;
 
     /**
@@ -109,7 +111,7 @@ public class CRLExtensions {
     // Parse the encoded extension
     private void parseExtension(Extension ext) throws CRLException {
         try {
-            Class extClass = OIDMap.getClass(ext.getExtensionId());
+            Class<?> extClass = OIDMap.getClass(ext.getExtensionId());
             if (extClass == null) {   // Unsupported extension
                 if (ext.isCritical())
                     unsupportedCritExt = true;
@@ -117,10 +119,10 @@ public class CRLExtensions {
                     throw new CRLException("Duplicate extensions not allowed");
                 return;
             }
-            Constructor cons = ((Class<?>)extClass).getConstructor(PARAMS);
+            Constructor<?> cons = extClass.getConstructor(PARAMS);
             Object[] passed = new Object[] {Boolean.valueOf(ext.isCritical()),
                                             ext.getExtensionValue()};
-            CertAttrSet crlExt = (CertAttrSet)cons.newInstance(passed);
+            CertAttrSet<?> crlExt = (CertAttrSet<?>)cons.newInstance(passed);
             if (map.put(crlExt.getName(), (Extension)crlExt) != null) {
                 throw new CRLException("Duplicate extensions not allowed");
             }
@@ -215,7 +217,7 @@ public class CRLExtensions {
      * @return an enumeration of the extensions in this CRL.
      */
     public Enumeration<Extension> getElements() {
-        return map.elements();
+        return Collections.enumeration(map.values());
     }
 
     /**

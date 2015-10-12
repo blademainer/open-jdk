@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -310,7 +310,7 @@ sun_jpeg_fill_input_buffer(j_decompress_ptr cinfo)
  * Note that with I/O suspension turned on, the JPEG library requires
  * that all buffer filling be done at the top application level.  Due
  * to the way that backtracking works, this procedure should save all
- * of the data that was left in the buffer when suspension occured and
+ * of the data that was left in the buffer when suspension occurred and
  * only read new data at the end.
  */
 
@@ -337,7 +337,7 @@ sun_jpeg_fill_suspended_buffer(j_decompress_ptr cinfo)
     /* Save the data currently in the buffer */
     offset = src->pub.bytes_in_buffer;
     if (src->pub.next_input_byte > src->inbuf) {
-        memcpy(src->inbuf, src->pub.next_input_byte, offset);
+        memmove(src->inbuf, src->pub.next_input_byte, offset);
     }
     RELEASE_ARRAYS(env, src);
     buflen = (*env)->GetArrayLength(env, src->hInputBuffer) - offset;

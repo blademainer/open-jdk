@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,15 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+/*
+ * This source code is provided to illustrate the usage of a given feature
+ * or technique and has been deliberately simplified. Additional steps
+ * required for a production-quality application, such as security checks,
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+ */
+
 
 package com.sun.nio.zipfs;
 
@@ -69,12 +78,12 @@ public class ZipInfo {
                 // twice
                 long len = LOCHDR + CENNAM(cen, pos) + CENEXT(cen, pos) + CENHDR;
                 if (zfs.readFullyAt(buf, 0, len, locoff(cen, pos)) != len)
-                    zfs.zerror("read loc header failed");
+                    ZipFileSystem.zerror("read loc header failed");
                 if (LOCEXT(buf) > CENEXT(cen, pos) + CENHDR) {
                     // have to read the second time;
                     len = LOCHDR + LOCNAM(buf) + LOCEXT(buf);
                     if (zfs.readFullyAt(buf, 0, len, locoff(cen, pos)) != len)
-                        zfs.zerror("read loc header failed");
+                        ZipFileSystem.zerror("read loc header failed");
                 }
                 printLOC(buf);
                 pos += CENHDR + CENNAM(cen, pos) + CENEXT(cen, pos) + CENCOM(cen, pos);
@@ -205,7 +214,7 @@ public class ZipInfo {
                       winToJavaTime(LL(extra, off + 24)));
                 break;
             case EXTID_EXTT:
-                print("         ->Inof-ZIP Extended Timestamp: flag=%x%n",extra[off]);
+                print("         ->Info-ZIP Extended Timestamp: flag=%x%n",extra[off]);
                 pos = off + 1 ;
                 while (pos + 4 <= off + sz) {
                     print("            *%tc%n",
@@ -214,6 +223,7 @@ public class ZipInfo {
                 }
                 break;
             default:
+                print("         ->[tag=%x, size=%d]%n", tag, sz);
             }
             off += sz;
         }

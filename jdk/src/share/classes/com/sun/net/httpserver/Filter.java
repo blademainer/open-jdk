@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,6 +39,7 @@ import java.util.*;
  * exchange handler.
  * @since 1.6
  */
+@jdk.Exported
 public abstract class Filter {
 
     protected Filter () {}
@@ -48,6 +49,7 @@ public abstract class Filter {
      * Each filter in the chain is given one of these
      * so it can invoke the next filter in the chain
      */
+    @jdk.Exported
     public static class Chain {
         /* the last element in the chain must invoke the users
          * handler

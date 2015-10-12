@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,6 +45,7 @@ import java.util.*;
 import java.util.Collections;
 import java.util.Locale;
 import java.util.WeakHashMap;
+import sun.awt.AWTAccessor;
 import sun.awt.AppContext;
 import sun.awt.EmbeddedFrame;
 import sun.awt.SunToolkit;
@@ -448,12 +449,12 @@ abstract class AppletPanel extends Panel implements AppletStub, Runnable {
                       // to avoid deadlock.
                       try {
                           final AppletPanel p = this;
-
-                          EventQueue.invokeAndWait(new Runnable() {
-                                  public void run() {
-                                      p.validate();
-                                  }
-                              });
+                          Runnable r = new Runnable() {
+                              public void run() {
+                                  p.validate();
+                              }
+                          };
+                          AWTAccessor.getEventQueueAccessor().invokeAndWait(applet, r);
                       }
                       catch(InterruptedException ie) {
                       }
@@ -478,18 +479,19 @@ abstract class AppletPanel extends Panel implements AppletStub, Runnable {
                       try {
                           final AppletPanel p = this;
                           final Applet a = applet;
+                          Runnable r = new Runnable() {
+                              public void run() {
+                                  p.validate();
+                                  a.setVisible(true);
 
-                          EventQueue.invokeAndWait(new Runnable() {
-                                  public void run() {
-                                      p.validate();
-                                      a.setVisible(true);
-
-                                      // Fix for BugTraq ID 4041703.
-                                      // Set the default focus for an applet.
-                                      if (hasInitialFocus())
-                                        setDefaultFocus();
+                                  // Fix for BugTraq ID 4041703.
+                                  // Set the default focus for an applet.
+                                  if (hasInitialFocus()) {
+                                      setDefaultFocus();
                                   }
-                              });
+                              }
+                          };
+                          AWTAccessor.getEventQueueAccessor().invokeAndWait(applet, r);
                       }
                       catch(InterruptedException ie) {
                       }
@@ -512,13 +514,12 @@ abstract class AppletPanel extends Panel implements AppletStub, Runnable {
                     // to avoid deadlock.
                     try {
                         final Applet a = applet;
-
-                        EventQueue.invokeAndWait(new Runnable() {
-                                public void run()
-                                {
-                                    a.setVisible(false);
-                                }
-                            });
+                        Runnable r = new Runnable() {
+                            public void run() {
+                                a.setVisible(false);
+                            }
+                        };
+                        AWTAccessor.getEventQueueAccessor().invokeAndWait(applet, r);
                     }
                     catch(InterruptedException ie) {
                     }
@@ -570,17 +571,14 @@ abstract class AppletPanel extends Panel implements AppletStub, Runnable {
                     }
                     status = APPLET_DISPOSE;
 
-                    try
-                    {
+                    try {
                         final Applet a = applet;
-
-                        EventQueue.invokeAndWait(new Runnable()
-                        {
-                            public void run()
-                            {
+                        Runnable r = new Runnable() {
+                            public void run() {
                                 remove(a);
                             }
-                        });
+                        };
+                        AWTAccessor.getEventQueueAccessor().invokeAndWait(applet, r);
                     }
                     catch(InterruptedException ie)
                     {
@@ -796,18 +794,13 @@ abstract class AppletPanel extends Panel implements AppletStub, Runnable {
             doInit = true;
         } else {
             // serName is not null;
-            InputStream is = (InputStream)
-                java.security.AccessController.doPrivileged(
-                                                            new java.security.PrivilegedAction() {
-                                                                public Object run() {
-                                                                    return loader.getResourceAsStream(serName);
-                                                                }
-                                                            });
-            ObjectInputStream ois =
-                new AppletObjectInputStream(is, loader);
-            Object serObject = ois.readObject();
-            applet = (Applet) serObject;
-            doInit = false; // skip over the first init
+            try (InputStream is = AccessController.doPrivileged(
+                    (PrivilegedAction<InputStream>)() -> loader.getResourceAsStream(serName));
+                 ObjectInputStream ois = new AppletObjectInputStream(is, loader)) {
+
+                applet = (Applet) ois.readObject();
+                doInit = false; // skip over the first init
+            }
         }
 
         // Determine the JDK level that the applet targets.
@@ -1241,20 +1234,13 @@ abstract class AppletPanel extends Panel implements AppletStub, Runnable {
             // append .class
             final String resourceName = name + ".class";
 
-            InputStream is = null;
             byte[] classHeader = new byte[8];
 
-            try {
-                is = (InputStream) java.security.AccessController.doPrivileged(
-                    new java.security.PrivilegedAction() {
-                        public Object run() {
-                            return loader.getResourceAsStream(resourceName);
-                        }
-                    });
+            try (InputStream is = AccessController.doPrivileged(
+                    (PrivilegedAction<InputStream>) () -> loader.getResourceAsStream(resourceName))) {
 
                 // Read the first 8 bytes of the class file
                 int byteRead = is.read(classHeader, 0, 8);
-                is.close();
 
                 // return if the header is not read in entirely
                 // for some reasons.

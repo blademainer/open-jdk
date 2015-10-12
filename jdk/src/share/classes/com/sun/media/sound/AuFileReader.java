@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,28 +25,17 @@
 
 package com.sun.media.sound;
 
-import java.util.Vector;
-import java.io.File;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.IOException;
-import java.io.EOFException;
-import java.net.URL;
-import java.net.MalformedURLException;
-
 import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
+import java.io.File;
 import java.io.FileInputStream;
-import java.io.DataOutputStream;
-import java.io.FileOutputStream;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.SequenceInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
 
 import javax.sound.sampled.AudioFileFormat;
-import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioFormat;
+import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.UnsupportedAudioFileException;
 
@@ -58,23 +47,7 @@ import javax.sound.sampled.UnsupportedAudioFileException;
  * @author Jan Borgersen
  * @author Florian Bomers
  */
-public class AuFileReader extends SunFileReader {
-
-    /**
-     * AU reader type
-     */
-
-    public static final AudioFileFormat.Type types[] = {
-        AudioFileFormat.Type.AU
-    };
-
-
-    /**
-     * Constructs a new AuFileReader object.
-     */
-    public AuFileReader() {
-    }
-
+public final class AuFileReader extends SunFileReader {
 
     // METHODS TO IMPLEMENT AudioFileReader
 
@@ -110,7 +83,7 @@ public class AuFileReader extends SunFileReader {
         int frameRate      = -1;
         int frameSize      = -1;
         int channels       = -1;
-        int sampleSizeInBits = 0;
+        final int sampleSizeInBits;
         int length = 0;
         int nread = 0;
         AudioFormat.Encoding encoding = null;
@@ -138,6 +111,10 @@ public class AuFileReader extends SunFileReader {
         encoding_local = (bigendian==true ? dis.readInt() : rllong(dis) );  nread += 4;
         sampleRate     = (bigendian==true ? dis.readInt() : rllong(dis) );  nread += 4;
         channels       = (bigendian==true ? dis.readInt() : rllong(dis) );  nread += 4;
+        if (channels <= 0) {
+            dis.reset();
+            throw new UnsupportedAudioFileException("Invalid number of channels");
+        }
 
         frameRate = sampleRate;
 
@@ -392,7 +369,4 @@ public class AuFileReader extends SunFileReader {
 
         return result;
     }
-
-
-
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2004, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,7 +36,7 @@ import javax.swing.table.TableCellRenderer;
 public abstract class XTable extends JTable {
     static final int NAME_COLUMN = 0;
     static final int VALUE_COLUMN = 1;
-    private Color defaultColor, editableColor, droppableColor, errorColor;
+    private Color defaultColor, editableColor, errorColor;
     private Font normalFont, boldFont;
 
     public XTable () {
@@ -139,7 +139,6 @@ public abstract class XTable extends JTable {
         if (defaultColor == null) {
             defaultColor = tcr.getForeground();
             editableColor = Color.blue;
-            droppableColor = Color.green;
             errorColor = Color.red;
             // this sometimes happens for some reason
             if (defaultColor == null) {

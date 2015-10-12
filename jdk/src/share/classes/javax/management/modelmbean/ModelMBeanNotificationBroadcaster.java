@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -127,7 +127,6 @@ public interface ModelMBeanNotificationBroadcaster extends NotificationBroadcast
          * <P>
          * @param oldValue The original value for the Attribute
          * @param newValue The current value for the Attribute
-         *<P>
          * <PRE>
          * The constructed attributeChangeNotification will be:
          *   type        "jmx.attribute.change"

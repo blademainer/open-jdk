@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -77,7 +77,12 @@ public class CUPSPrinter  {
     static {
         // load awt library to access native code
         java.security.AccessController.doPrivileged(
-            new sun.security.action.LoadLibraryAction("awt"));
+            new java.security.PrivilegedAction<Void>() {
+                public Void run() {
+                    System.loadLibrary("awt");
+                    return null;
+                }
+            });
         libFound = initIDs();
         if (libFound) {
            cupsServer = getCupsServer();
@@ -232,8 +237,9 @@ public class CUPSPrinter  {
 
     /**
      * Get CUPS default printer using IPP.
+     * Returns 2 values - index 0 is printer name, index 1 is the uri.
      */
-    public static String getDefaultPrinter() {
+    static String[] getDefaultPrinter() {
         try {
             URL url = new URL("http", getServer(), getPort(), "");
             final HttpURLConnection urlConnection =
@@ -259,8 +265,8 @@ public class CUPSPrinter  {
                     AttributeClass.ATTRIBUTES_CHARSET,
                     AttributeClass.ATTRIBUTES_NATURAL_LANGUAGE,
                     new AttributeClass("requested-attributes",
-                                       AttributeClass.TAG_KEYWORD,
-                                       "printer-name")
+                                       AttributeClass.TAG_URI,
+                                       "printer-uri")
                 };
 
                 if (IPPPrintService.writeIPPRequest(os,
@@ -268,29 +274,51 @@ public class CUPSPrinter  {
                                         attCl)) {
 
                     HashMap defaultMap = null;
+                    String[] printerInfo = new String[2];
                     InputStream is = urlConnection.getInputStream();
                     HashMap[] responseMap = IPPPrintService.readIPPResponse(
                                          is);
                     is.close();
 
-                    if (responseMap.length > 0) {
+                    if (responseMap != null && responseMap.length > 0) {
                         defaultMap = responseMap[0];
                     }
 
                     if (defaultMap == null) {
                         os.close();
                         urlConnection.disconnect();
-                        return null;
+
+                        /* CUPS on OS X, as initially configured, considers the
+                         * default printer to be the last one used that's
+                         * presently available. So if no default was
+                         * reported, exec lpstat -d which has all the Apple
+                         * special behaviour for this built in.
+                         */
+                         if (UnixPrintServiceLookup.isMac()) {
+                             printerInfo[0] = UnixPrintServiceLookup.
+                                                   getDefaultPrinterNameSysV();
+                             printerInfo[1] = null;
+                             return (String[])printerInfo.clone();
+                         } else {
+                             return null;
+                         }
                     }
+
 
                     AttributeClass attribClass = (AttributeClass)
                         defaultMap.get("printer-name");
 
                     if (attribClass != null) {
-                        String nameStr = attribClass.getStringValue();
+                        printerInfo[0] = attribClass.getStringValue();
+                        attribClass = (AttributeClass)defaultMap.get("device-uri");
+                        if (attribClass != null) {
+                            printerInfo[1] = attribClass.getStringValue();
+                        } else {
+                            printerInfo[1] = null;
+                        }
                         os.close();
                         urlConnection.disconnect();
-                        return nameStr;
+                        return (String [])printerInfo.clone();
                     }
                 }
                 os.close();
@@ -305,7 +333,7 @@ public class CUPSPrinter  {
     /**
      * Get list of all CUPS printers using IPP.
      */
-    public static String[] getAllPrinters() {
+    static String[] getAllPrinters() {
         try {
             URL url = new URL("http", getServer(), getPort(), "");
 

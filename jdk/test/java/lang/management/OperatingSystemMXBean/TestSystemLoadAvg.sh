@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -21,10 +21,10 @@
 # questions.
 #
 
-# 
+#
 # @test
 # @summary  Tests OperatingSystemMXBean.getSystemLoadAverage() api.
-# @author   Mandy Chung 
+# @author   Mandy Chung
 # @bug      6336608 6367473 6511738
 #
 # @run build GetSystemLoadAverage
@@ -52,7 +52,7 @@ fi
 runOne()
 {
    echo "$TESTJAVA/bin/java -classpath $TESTCLASSES $@"
-   $TESTJAVA/bin/java -classpath $TESTCLASSES $@
+   $TESTJAVA/bin/java ${TESTVMOPTS} -classpath $TESTCLASSES $@
 }
 
 # Retry 5 times to be more resilent to system load fluctation.
@@ -61,10 +61,7 @@ i=1
 while true; do
   echo "Run $i: TestSystemLoadAvg"
   case `uname -s` in
-       SunOS )
-         runOne GetSystemLoadAverage 
-         ;;
-       Linux )
+       SunOS | Linux | Darwin )
          runOne GetSystemLoadAverage
          ;;
       * )
@@ -81,6 +78,6 @@ while true; do
       exit 1
   fi
   i=`expr $i + 1`
-  # sleep for 5 seconds 
+  # sleep for 5 seconds
   sleep 5
 done
